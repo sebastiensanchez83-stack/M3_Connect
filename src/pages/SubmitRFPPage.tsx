@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Lock, Ship } from 'lucide-react';
 import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
+import { HelpTip } from '@/components/help/HelpTip';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
@@ -273,7 +274,17 @@ export function SubmitRFPPage() {
           </div>
         </FormCard>
 
-        <FormFooter note={isEditMode ? undefined : t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}>
+        <FormFooter
+          note={isEditMode ? undefined : (
+            <>
+              {t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}{' '}
+              {/* Learn more opens in a new tab: what was typed in the form stays. */}
+              <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="publishing-review" newTab>
+                {t('help.tips.publishNext', 'The M3 team reads it, usually within one business day, then publishes it and e-mails you. Service providers can then answer, and their answers arrive in your Messages.')}
+              </HelpTip>
+            </>
+          )}
+        >
           <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
             {loading
               ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitRfp.submitting')}</>

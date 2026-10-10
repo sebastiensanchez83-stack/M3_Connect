@@ -7,6 +7,7 @@ import {
   BackLink, BTN, BTN_OUTLINE, MemberBanner, MemberHeader, MemberPanel,
 } from '@/components/member/MemberUI';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
+import { HelpTip } from '@/components/help/HelpTip';
 import { InboxTab } from '@/components/inbox/InboxTab';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -137,10 +138,18 @@ function CompleteRegistration({ awaitingReview }: { awaitingReview: boolean }) {
           {/* Step indicator — always visible */}
           <MemberPanel>
             <div className="p-5 sm:p-6">
-              <p className="text-sm text-meta">
-                {currentStep === 1
-                  ? t('accountArea.onboarding.step1Intro', 'Fill in your organisation details to get started.')
-                  : t('accountArea.onboarding.step2Intro', 'Your profile is submitted for review.')}
+              <p className="flex items-center gap-1.5 text-sm text-meta">
+                <span>
+                  {currentStep === 1
+                    ? t('accountArea.onboarding.step1Intro', 'Fill in your organisation details to get started.')
+                    : t('accountArea.onboarding.step2Intro', 'Your profile is submitted for review.')}
+                </span>
+                {/* Where new members really are (OnboardingPage sends a draft account here). New tab: the form below keeps what was typed. */}
+                {currentStep === 1 && (
+                  <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="verification-time" newTab>
+                    {t('help.tips.registrationNext', 'The M3 team checks your company, usually within 24 to 48 business hours, and e-mails you.')}
+                  </HelpTip>
+                )}
               </p>
               <ol className="mt-5 flex items-center gap-3">
                 <li className="flex items-center gap-2">
@@ -174,7 +183,12 @@ function CompleteRegistration({ awaitingReview }: { awaitingReview: boolean }) {
                 <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-foam">
                   <ShieldCheck className="h-8 w-8 text-teal" aria-hidden="true" />
                 </span>
-                <h2 className="mt-4 text-h3 text-navy">{t('accountArea.onboarding.submittedTitle', 'Profile submitted for review')}</h2>
+                <div className="mt-4 flex items-center justify-center gap-1.5">
+                  <h2 className="text-h3 text-navy">{t('accountArea.onboarding.submittedTitle', 'Profile submitted for review')}</h2>
+                  <HelpTip title={t('help.tips.onboardingWaitTitle', 'While you wait')} more="verification-meanwhile" className="text-meta">
+                    {t('help.tips.onboardingWait', 'You can complete your profile, read the public resources and look at the coming events. Registering for events, messages and publishing open once you are approved.')}
+                  </HelpTip>
+                </div>
                 <p className="mx-auto mt-2 max-w-md text-meta">
                   {t('memberHome.onboarding.submittedBody', 'Thank you for completing your registration! The M3 team reviews each profile, usually within 24 to 48 business hours, and emails you as soon as your account is approved.')}
                 </p>

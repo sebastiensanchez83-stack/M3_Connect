@@ -19,7 +19,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
-  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock,
+  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock, HelpCircle,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -555,6 +555,15 @@ export function Navbar() {
                     </>
                   )}
 
+                  {/* The help centre (/help): answers in plain words, then a person at M3. */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                    <Link to="/help" className="flex items-center gap-2.5">
+                      <HelpCircle className="h-4 w-4 text-meta" />
+                      {t('nav.help', 'Help')}
+                    </Link>
+                  </DropdownMenuItem>
+
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer rounded-field text-red-600 focus:bg-red-50 focus:text-red-700">
                     <LogOut className="h-4 w-4 mr-2.5" />
@@ -756,20 +765,32 @@ export function Navbar() {
                               {isAdmin ? t('nav.adminPanel', 'Admin') : t('nav.moderation', 'Moderation')}
                             </Link>
                           )}
+                          {/* The help centre (/help), as in the avatar menu. */}
+                          <Link to="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                            <HelpCircle className="h-4 w-4 text-meta" aria-hidden="true" />
+                            {t('nav.help', 'Help')}
+                          </Link>
                           <button type="button" onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
                             <LogOut className="h-4 w-4" aria-hidden="true" />
                             {t('nav.logout', 'Log out')}
                           </button>
                         </>
                       ) : (
-                        <div className="flex gap-2 px-1 pt-3">
-                          <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.login')}
-                          </Button>
-                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.signup')}
-                          </Button>
-                        </div>
+                        <>
+                          {/* Signed out too: the help centre ("I cannot sign in", "how do I join"). */}
+                          <Link to="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                            <HelpCircle className="h-4 w-4 text-meta" aria-hidden="true" />
+                            {t('nav.help', 'Help')}
+                          </Link>
+                          <div className="flex gap-2 px-1 pt-3">
+                            <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.login')}
+                            </Button>
+                            <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.signup')}
+                            </Button>
+                          </div>
+                        </>
                       )}
                     </div>
                   </nav>

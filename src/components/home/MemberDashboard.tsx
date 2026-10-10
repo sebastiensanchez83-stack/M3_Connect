@@ -11,6 +11,7 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { HelpTip } from '@/components/help/HelpTip';
 import {
   BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, RowSkeleton, StatusPill,
 } from '@/components/member/MemberUI';
@@ -727,13 +728,21 @@ function Alerts({
         <MemberBanner
           tone="warning"
           icon={Clock}
-          title={t('dashboard.statusPendingTitle')}
-          body={t('memberHome.alerts.pendingBody', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and emails you as soon as yours is approved. Meanwhile, public resources and events are open to you.')}
+          title={(
+            <>
+              {t('dashboard.statusPendingTitle')}{' '}
+              <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-why">
+                {t('help.tips.reviewWhy', 'M3 checks every company and every person, so members know who they talk to. You do not need to do anything for the check.')}
+              </HelpTip>
+            </>
+          )}
+          // A pending account cannot register for events yet (database rule event_reg_insert): it can look at them.
+          body={t('memberHome.alerts.pendingWhile', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and e-mails you as soon as yours is approved. Meanwhile, the public resources are open to you, and you can look at the coming events.')}
           action={(
             <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
               <UnderlineLink onClick={() => onOpen('profile')} className={linkCls}>{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
               <UnderlineLink to="/resources" className={linkCls}>{t('dashboard.pendingLibrary', 'Read the library')}</UnderlineLink>
-              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinar', 'Register for a webinar')}</UnderlineLink>
+              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinarsSee', 'See the coming webinars')}</UnderlineLink>
               <UnderlineLink to="/contact" className={linkCls}>{t('dashboard.pendingContact', 'Write to the M3 team')}</UnderlineLink>
             </nav>
           )}
@@ -743,7 +752,14 @@ function Alerts({
         <MemberBanner
           tone="danger"
           icon={XCircle}
-          title={t('dashboard.statusRejectedTitle')}
+          title={(
+            <>
+              {t('dashboard.statusRejectedTitle')}{' '}
+              <HelpTip title={t('help.tips.rejectedTitle', 'What you can do now')} more="verification-rejected">
+                {t('help.tips.rejected', 'Read the reason, correct your details with “Edit and resubmit”, and the M3 team looks again. Think it is a mistake? Write to us.')}
+              </HelpTip>
+            </>
+          )}
           body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : undefined}
           action={(
             <div className="flex flex-col gap-1.5 sm:items-end">
@@ -754,7 +770,21 @@ function Alerts({
         />
       )}
       {isVerified && hasOrganization && !orgVerified && (
-        <MemberBanner tone="warning" icon={Clock} title={t('dashboard.orgPendingTitle', { org: orgName })} body={t('dashboard.orgPendingBody')} />
+        <MemberBanner
+          tone="warning"
+          icon={Clock}
+          title={(
+            <>
+              {t('dashboard.orgPendingTitle', { org: orgName })}{' '}
+              <HelpTip title={t('help.tips.orgReviewTitle', 'Your company is checked too')} more="verification-company">
+                {t('help.tips.orgReviewNothing', 'There is nothing more to do. M3 usually checks a company within 24 to 48 business hours, and this notice goes away once it is approved.')}
+              </HelpTip>
+            </>
+          )}
+          // The opportunities follow the person's approval (has_marketplace_access), not the company's.
+          // "Such as": what opens depends on the profile (an investor never publishes a need).
+          body={t('dashboard.orgPendingSome', 'Some features, such as writing to other companies, publishing a need or proposing a webinar, open once your company is approved.')}
+        />
       )}
       {incomplete && (
         <MemberBanner

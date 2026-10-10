@@ -375,13 +375,13 @@ begin
      'review_sla_text string, review_digest_recipients array'),
     ('S07', not exists (select tbl, n, fp from _dryrun_sm26_before
                         except
-                        select 'sm_registration', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_registration t
-                        union all select 'sm_role_assignment', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_role_assignment t
-                        union all select 'sm_attendee', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_attendee t
-                        union all select 'sm_badge', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_badge t
-                        union all select 'sm_payment', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_payment t
-                        union all select 'sm_invoice', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_invoice t
-                        union all select 'sm_networking_pass', count(*), md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from public.sm_networking_pass t),
+                        select 'sm_registration', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_registration x
+                        union all select 'sm_role_assignment', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_role_assignment x
+                        union all select 'sm_attendee', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_attendee x
+                        union all select 'sm_badge', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_badge x
+                        union all select 'sm_payment', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_payment x
+                        union all select 'sm_invoice', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_invoice x
+                        union all select 'sm_networking_pass', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_networking_pass x),
      'SM26 core tables unchanged (counts and content fingerprints)'),
     ('S08', (select count(*) = 2 and bool_and(hidden) and bool_and(not requests_open) and bool_and(legacy_event_id is null)
                     and bool_and(notify_email is null)

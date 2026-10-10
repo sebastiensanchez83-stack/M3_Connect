@@ -13,6 +13,7 @@ import { signInDestination } from '@/lib/signInDestination';
 import { registerFlowsStrings } from '@/i18n/refonte-flows';
 import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { readAuthLanding, scrubAuthLandingUrl, type AuthLanding } from '@/components/auth/AuthRedirector';
+import type { Capability } from '@/lib/capabilities';
 
 registerFlowsStrings();
 
@@ -53,6 +54,12 @@ interface ProtectedRouteProps {
    * isn't in `requirePersona`. Admin & moderator users are always bypassed.
    */
   bypassEntitlement?: string;
+  /**
+   * Rights per company type (src/lib/capabilities.ts). Once the switch
+   * registration_flags.capabilities_enforced is on, this capability replaces
+   * `requirePersona` and `bypassEntitlement`; while it is off they apply as before.
+   */
+  requireCapability?: Capability;
 }
 
 export function ProtectedRoute({
@@ -66,9 +73,10 @@ export function ProtectedRoute({
   showLocked = false,
   lockedMessage,
   bypassEntitlement,
+  requireCapability,
 }: ProtectedRouteProps) {
   const { t } = useTranslation();
-  const { user, loading, profile, isVerified, isAdmin, isModerator } = useAuth();
+  const { user, loading, profile, isVerified, isAdmin, isModerator, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const { isFeatureEnabled, isLoading: entitlementsLoading } = useEntitlements();
 
   // Signed out, back from a confirmation link that could not sign in here.
@@ -99,8 +107,19 @@ export function ProtectedRoute({
     return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to="/account" message={message} />;
   }
 
-  // Check persona (with admin/moderator & entitlement bypass)
-  if (requirePersona && profile && !requirePersona.includes(profile.persona)) {
+  // Rights per company type: the switch and the person's rights must be known
+  // before deciding, or a member the new rule lets in would first see "not
+  // available" (the persona check below) while they load.
+  if (requireCapability && user && !capabilitiesReady) {
+    return <AuthLoading className="min-h-[100svh]" />;
+  }
+  if (requireCapability && capabilitiesEnforced) {
+    if (!can(requireCapability)) {
+      const message = t('authRefonte.gate.noCapability', 'This page opens to members of a company type that has this right.');
+      return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to={redirectTo} message={message} />;
+    }
+  } else if (requirePersona && profile && !requirePersona.includes(profile.persona)) {
+    // Check persona (with admin/moderator & entitlement bypass)
     const hasEntitlementBypass = bypassEntitlement ? isFeatureEnabled(bypassEntitlement) : false;
     const canBypass = isAdmin || isModerator || hasEntitlementBypass;
     if (!canBypass) {

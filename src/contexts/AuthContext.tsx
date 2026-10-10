@@ -1,10 +1,18 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
 import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
+import {
+  type Capability,
+  type CapabilitySnapshot,
+  capabilityAllows,
+  fetchMyCapabilities,
+  loadCapabilitiesEnforced,
+  setCapabilityGate,
+} from '@/lib/capabilities'
 
 interface AuthContextType {
   user: User | null
@@ -22,6 +30,18 @@ interface AuthContextType {
   isModerator: boolean
   isPending: boolean
   isSponsor: boolean
+  /**
+   * Rights per company type (src/lib/capabilities.ts). While
+   * `capabilitiesEnforced` is false (registration_flags.capabilities_enforced off),
+   * screens keep today's checks and can() is not consulted. `orgId`: through that
+   * one company of the person's (the company a need is published for, the company
+   * a message is sent from). Verified staff: always true.
+   */
+  can: (cap: Capability, orgId?: string | null) => boolean
+  capabilitiesEnforced: boolean
+  /** The switch is known and, when it is on, so are the person's rights. */
+  capabilitiesReady: boolean
+  capabilities: CapabilitySnapshot | null
   // needsConfirmation: account created but no session until the e-mailed link is
   // opened ("Confirm email" ON). emailRedirectTo: where that link lands — reuse it
   // for supabase.auth.resend so a re-sent link goes to the same place.
@@ -351,6 +371,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUserData])
 
+  // ─── Rights per company type (src/lib/capabilities.ts) ──────────────
+  // The switch (registration_flags.capabilities_enforced) is read for everyone;
+  // my_capabilities() only once it is on. Keyed on ids and statuses, never on the
+  // user/profile objects: auth-js hands over a new user object on every tab
+  // refocus. Re-read when the person's status or companies change (refreshProfile
+  // after M3 validates or types a company).
+  const [capSnapshot, setCapSnapshot] = useState<CapabilitySnapshot | null>(null)
+  const [capsEnforced, setCapsEnforced] = useState(false)
+  const [capsReady, setCapsReady] = useState(false)
+  const capsUidRef = useRef<string | null | undefined>(undefined)
+  const capsUid = user?.id ?? null
+  const capsPersonKey = profile ? `${profile.access_status}:${profile.persona}` : ''
+  const capsCompaniesKey = organizations
+    .map(m => `${m.organization.id}:${m.organization.access_status}:${m.organization.organization_type ?? ''}`)
+    .sort()
+    .join('|')
+
+  useEffect(() => {
+    let alive = true
+    // Another person (or signed out): nothing of the previous one's rights survives.
+    if (capsUidRef.current !== capsUid) {
+      capsUidRef.current = capsUid
+      setCapsReady(false)
+      setCapSnapshot(null)
+    }
+    ;(async () => {
+      const enforced = await loadCapabilitiesEnforced()
+      const snapshot = enforced && capsUid ? await fetchMyCapabilities() : null
+      if (!alive) return
+      setCapsEnforced(enforced)
+      setCapSnapshot(snapshot)
+      setCapsReady(true)
+    })()
+    return () => { alive = false }
+  }, [capsUid, capsPersonKey, capsCompaniesKey])
+
+  const can = useCallback(
+    (cap: Capability, orgId?: string | null) => isModerator || capabilityAllows(capSnapshot, cap, orgId),
+    [isModerator, capSnapshot],
+  )
+  const capabilityGateValue = useMemo(
+    () => ({ enforced: capsEnforced, ready: capsReady, can }),
+    [capsEnforced, capsReady, can],
+  )
+  // Set while rendering, before the children render: canCreate (src/lib/nav.ts) reads
+  // it in the same pass as the useAuth() values its callers already re-render on.
+  setCapabilityGate(capabilityGateValue)
+
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
     // The activation link lands on /welcome first (forced password step), then goes
@@ -437,7 +505,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, loading, profileTimedOut, profile, organization, orgRole, organizations, setActiveOrganization, hasOrganization,
-      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
+      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile,
+      can, capabilitiesEnforced: capsEnforced, capabilitiesReady: capsReady, capabilities: capSnapshot
     }}>
       {children}
     </AuthContext.Provider>

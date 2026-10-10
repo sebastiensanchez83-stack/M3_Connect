@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Lock, AlertCircle, Info, Video } from 'lucide-react';
+import { Loader2, Lock, Video } from 'lucide-react';
 import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
-import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
@@ -18,12 +17,21 @@ import { accountHref } from '@/lib/accountNav';
 import { notifyAdmin } from '@/lib/notifications';
 import { requireFreshSession } from '@/lib/session';
 
-const FEATURE_KEY = 'webinar_requests';
-
+/**
+ * Propose a webinar topic.
+ *
+ * Open to every person M3 verified, with or without a company (Victor, 9 Oct 2026).
+ * The database allows it since 20261009204234 (webinar_proposals_any_verified_member),
+ * which also lifted the old subscription quota: the page no longer reads entitlements,
+ * and no longer asks for a validated company. The active company, when there is one,
+ * is still attached to the proposal for the M3 team.
+ *
+ * Once the rights switch is on (src/lib/capabilities.ts) the same question is asked as
+ * can('propose_webinar'), which every verified person has (the participant set).
+ */
 export function WebinarRequestPage() {
   const { t } = useTranslation();
-  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
-  const { isFeatureEnabled, getQuota, getUsage, isLoading: entitlementsLoading } = useEntitlements();
+  const { user, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const navigate = useNavigate();
   // /request-webinar?edit=<id> (the Edit button on a submitted proposal in the account) loads that proposal and updates it.
   const [searchParams] = useSearchParams();
@@ -42,14 +50,17 @@ export function WebinarRequestPage() {
     preferred_timeframe: '',
   });
 
+  // Who may propose: every verified person (the switch only re-asks it as a capability).
+  const mayPropose = !!user && isVerified && (!capabilitiesEnforced || can('propose_webinar'));
+
   useEffect(() => {
     if (authLoading) return;
-    if (!user) { navigate('/'); return; }
-    if (isVerified && organization?.access_status === 'verified') {
+    if (!userId) { navigate('/'); return; }
+    if (mayPropose) {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
-  }, [user, isVerified, organization, authLoading, navigate]);
+  }, [userId, mayPropose, authLoading, navigate]);
 
   // Edit mode: load the member's own proposal (still waiting for review) into the form.
   useEffect(() => {
@@ -66,8 +77,8 @@ export function WebinarRequestPage() {
       if (!alive) return;
       if (error || !data || data.user_id !== userId || data.status !== 'submitted') {
         toast({
-          title: 'This proposal can no longer be edited',
-          description: 'Only your own proposals still waiting for review can be changed.',
+          title: t('webinarRequest.cannotEditTitle', 'This proposal can no longer be edited'),
+          description: t('webinarRequest.cannotEditBody', 'Only your own proposals still waiting for review can be changed.'),
           variant: 'destructive',
         });
         navigate(accountHref('webinars'), { replace: true });
@@ -85,7 +96,7 @@ export function WebinarRequestPage() {
       setLoadingExisting(false);
     })();
     return () => { alive = false; };
-  }, [editId, userId, authLoading, navigate]);
+  }, [editId, userId, authLoading, navigate, t]);
 
   const toggleSector = (id: string) => {
     setSelectedSectors((prev) =>
@@ -97,7 +108,11 @@ export function WebinarRequestPage() {
     e.preventDefault();
     if (!user) return;
     if (!form.title.trim() || !form.description.trim()) {
-      toast({ title: 'Required fields', description: 'Title and description are mandatory.', variant: 'destructive' });
+      toast({
+        title: t('webinarRequest.requiredTitle', 'Required fields'),
+        description: t('webinarRequest.requiredBody', 'Title and description are mandatory.'),
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -121,7 +136,7 @@ export function WebinarRequestPage() {
           .eq('status', 'submitted')
           .select('id');
         if (updateError) throw updateError;
-        if (!updated || updated.length === 0) throw new Error('This proposal can no longer be edited.');
+        if (!updated || updated.length === 0) throw new Error(t('webinarRequest.cannotEditTitle', 'This proposal can no longer be edited'));
 
         const { error: clearError } = await supabase.from('webinar_request_sectors').delete().eq('request_id', editId);
         if (clearError) throw clearError;
@@ -131,7 +146,10 @@ export function WebinarRequestPage() {
           );
           if (sectorError) throw sectorError;
         }
-        toast({ title: 'Webinar request updated', description: 'Our team will review the new version.' });
+        toast({
+          title: t('webinarRequest.updatedTitle', 'Webinar proposal updated'),
+          description: t('webinarRequest.updatedBody', 'Our team will review the new version.'),
+        });
         navigate(accountHref('webinars'));
         return;
       }
@@ -140,6 +158,7 @@ export function WebinarRequestPage() {
         .from('webinar_requests')
         .insert({
           user_id: user.id,
+          // The active company, when there is one: context for the M3 team, not a condition.
           organization_id: organization?.id || null,
           title: form.title.trim(),
           description: form.description.trim(),
@@ -161,14 +180,14 @@ export function WebinarRequestPage() {
       notifyAdmin('Webinar Proposal', form.title.trim(), `Language: ${form.preferred_language}`);
 
       toast({
-        title: 'Webinar request submitted!',
-        description: 'Our team will review your proposal and get back to you.',
+        title: t('webinarRequest.sentTitle', 'Webinar proposal sent'),
+        description: t('webinarRequest.sentBody', 'Our team will review your proposal and get back to you.'),
       });
       navigate(accountHref('webinars'));
     } catch (err: unknown) {
       toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'An error occurred.',
+        title: t('webinarRequest.errorTitle', 'Your proposal was not sent'),
+        description: err instanceof Error ? err.message : t('webinarRequest.errorBody', 'Please check your connection and try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -177,62 +196,31 @@ export function WebinarRequestPage() {
   };
 
   // ── Loading states ────────────────────────────────────────────────────
-  if (authLoading || loadingExisting || (isVerified && organization?.access_status === 'verified' && entitlementsLoading)) {
+  if (authLoading || loadingExisting || (!!user && !capabilitiesReady)) {
     return <PageLoader />;
   }
 
-  // ── Access guard: not logged in or not verified ───────────────────────
-  if (!user || !isVerified || organization?.access_status !== 'verified') {
+  // ── Access guard: signed in and verified by M3 (a company is not required) ──
+  if (!mayPropose) {
     return (
       <SubmitGuard
         icon={Lock}
-        title="Members Only"
+        title={t('webinarRequest.guardTitle', 'Members only')}
         actions={(
           <>
             {!user && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/')}>Go to Homepage</Button>
+              <Button variant="ctaOnDark" onClick={() => navigate('/')}>{t('webinarRequest.goHome', 'Go to the home page')}</Button>
             )}
             {user && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>View account status</Button>
+              <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('webinarRequest.viewStatus', 'View account status')}</Button>
             )}
           </>
         )}
       >
         <p>
           {!user
-            ? 'Please log in to propose a webinar topic.'
-            : 'Your account must be verified to submit a webinar request.'}
-        </p>
-      </SubmitGuard>
-    );
-  }
-
-  // ── Entitlement: webinar requests are open to all verified members ────
-  // (tier gating removed — any verified marina/partner can propose)
-  void isFeatureEnabled;
-
-  // ── Quota display (quota=null means unlimited) ────────────────────────
-  const quota = getQuota(FEATURE_KEY);
-  const usage = getUsage(FEATURE_KEY);
-  const usedCount = usage?.usage_count ?? 0;
-  const remaining = quota !== null ? quota - usedCount : null;
-  const quotaExhausted = remaining !== null && remaining <= 0;
-
-  // ── Quota exhausted guard ─────────────────────────────────────────────
-  if (quotaExhausted && !isEditMode) {
-    return (
-      <SubmitGuard
-        icon={AlertCircle}
-        title="All webinar proposals used"
-        actions={(
-          <Button asChild variant="ctaOnDark">
-            <Link to="/contact?subject=partnership">Contact the M3 team</Link>
-          </Button>
-        )}
-      >
-        <p>
-          You have used the {quota} webinar proposal{quota === 1 ? '' : 's'} included in your sponsor level for this period.
-          Talk to the M3 team if you would like to propose more.
+            ? t('webinarRequest.guardSignedOut', 'Please sign in to propose a webinar topic.')
+            : t('webinarRequest.guardUnverified', 'You can propose a webinar once the M3 team has verified your account.')}
         </p>
       </SubmitGuard>
     );
@@ -244,47 +232,38 @@ export function WebinarRequestPage() {
       seed="submit-webinar"
       icon={Video}
       eyebrow={t('submitShell.eyebrowWebinars', 'Webinars')}
-      title={isEditMode ? "Edit your webinar proposal" : "Propose a Webinar"}
-      subtitle="Suggest a topic or expert you'd like to see featured in a Smart Marina Connect webinar. Our team will review your proposal and notify you."
+      title={isEditMode ? t('webinarRequest.editTitle', 'Edit your webinar proposal') : t('webinarRequest.title', 'Propose a webinar')}
+      subtitle={t('webinarRequest.subtitle', "Suggest a topic or an expert you would like to see in a Smart Marina Connect webinar. Our team will review your proposal and get back to you.")}
       trail={[{ label: t('nav.events', 'Events'), href: '/events' }]}
     >
-      {/* Quota info banner (only when quota is finite) */}
-      {!isEditMode && quota !== null && remaining !== null && (
-        <div className="mb-6 flex items-start gap-2.5 rounded-field bg-foam px-4 py-3 text-sm leading-5 text-navy">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
-          <span>
-            You have <strong>{remaining}</strong> webinar request{remaining === 1 ? '' : 's'} remaining
-            this period (used {usedCount} of {quota}).
-          </span>
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-6">
-        <FormCard title="Webinar Details" description="Tell us what you'd like to explore">
+        <FormCard title={t('webinarRequest.detailsTitle', 'Webinar details')} description={t('webinarRequest.detailsDesc', "Tell us what you would like to explore")}>
           <div className="space-y-2">
-            <Label>Topic / Title *</Label>
+            <Label htmlFor="webinar-title">{t('webinarRequest.topicLabel', 'Topic or title')} *</Label>
             <Input
+              id="webinar-title"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               required
-              placeholder="e.g. Sustainable shore power solutions for marinas"
+              placeholder={t('webinarRequest.topicPlaceholder', 'e.g. Sustainable shore power for marinas')}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>Description *</Label>
+            <Label htmlFor="webinar-description">{t('webinarRequest.descriptionLabel', 'Description')} *</Label>
             <Textarea
+              id="webinar-description"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               required
               rows={5}
-              placeholder="Describe the topic, why it matters to the marina industry, any specific questions you'd like answered, or experts you'd like to hear from..."
+              placeholder={t('webinarRequest.descriptionPlaceholder', 'Describe the topic, why it matters to marinas, the questions you would like answered, or the experts you would like to hear...')}
             />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Preferred Language</Label>
+              <Label>{t('webinarRequest.languageLabel', 'Preferred language')}</Label>
               <Select
                 value={form.preferred_language}
                 onValueChange={(v) => setForm({ ...form, preferred_language: v })}
@@ -298,17 +277,18 @@ export function WebinarRequestPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Preferred Timeframe</Label>
+              <Label htmlFor="webinar-timeframe">{t('webinarRequest.timeframeLabel', 'Preferred timeframe')}</Label>
               <Input
+                id="webinar-timeframe"
                 value={form.preferred_timeframe}
                 onChange={(e) => setForm({ ...form, preferred_timeframe: e.target.value })}
-                placeholder="e.g. Q3 2026, Autumn 2026"
+                placeholder={t('webinarRequest.timeframePlaceholder', 'e.g. Q1 2027, spring 2027')}
               />
             </div>
           </div>
         </FormCard>
 
-        <FormCard title="Related Sectors" description="Select the sectors most relevant to this webinar topic">
+        <FormCard title={t('webinarRequest.sectorsTitle', 'Related sectors')} description={t('webinarRequest.sectorsDesc', 'Select the sectors most relevant to this topic')}>
           <div className="grid max-h-60 grid-cols-1 gap-2 overflow-y-auto rounded-field border border-rule bg-page/60 p-3 sm:grid-cols-2">
             {sectors.map((s) => (
               <div key={s.id} className="flex items-center space-x-2">
@@ -324,15 +304,15 @@ export function WebinarRequestPage() {
             ))}
           </div>
           {sectors.length === 0 && (
-            <p className="py-4 text-center text-sm text-meta">Loading sectors...</p>
+            <p className="py-4 text-center text-sm text-meta">{t('webinarRequest.sectorsLoading', 'Loading sectors...')}</p>
           )}
         </FormCard>
 
         <FormFooter>
           <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
             {loading
-              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : 'Submitting...'}</>
-              : isEditMode ? 'Save changes' : 'Submit Webinar Request'
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? t('webinarRequest.saving', 'Saving...') : t('webinarRequest.sending', 'Sending...')}</>
+              : isEditMode ? t('webinarRequest.save', 'Save changes') : t('webinarRequest.send', 'Send the proposal')
             }
           </Button>
         </FormFooter>

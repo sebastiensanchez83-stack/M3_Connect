@@ -350,7 +350,7 @@ export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
   const seoTr = useSeoTr();
-  const { user, profile, organization, organizations, isVerified } = useAuth();
+  const { user, profile, organization, organizations, isVerified, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
@@ -644,8 +644,14 @@ export function OrganizationPublicPage() {
 
   const isMemberOfThisOrg = organization?.id === org?.id;
   // A verified member of a company M3 validated (Victor, 9 Oct 2026), not yet in touch with this one.
+  // Once the rights switch is on (src/lib/capabilities.ts): the active company, which the
+  // message is sent from, must be a validated company whose type may message others
+  // (every type today; an untyped or suspended company may not). The database checks the same.
   const companyValidated = organization?.access_status === 'verified';
-  const canConnect = user && isVerified && companyValidated && !isMemberOfThisOrg && !hasExistingRequest;
+  const mayMessage = capabilitiesEnforced
+    ? capabilitiesReady && isVerified && can('message_companies', organization?.id)
+    : isVerified && companyValidated;
+  const canConnect = user && mayMessage && !isMemberOfThisOrg && !hasExistingRequest;
   const conversationHref = connection ? `/?open=inbox&thread=${connection.id}` : '/?open=inbox';
   const canEdit = !!organization && !!org && isMemberOfThisOrg;
 
@@ -895,6 +901,8 @@ export function OrganizationPublicPage() {
     ? 'noCompany'
     : !companyValidated
     ? 'companyPending'
+    : capabilitiesEnforced && capabilitiesReady && !isMemberOfThisOrg
+    ? 'companyNoRight'
     : null;
   const aside: ReactNode = showClaimCard
     ? <ClaimCard name={name} slug={org.slug} isMarina={isMarina} />
@@ -1781,7 +1789,9 @@ function ProfileSection({
   );
 }
 
-type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'noCompany' | 'companyPending';
+type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'noCompany' | 'companyPending'
+  /** Rights switch on: the active company is validated but its type (or lack of one) does not send messages. */
+  | 'companyNoRight';
 
 /**
  * Beside "About" on a claimed page: how to get in touch with the company, by who is
@@ -1836,6 +1846,10 @@ function TouchCard({
     companyPending: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
       body: t('orgProfile.touch.companyPendingBody', 'Once the M3 team has validated your company, you can send {{name}} a message.', { name }),
+    },
+    companyNoRight: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.companyNoRightBody', 'Your active company cannot send messages yet: the M3 team has not set its type. Switch to another company of yours, or contact the M3 team.'),
     },
   };
   const Icon = state === 'own' ? PencilLine : state === 'sent' || state === 'connected' ? CheckCircle : Link2;

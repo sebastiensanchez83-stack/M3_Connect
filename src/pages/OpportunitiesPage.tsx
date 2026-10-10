@@ -372,7 +372,7 @@ function themeChoices(list: Opportunity[]): { options: Theme[]; counts: Record<s
 
 export function OpportunitiesPage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const [params, setParams] = useSearchParams();
 
@@ -401,9 +401,19 @@ export function OpportunitiesPage() {
   const isMarinaLike = persona === 'marina' || persona === 'developer';
   const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB';
 
-  /* ---- existing partner interests (to mark "already expressed") ---- */
+  // Who reads and who answers. Today: every verified member opens the page (the
+  // database decides what it lists) and only service providers answer. Once the
+  // rights switch is on (src/lib/capabilities.ts) the company types decide: marinas,
+  // service providers, investors, developers and media see the needs; all of them
+  // but marinas answer (marinas read other marinas' needs, read-only: Victor, 7 and
+  // 9 Oct 2026); a person with no validated company sees the door.
+  const enforced = capabilitiesEnforced;
+  const canSee = enforced ? isVerified && can('see_opportunities') : isVerified;
+  const canAnswer = enforced ? isVerified && can('answer_needs') : isPartner;
+
+  /* ---- existing interests (to mark "already expressed") ---- */
   useEffect(() => {
-    if (!uid || !isPartner) return;
+    if (!uid || !canAnswer) return;
     let alive = true;
     supabase
       .from('partner_requests')
@@ -418,11 +428,11 @@ export function OpportunitiesPage() {
         }
       });
     return () => { alive = false; };
-  }, [uid, isPartner]);
+  }, [uid, canAnswer]);
 
   /* ---- RFPs, consultations and projects: verified members only ---- */
   useEffect(() => {
-    if (!isVerified) return;
+    if (!canSee) return;
     let alive = true;
 
     (async () => {
@@ -515,7 +525,7 @@ export function OpportunitiesPage() {
     })();
 
     return () => { alive = false; };
-  }, [isVerified]);
+  }, [canSee]);
 
   /* ---- Express interest ---- */
   const openInterestDialog = (type: 'rfp' | 'consultation', item: RfpCard | ConsultationCard) => {
@@ -577,7 +587,7 @@ export function OpportunitiesPage() {
         toast({ title: t('opportunities.error', 'Error'), description: existing.message, variant: 'destructive' });
         return;
       }
-      const { error } = await supabase.from('partner_requests').insert({
+      const row = {
         partner_user_id: user.id,
         marina_user_id: interestTarget.marina_user_id,
         partner_organization_id: organization?.id || null,
@@ -585,7 +595,15 @@ export function OpportunitiesPage() {
         sector_id: interestTarget.sector_id,
         message: interestMessage.trim() || `Expressed interest in ${interestTarget.type === 'rfp' ? 'RFP' : 'consultation'}: ${interestTarget.title}`,
         status: 'pending',
-      });
+      };
+      // Once the rights switch is on, an answer to a need is marked as such (origin
+      // 'interest'): the database lets every type that answers needs send it, which is
+      // not the same people as those who send a first message. A database without
+      // the switch's origin rule (check violation, 23514) gets today's row.
+      let { error } = await supabase.from('partner_requests').insert(enforced ? { ...row, origin: 'interest' } : row);
+      if (error?.code === '23514' && enforced) {
+        ({ error } = await supabase.from('partner_requests').insert(row));
+      }
 
       if (error) throw error;
 
@@ -626,7 +644,7 @@ export function OpportunitiesPage() {
     setParams(next, { replace });
   };
 
-  const ready = isVerified && !loading;
+  const ready = canSee && !loading;
   const counts: Record<Kind, number> = {
     rfps: items.rfps.length,
     consultations: items.consultations.length,
@@ -685,7 +703,7 @@ export function OpportunitiesPage() {
 
   /* ========== render ========== */
 
-  if (authLoading) {
+  if (authLoading || (!!user && !capabilitiesReady)) {
     return <LoadingSkeleton variant="screen" />;
   }
 
@@ -702,11 +720,15 @@ export function OpportunitiesPage() {
   );
   const heroAudience = heroActions.length > 0
     ? t('opportunities.subtitleCreator', 'Publish one and verified service providers can answer you.')
-    : isMarinaLike
-      ? t('opportunities.subtitlePending', 'You can publish one as soon as your organisation is verified.')
-      : persona === 'partner'
+    : enforced
+      ? canAnswer
         ? t('opportunities.subtitleSupplier', 'Express interest in an RFP or a consultation and the marina receives your company profile.')
-        : '';
+        : ''
+      : isMarinaLike
+        ? t('opportunities.subtitlePending', 'You can publish one as soon as your organisation is verified.')
+        : persona === 'partner'
+          ? t('opportunities.subtitleSupplier', 'Express interest in an RFP or a consultation and the marina receives your company profile.')
+          : '';
 
   const seoTitle = withSiteSuffix(t('seo.opportunities.title', 'Marina tenders, RFPs and projects'));
   const seoDescription = t('seo.opportunities.description', 'Where marinas publish their needs: tenders, expert questions and projects, open to verified companies. Sign up to read and answer them.');
@@ -735,7 +757,7 @@ export function OpportunitiesPage() {
       </PageHero>
 
       {/* ── Kind, then theme. Sticks under the header and rises with it when it tucks away. ── */}
-      {isVerified && (
+      {canSee && (
         <div
           ref={barRef}
           role="region"
@@ -807,8 +829,8 @@ export function OpportunitiesPage() {
       <div ref={resultsRef} className="mx-auto w-full max-w-7xl px-4 pb-16 pt-8 sm:px-6 md:pb-24 md:pt-10">
         <AdBanner placement="marketplace" className="mb-6" />
 
-        {!isVerified ? (
-          <LockPanel signedIn={!!user} pending={profile?.access_status === 'pending'} />
+        {!canSee ? (
+          <LockPanel signedIn={!!user} pending={profile?.access_status === 'pending'} noCompanyRight={isVerified && enforced} />
         ) : (
           <>
             {/* ── What this kind is, how many, and the way to publish one ── */}
@@ -858,7 +880,7 @@ export function OpportunitiesPage() {
                 kind={kind}
                 createAction={currentCreate}
                 publishLabel={publishLabel(kind)}
-                audience={currentCreate ? 'creator' : isMarinaLike ? 'marinaPending' : persona === 'partner' ? 'supplier' : 'other'}
+                audience={currentCreate ? 'creator' : enforced ? (canAnswer ? 'supplier' : 'other') : isMarinaLike ? 'marinaPending' : persona === 'partner' ? 'supplier' : 'other'}
               />
             ) : filtered.length === 0 ? (
               <div className="rounded-card border border-rule bg-white px-6 py-12 text-center">
@@ -874,7 +896,7 @@ export function OpportunitiesPage() {
                     <OpportunityCard
                       item={item}
                       locale={locale}
-                      isPartner={isPartner}
+                      canAnswer={canAnswer}
                       interestSent={hasSentInterest(item)}
                       onOpen={() => openDetail(item)}
                       onInterest={item.kind === 'projects'
@@ -896,7 +918,7 @@ export function OpportunitiesPage() {
             <DetailBody
               item={selected}
               locale={locale}
-              isPartner={isPartner}
+              canAnswer={canAnswer}
               interestSent={hasSentInterest(selected)}
               onClose={() => setDetailOpen(false)}
               onInterest={() => {
@@ -1051,11 +1073,11 @@ function PublisherRow({ item, locale }: { item: Opportunity; locale: string }) {
 }
 
 function OpportunityCard({
-  item, locale, isPartner, interestSent, onOpen, onInterest,
+  item, locale, canAnswer, interestSent, onOpen, onInterest,
 }: {
   item: Opportunity;
   locale: string;
-  isPartner: boolean;
+  canAnswer: boolean;
   interestSent: boolean;
   onOpen: () => void;
   onInterest?: () => void;
@@ -1065,7 +1087,7 @@ function OpportunityCard({
   const theme = getTheme(item.theme);
   const title = itemTitle(item, t);
   const excerpt = itemExcerpt(item);
-  const canRespond = isPartner && item.kind !== 'projects' && !!onInterest;
+  const canRespond = canAnswer && item.kind !== 'projects' && !!onInterest;
   // A closed item keeps the dialog's button (as before), but is not pushed as the card's main action.
   const respondFromCard = item.kind !== 'projects' && item.is_open && canRespond;
   // The sector is what a supplier scans for, so it is always named on the card
@@ -1172,11 +1194,11 @@ function OpportunityCard({
 }
 
 function DetailBody({
-  item, locale, isPartner, interestSent, onClose, onInterest,
+  item, locale, canAnswer, interestSent, onClose, onInterest,
 }: {
   item: Opportunity;
   locale: string;
-  isPartner: boolean;
+  canAnswer: boolean;
   interestSent: boolean;
   onClose: () => void;
   onInterest: () => void;
@@ -1279,7 +1301,7 @@ function DetailBody({
           <Button variant="ctaOutline" size="sm" arrow={false} onClick={onClose}>
             {t('common.close', 'Close')}
           </Button>
-          {isPartner && item.kind !== 'projects' && (
+          {canAnswer && item.kind !== 'projects' && (
             interestSent ? (
               <Button variant="ctaNavy" size="sm" roll={false} arrow={false} disabled>
                 {t('opportunities.interestAlreadySent', 'Interest already sent')}
@@ -1301,7 +1323,12 @@ function DetailBody({
  * on a navy panel with the three kinds of opportunity set out beside it, so a
  * visitor sees what is behind the door.
  */
-function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean }) {
+function LockPanel({ signedIn, pending, noCompanyRight = false }: {
+  signedIn: boolean;
+  pending: boolean;
+  /** Verified, but (rights switch on) no validated company whose type sees needs. */
+  noCompanyRight?: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <BgRevealPanel
@@ -1325,7 +1352,9 @@ function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean 
               ? t('opportunities.verifiedOnly', 'Tenders, expert questions and projects, visible to verified companies. Sign up: once your company is verified, you can read them and, depending on your profile, answer.')
               : pending
                 ? t('opportunities.gatePending', 'Your account is being reviewed. Opportunities open as soon as it is verified.')
-                : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to verified companies. Your account status shows what is still missing.')}
+                : noCompanyRight
+                  ? t('opportunities.gateNoCompany', 'Opportunities are open to members of companies the M3 team has validated: marinas, service providers, investors, developers and media. Add your company to your profile, or ask your company to invite you.')
+                  : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to verified companies. Your account status shows what is still missing.')}
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
             {!signedIn ? (

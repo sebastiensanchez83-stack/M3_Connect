@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Trash2, Loader2, Calendar, MapPin, Globe, Users,
@@ -459,6 +459,22 @@ export function AdminEventDetail() {
           </>
         }
       />
+
+      {/* The new registration editor, opt-in while its switch is off (EventEditorRoute opens it
+          by default once registration_flags.webinar_v2 / onsite_v2 is on). */}
+      {isNew && (
+        <div className="flex flex-col gap-3 rounded-card border border-teal/25 bg-foam px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[14px] leading-5 text-navy">
+            {t('adminEvents.tryNew', 'A new event editor is ready for testing: registration settings, questions, reminders and the registrations list. Events made with it stay unpublished until the new event pages are live.')}
+          </p>
+          <Link
+            to={`/admin/events/new?type=${initialType}&editor=new`}
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-pill border border-navy/25 bg-white px-4 text-[14px] font-semibold text-navy hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+          >
+            {t('adminEvents.tryNewGo', 'Use the new editor')}
+          </Link>
+        </div>
+      )}
 
       {/* ── EVENT TYPE SELECTOR (top of form) ── */}
       <Card className="border-0 shadow-sm">

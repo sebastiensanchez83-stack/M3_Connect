@@ -134,6 +134,7 @@ export function Footer() {
               links={[
                 { to: '/about', label: t('footer.about') },
                 { to: '/contact', label: t('footer.contact') },
+                { to: '/help', label: t('footer.help', 'Help') },
               ]}
             />
             <FooterColumn

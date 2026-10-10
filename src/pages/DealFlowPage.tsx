@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { formatCapitalRange, formatCapitalAmount } from '@/components/capital/InvestmentThesisSection';
 import { CAPITAL_TYPES, CAPITAL_STAGES } from '@/types/database';
+import { routeToExistingConversation } from '@/components/messages/messagesApi';
 
 interface DealFlowOrg {
   id: string;
@@ -260,6 +261,41 @@ export function DealFlowPage() {
     if (!user || !interestTarget) return;
     setSendingInterest(true);
     try {
+      // Two companies share ONE conversation (Victor, 9 Oct 2026): already connected,
+      // the interest goes into it; a first message already waiting either way, nothing
+      // new is sent.
+      const typed = interestMessage.trim();
+      const existing = await routeToExistingConversation({
+        uid: user.id,
+        activeOrgId: organization?.id ?? null,
+        targetOrgId: interestTarget.id,
+        text: typed || 'Investor interest in your raise.',
+      });
+      if (existing.kind === 'posted') {
+        toast({
+          title: 'Interest sent',
+          description: existing.repeated
+            ? `You already told ${interestTarget.name}, in your conversation in Messages.`
+            : `It was added to your conversation with ${interestTarget.name}, in Messages.`,
+        });
+        setInterestTarget(null);
+        setInterestMessage('');
+        return;
+      }
+      if (existing.kind === 'waiting') {
+        toast({
+          title: 'You are already in touch',
+          description: existing.direction === 'sent'
+            ? `Your company has already written to ${interestTarget.name}. Once they accept, you can talk in Messages.`
+            : `${interestTarget.name} has written to your company: accept their message in Messages to start the conversation.`,
+        });
+        return;
+      }
+      if (existing.kind === 'failed') {
+        toast({ title: 'Could not send', description: existing.message, variant: 'destructive' });
+        return;
+      }
+
       // Resolve the target org's owner user_id
       const { data: ownerMember } = await supabase
         .from('organization_members')
@@ -289,19 +325,9 @@ export function DealFlowPage() {
         return;
       }
 
-      // Fire-and-forget notification (don't await — keeps the dialog snappy)
-      void supabase.functions.invoke('send-notification', {
-        body: {
-          type: 'partner_request_received',
-          user_id: ownerMember.user_id,
-          data: {
-            partner_name: organization?.name || 'An investor',
-            message: interestMessage.trim() || '',
-          },
-        },
-      });
-
-      toast({ title: 'Interest sent', description: `${interestTarget.name} will be notified.` });
+      // No e-mail on arrival (Victor, 9 Oct 2026): the company's team sees it in
+      // Messages, where any of them accepts or declines it, and in their Friday summary.
+      toast({ title: 'Interest sent', description: `The ${interestTarget.name} team sees it in their Messages. Their answer will show in yours.` });
       setInterestTarget(null);
       setInterestMessage('');
     } finally {
@@ -574,7 +600,7 @@ export function DealFlowPage() {
             <DialogDescription>
               {interestTarget && (
                 <>
-                  Send a connection request to <strong>{interestTarget.name}</strong>. They will see your investor profile and can reply to you directly.
+                  Send a short message to <strong>{interestTarget.name}</strong>. Their team sees it in Messages and can reply.
                 </>
               )}
             </DialogDescription>

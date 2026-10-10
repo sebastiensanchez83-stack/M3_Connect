@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import type { PartnerRequest } from './types';
+import { ConversationReportsPanel } from '@/components/messages/ConversationReportsPanel';
 
 type EnrichedRequest = PartnerRequest & {
   partner_name?: string;
@@ -76,6 +77,9 @@ export function AdminPartnerRequests() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">B2B Requests ({filteredRequests.length})</h1>
       </div>
+
+      {/* "Report to M3" from Messages (company messaging, 9 Oct 2026). */}
+      <ConversationReportsPanel />
 
       {/* Status filter bar */}
       <div className="flex items-center gap-2 mb-4">

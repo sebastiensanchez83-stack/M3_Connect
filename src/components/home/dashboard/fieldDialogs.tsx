@@ -728,7 +728,7 @@ export function DocumentsDialog({
 
 /** The kinds of e-mail, in plain words (the full list with examples is NotificationPreferencesTab). */
 const EMAIL_KIND_LABEL: Record<string, { label: string; hint: string }> = {
-  b2b: { label: 'Connection requests', hint: 'When a member wants to connect with you, and their answers.' },
+  b2b: { label: 'Messages from companies', hint: 'The Friday summary of new messages and requests, and the e-mail when a company accepts yours.' },
   submissions: { label: 'Your requests and proposals', hint: 'When the M3 team approves or answers what you published.' },
   recommendations: { label: 'References', hint: 'When a marina confirms or declines a reference you asked for.' },
   events: { label: 'Events', hint: 'Your registrations and reminders before a webinar.' },

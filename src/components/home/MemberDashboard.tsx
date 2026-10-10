@@ -11,6 +11,8 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { HelpTip } from '@/components/help/HelpTip';
+import { NeedHelpCard } from '@/components/help/NeedHelpCard';
 import {
   BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, RowSkeleton, StatusPill,
 } from '@/components/member/MemberUI';
@@ -48,7 +50,8 @@ import { useDashboardData } from './dashboard/useDashboardData';
  * right under its row. Inside, the information reads as rows with a "Change"
  * button that opens a small window with that one thing. Everything else the
  * old editors did stays behind "More settings". Last, lighter: events coming
- * up, opportunities for service providers, articles.
+ * up, opportunities for service providers, articles; then "Need help?" (three
+ * questions for the member's profile, the help centre, the team).
  *
  * One panel at a time; the open one is in the address (/?open=<tile>
  * [&section=…], replaced, never pushed), so it can be linked and survives a
@@ -260,11 +263,14 @@ export default function MemberDashboard() {
 
   // To do: answers someone is waiting for, then what the owner can complete, then my own profile.
   const todos: TodoItem[] = [];
+  // Messages from companies are answered in Messages (one place, the same words as
+  // its tile): the item opens that panel.
   if (inbox.connections > 0) {
     todos.push({
       key: 'connections', urgent: true, icon: Inbox,
-      title: t('dash.todo.connections', { count: inbox.connections, defaultValue_one: 'Answer {{count}} connection request', defaultValue_other: 'Answer {{count}} connection requests' }),
-      hint: t('dash.todo.connectionsHint', 'Members would like to get in touch with you.'),
+      title: t('dash.todo.companyMessages', { count: inbox.connections, defaultValue_one: 'Answer {{count}} message from a company', defaultValue_other: 'Answer {{count}} messages from companies' }),
+      hint: t('dash.todo.companyMessagesHint', 'Accept to start the conversation, or decline.'),
+      onSelect: () => setPanel('inbox'),
     });
   }
   if (inbox.joins > 0) {
@@ -281,7 +287,9 @@ export default function MemberDashboard() {
       todos.push({
         key: 'sectors', urgent: false, icon: ListChecks,
         title: orgType === 'marina' ? t('dash.todo.interests', 'Choose what you are interested in') : t('dash.todo.sectors', 'Choose what your company does'),
-        hint: t('dash.todo.sectorsHint', 'So the right members find you.'),
+        hint: orgType === 'marina' || orgType === 'partner' || orgType === 'media_partner'
+          ? t('dash.todo.sectorsConnectHint', 'Companies whose activities match yours are then connected with you straight away.')
+          : t('dash.todo.sectorsHint', 'So the right members find you.'),
       });
     }
     if (!brand.banner) todos.push({ key: 'banner', urgent: false, icon: ImageIcon, title: t('dash.todo.banner', 'Add a cover photo'), hint: t('dash.todo.bannerHint', 'The wide picture at the top of your company page.') });
@@ -394,16 +402,20 @@ export default function MemberDashboard() {
     tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
   }
 
-  // Messages
-  tiles.push({
-    key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
-    tone: inbox.total > 0 ? 'action' : 'plain',
-    // The pill already gives the number.
-    status: !inbox.loaded ? loadingLine : inbox.total > 0
-      ? t('dash.st.waitingNoCount', 'Waiting for your answer')
-      : t('dash.st.nothingWaiting', 'Nothing waiting for you'),
-    count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
-  });
+  // Messages: "3 unread messages · 1 request waiting" (useInboxCount, the navbar dot's count).
+  {
+    const parts: string[] = [];
+    if (inbox.messages > 0) parts.push(t('dash.st.unreadMessages', { count: inbox.messages, defaultValue_one: '{{count}} unread message', defaultValue_other: '{{count}} unread messages' }));
+    if (inbox.requests > 0) parts.push(t('dash.st.requestsWaiting', { count: inbox.requests, defaultValue_one: '{{count}} request waiting', defaultValue_other: '{{count}} requests waiting' }));
+    tiles.push({
+      key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
+      tone: inbox.total > 0 ? 'action' : 'plain',
+      status: !inbox.loaded ? loadingLine : parts.length > 0
+        ? parts.join(' · ')
+        : t('dash.st.noNewMessages', 'No new messages'),
+      count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
+    });
+  }
 
   // My requests
   tiles.push({
@@ -681,6 +693,14 @@ export default function MemberDashboard() {
             </div>
           )}
         </section>
+
+        {/* ── Need help? Three questions for this profile, the help centre, the team ── */}
+        <section aria-labelledby="dash-help-title" className="mt-12 md:mt-14">
+          <Eyebrow as="h3" className="mb-4">
+            <span id="dash-help-title">{t('dash.help.eyebrow', 'Help')}</span>
+          </Eyebrow>
+          <NeedHelpCard hasOrganization={!!organization} persona={persona} orgType={orgType} />
+        </section>
       </div>
 
       <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} actions={createActions} />
@@ -718,13 +738,21 @@ function Alerts({
         <MemberBanner
           tone="warning"
           icon={Clock}
-          title={t('dashboard.statusPendingTitle')}
-          body={t('memberHome.alerts.pendingBody', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and emails you as soon as yours is approved. Meanwhile, public resources and events are open to you.')}
+          title={(
+            <>
+              {t('dashboard.statusPendingTitle')}{' '}
+              <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-why">
+                {t('help.tips.reviewWhy', 'M3 checks every company and every person, so members know who they talk to. You do not need to do anything for the check.')}
+              </HelpTip>
+            </>
+          )}
+          // A pending account cannot register for events yet (database rule event_reg_insert): it can look at them.
+          body={t('memberHome.alerts.pendingWhile', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and e-mails you as soon as yours is approved. Meanwhile, the public resources are open to you, and you can look at the coming events.')}
           action={(
             <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
               <UnderlineLink onClick={() => onOpen('profile')} className={linkCls}>{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
               <UnderlineLink to="/resources" className={linkCls}>{t('dashboard.pendingLibrary', 'Read the library')}</UnderlineLink>
-              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinar', 'Register for a webinar')}</UnderlineLink>
+              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinarsSee', 'See the coming webinars')}</UnderlineLink>
               <UnderlineLink to="/contact" className={linkCls}>{t('dashboard.pendingContact', 'Write to the M3 team')}</UnderlineLink>
             </nav>
           )}
@@ -734,7 +762,14 @@ function Alerts({
         <MemberBanner
           tone="danger"
           icon={XCircle}
-          title={t('dashboard.statusRejectedTitle')}
+          title={(
+            <>
+              {t('dashboard.statusRejectedTitle')}{' '}
+              <HelpTip title={t('help.tips.rejectedTitle', 'What you can do now')} more="verification-rejected">
+                {t('help.tips.rejected', 'Read the reason, correct your details with “Edit and resubmit”, and the M3 team looks again. Think it is a mistake? Write to us.')}
+              </HelpTip>
+            </>
+          )}
           body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : undefined}
           action={(
             <div className="flex flex-col gap-1.5 sm:items-end">
@@ -745,7 +780,21 @@ function Alerts({
         />
       )}
       {isVerified && hasOrganization && !orgVerified && (
-        <MemberBanner tone="warning" icon={Clock} title={t('dashboard.orgPendingTitle', { org: orgName })} body={t('dashboard.orgPendingBody')} />
+        <MemberBanner
+          tone="warning"
+          icon={Clock}
+          title={(
+            <>
+              {t('dashboard.orgPendingTitle', { org: orgName })}{' '}
+              <HelpTip title={t('help.tips.orgReviewTitle', 'Your company is checked too')} more="verification-company">
+                {t('help.tips.orgReviewNothing', 'There is nothing more to do. M3 usually checks a company within 24 to 48 business hours, and this notice goes away once it is approved.')}
+              </HelpTip>
+            </>
+          )}
+          // The opportunities follow the person's approval (has_marketplace_access), not the company's.
+          // "Such as": what opens depends on the profile (an investor never publishes a need).
+          body={t('dashboard.orgPendingSome', 'Some features, such as writing to other companies, publishing a need or proposing a webinar, open once your company is approved.')}
+        />
       )}
       {incomplete && (
         <MemberBanner

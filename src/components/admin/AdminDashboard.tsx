@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 // Filtered navigation helper: builds URL with search params
 import {
@@ -8,7 +8,7 @@ import {
   CreditCard, TrendingUp, AlertCircle, DollarSign, Ship, Newspaper,
   ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, Eye,
   BarChart3, Activity, Zap, AlertTriangle, Target, Flame,
-  UserX, Star, Lightbulb, TrendingDown, ArrowRight,
+  UserX, Star, Lightbulb, TrendingDown, ArrowRight, Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   AdminPageHeader, AdminKpiCard, AdminSectionLabel, AdminStatusPill, ADMIN_BTN,
 } from './AdminUI';
+import { useReviewCount } from './reviewQueueCount';
 import { supabase } from '@/lib/supabase';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import {
@@ -110,11 +111,53 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
   signed: '#0b2653', rejected: '#b91c1c',
 };
 
+/* ══════════════════════════════ REVIEW QUEUE CARD ══════════════════════════════ */
+
+/** "N items to review": the way into /admin/review. Not shown while the count is unknown. */
+function ReviewQueueCard({ count, isAdmin }: { count: number | null; isAdmin: boolean }) {
+  const { t } = useTranslation();
+  if (count === null) return null;
+  const waiting = count > 0;
+  return (
+    <Link
+      to="/admin/review"
+      className={`group flex items-center gap-4 rounded-card border bg-white p-4 transition-[box-shadow,border-color] duration-200 hover:shadow-hover focus:outline-none focus-visible:shadow-focus motion-reduce:transition-none sm:p-5 ${
+        waiting ? 'border-gold/60 hover:border-gold' : 'border-rule hover:border-navy/25'
+      }`}
+    >
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${waiting ? 'bg-gold/25' : 'bg-chip'} text-navy`}>
+        {waiting ? <Inbox className="h-5 w-5" aria-hidden="true" /> : <CheckCircle className="h-5 w-5" aria-hidden="true" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[18px] font-semibold leading-6 tabular-nums text-navy">
+          {waiting
+            ? t('adminReview.card.count', { count, defaultValue_one: '{{count}} item to review', defaultValue_other: '{{count}} items to review' })
+            : t('adminReview.card.none', 'Nothing to review')}
+        </span>
+        <span className="block text-[13px] leading-5 text-meta">
+          {waiting
+            ? (isAdmin
+              ? t('adminReview.card.body', 'Reported conversations, people, companies, event requests and content waiting for a decision from M3.')
+              : t('adminReview.card.bodyModerator', 'Reported conversations, webinar proposals and article drafts waiting for review.'))
+            : t('adminReview.card.noneBody', 'Everything waiting for M3 has been handled.')}
+        </span>
+      </span>
+      <span className="hidden shrink-0 items-center gap-1 text-[14px] font-semibold text-navy sm:inline-flex">
+        {t('adminReview.card.open', 'Open the list')}
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" aria-hidden="true" />
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-meta sm:hidden" aria-hidden="true" />
+    </Link>
+  );
+}
+
 /* ══════════════════════════════ COMPONENT ══════════════════════════════ */
 
 export function AdminDashboard() {
   const { t } = useTranslation();
   const { user, isAdmin, profile } = useAuth();
+  // The figure AdminPage reads once for the whole admin area (sidebar badge, this card).
+  const { count: reviewCount, refresh: refreshReviewCount } = useReviewCount();
   const navigate = useNavigate();
   /** Navigate to admin sub-page with pre-set URL filters */
   const nav = (path: string, params?: Record<string, string | undefined>) => {
@@ -242,8 +285,8 @@ export function AdminDashboard() {
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         supabase.from('rfps').select('id', { count: 'exact' }).eq('is_open', true),
         supabase.from('consultations').select('id', { count: 'exact' }).eq('is_open', true),
-        // Aging queries
-        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').lte('created_at', fortyEightHoursAgo),
+        // Aging queries (users waiting: form sent, not a draft, the same rule as /admin/review)
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').neq('onboarding_status', 'draft').lte('created_at', fortyEightHoursAgo),
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending').lte('created_at', sevenDaysAgo),
         supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'new').lte('created_at', fortyEightHoursAgo),
         // Trends
@@ -509,11 +552,13 @@ export function AdminDashboard() {
           description={t('adminUi.pages.moderatorDashboard')}
           meta={<span>Welcome back, {profile?.first_name || 'Moderator'} — {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
           actions={
-            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => { loadDashboard(); refreshReviewCount(); }}>
               <RefreshCw className="h-4 w-4 mr-2" />Refresh
             </Button>
           }
         />
+
+        <ReviewQueueCard count={reviewCount} isAdmin={false} />
 
         {/* ─── Your Activity Overview ─── */}
         <div>
@@ -595,7 +640,8 @@ export function AdminDashboard() {
   /* ══════════════════════════════ ADMIN RENDER ══════════════════════════════ */
 
   const priorityItems = [
-    { key: 'users', icon: UserCheck, count: stats.usersWaiting48h, label: 'users waiting >48h', onClick: () => nav('/admin/users', { status: 'pending' }) },
+    // Into the review list (people only) once it is live, else the pending users.
+    { key: 'users', icon: UserCheck, count: stats.usersWaiting48h, label: 'users waiting >48h', onClick: () => (reviewCount !== null ? nav('/admin/review', { type: 'person' }) : nav('/admin/users', { status: 'pending' })) },
     { key: 'leads', icon: Target, count: stats.oldLeadsNotContacted, label: 'leads not contacted', onClick: () => nav('/admin/leads', { status: 'new' }) },
     { key: 'b2b', icon: Link2, count: stats.oldB2BRequests, label: 'B2B unanswered 7d+', onClick: () => nav('/admin/partner-requests') },
     { key: 'events', icon: Calendar, count: stats.pendingRegistrations, label: 'event approvals', onClick: () => nav('/admin/events') },
@@ -609,6 +655,9 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+
+      {/* ═══ FIRST: EVERYTHING WAITING FOR M3 (/admin/review) ═══ */}
+      <ReviewQueueCard count={reviewCount} isAdmin />
 
       {/* ═══ TOP: PRIORITY STRIP ═══ */}
       {totalUrgent > 0 && (
@@ -647,7 +696,7 @@ export function AdminDashboard() {
         description={t('adminUi.pages.dashboard')}
         meta={<span>{new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
         actions={
-          <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
+          <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => { loadDashboard(); refreshReviewCount(); }}>
             <RefreshCw className="h-4 w-4 mr-2" />Refresh
           </Button>
         }
@@ -1141,7 +1190,7 @@ export function AdminDashboard() {
         <AdminSectionLabel icon={AlertCircle}>All Action Items</AdminSectionLabel>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
+            { label: 'Pending accounts, unfinished included', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: {} },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, link: '/admin/webinars', params: { status: 'submitted' } },
             { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, link: '/admin/resources', params: { tab: 'drafts' } },

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { avatarProblem, saveProfileFields, uploadAvatar } from '@/components/account/profileActions';
+import { HelpTip } from '@/components/help/HelpTip';
 import { InfoList, InfoRow, NotFilled, useSavedFlash } from './EditKit';
 import { EmailPrefsDialog, FieldsDialog, PasswordDialog, PictureDialog } from './fieldDialogs';
 
@@ -136,9 +137,16 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
         />
         <InfoRow
           label={t('dash.emailsRow', 'E-mails you receive')}
-          value={off === 0
-            ? t('dash.emailsAll', 'All of them')
-            : t('dash.emailsOff', { count: off, defaultValue_one: 'All but {{count}} kind', defaultValue_other: 'All but {{count}} kinds' })}
+          value={(
+            <span className="inline-flex items-center gap-1.5">
+              {off === 0
+                ? t('dash.emailsAll', 'All of them')
+                : t('dash.emailsOff', { count: off, defaultValue_one: 'All but {{count}} kind', defaultValue_other: 'All but {{count}} kinds' })}
+              <HelpTip title={t('help.tips.emailsTitle', 'Choosing your e-mails')} more="emails-choose" className="text-meta">
+                {t('help.tips.emailsChoose', 'Turn off the kinds of e-mail you do not need. E-mails you ask for, such as a link to choose a new password, always arrive.')}
+              </HelpTip>
+            </span>
+          )}
           actionLabel={t('dash.change', 'Change')}
           onAction={() => setEditing('emails')}
           saved={saved === 'emails'}

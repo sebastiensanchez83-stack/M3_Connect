@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
 import { ArrowRight, Check, CheckCircle2 } from 'lucide-react';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { HelpTip } from '@/components/help/HelpTip';
 import { RowSkeleton, ROW_FOCUS } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { avatarProblem, saveProfileFields, uploadAvatar } from '@/components/account/profileActions';
@@ -11,7 +12,7 @@ import {
 } from '@/components/organization/orgActions';
 import { cn } from '@/lib/utils';
 import { FieldsDialog, PictureDialog, SectorsDialog } from './fieldDialogs';
-import { ConnectionsDialog, JoinRequestsDialog } from './teamDialogs';
+import { JoinRequestsDialog } from './teamDialogs';
 
 /**
  * "To do" (Victor, 9 Oct 2026: "when you click a to-do it should open exactly
@@ -34,6 +35,12 @@ export interface TodoItem {
   icon: LucideIcon;
   /** Someone waits for an answer. */
   urgent: boolean;
+  /**
+   * Opens something else than a small window (messages from companies are answered
+   * in Messages, the one place for them, Oct 2026). The item leaves the list when
+   * the data no longer lists it.
+   */
+  onSelect?: () => void;
 }
 
 type Phase = 'ticking' | 'leaving';
@@ -114,6 +121,9 @@ export function TodoList({
         <Eyebrow as="h3" className="min-w-0">
           <span id="todo-title" ref={headingRef} tabIndex={-1} className="focus:outline-none">{t('dash.todoTitle', 'To do')}</span>
         </Eyebrow>
+        <HelpTip title={t('help.tips.todoTitle', 'What is in To do?')} more="account-dashboard" className="text-meta">
+          {t('help.tips.todoWaits', 'First the messages and requests waiting for your answer, then what is missing on your company page and your profile. Press a line to deal with it.')}
+        </HelpTip>
       </header>
       <p className="sr-only" role="status" aria-live="polite">{announce}</p>
 
@@ -137,7 +147,12 @@ export function TodoList({
               >
                 <button
                   type="button"
-                  onClick={() => { if (!p) { allAnswered.current = false; setOpen(item.key); } }}
+                  onClick={() => {
+                    if (p) return;
+                    if (item.onSelect) { item.onSelect(); return; }
+                    allAnswered.current = false;
+                    setOpen(item.key);
+                  }}
                   aria-disabled={!!p}
                   className={cn('group flex min-h-[72px] w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page', ROW_FOCUS)}
                 >
@@ -190,16 +205,6 @@ export function TodoList({
       {/* The small windows, one per kind of item. */}
       {user && profile && (
         <>
-          <ConnectionsDialog
-            open={open === 'connections'}
-            onOpenChange={(o) => {
-              if (o) return;
-              setOpen(null);
-              onInboxChanged();
-              if (allAnswered.current) tick('connections');
-            }}
-            onAnswered={(remaining) => { allAnswered.current = remaining === 0; }}
-          />
           <PictureDialog
             open={open === 'photo'}
             onOpenChange={(o) => { if (!o) setOpen(null); }}

@@ -22,11 +22,206 @@ import { fetchPeopleOrgs, type PersonOrg } from '@/lib/personOrg';
  * is applied, the reads here fail softly (no conversations, no unread count) and a
  * first message is NOT sent: the sender is told Messages are not open yet (sending
  * it the old way would file a request nobody is told about).
+ *
+ * Messaging v2 (Victor, 10 Oct 2026; supabase/migrations/20261010173000_messaging_v2.sql):
+ * photos and PDFs in the private bucket message-attachments, "Seen"
+ * (msg_thread_seen) and live updates (messageEvents.ts). Before that migration a
+ * message without files is sent exactly as before, "Seen" is not shown, and a file
+ * is refused with a plain sentence.
  */
 
 const MAX_FIRST_MESSAGE = 500;
 export const FIRST_MESSAGE_MAX = MAX_FIRST_MESSAGE;
 export const THREAD_MESSAGE_MAX = 4000;
+
+/* ------------------------------------------------------------------ files */
+
+export const ATTACHMENT_BUCKET = 'message-attachments';
+export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const ATTACHMENT_MAX_FILES = 5;
+const ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+/** For <input type="file" accept>: the extensions too (some phones only know those). */
+export const ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+
+/** A file of a message, as the database keeps it (its size and type come from storage). */
+export interface Attachment {
+  path: string;
+  name: string;
+  size: number;
+  mime: string;
+  /** Only on the screen, while it is being sent: a local preview of a photo. */
+  localUrl?: string;
+}
+
+export function isImageAttachment(a: { mime: string }): boolean {
+  return a.mime.startsWith('image/');
+}
+
+/** "820 KB", "2.4 MB". */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  const mb = n / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
+/** The type the browser reports, or the one the file's name says (some browsers send none). */
+export function attachmentType(file: File): string {
+  const t = (file.type || '').toLowerCase();
+  if (t === 'image/jpg' || t === 'image/pjpeg') return 'image/jpeg';
+  if (t) return t;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' } as Record<string, string>)[ext] ?? '';
+}
+
+/** "PDF, JPG, PNG or WebP, up to 10 MB." */
+export function attachmentRule(): string {
+  return i18n.t('messages.files.rule', 'PDF, JPG, PNG or WebP, up to 10 MB.');
+}
+
+function tooBigText(file: File): string {
+  return i18n.t('messages.files.tooBig', { name: file.name, size: formatBytes(file.size), rule: attachmentRule(), defaultValue: '"{{name}}" is too big ({{size}}). {{rule}}' });
+}
+
+function wrongTypeText(file: File): string {
+  return i18n.t('messages.files.wrongType', { name: file.name, rule: attachmentRule(), defaultValue: '"{{name}}" cannot be sent. {{rule}}' });
+}
+
+/** Why this file cannot be sent, in plain words, or null when it can. */
+export function checkAttachment(file: File): string | null {
+  if (!ATTACHMENT_TYPES.includes(attachmentType(file))) return wrongTypeText(file);
+  if (file.size > ATTACHMENT_MAX_BYTES) return tooBigText(file);
+  if (file.size === 0) return i18n.t('messages.files.empty', { name: file.name, defaultValue: '"{{name}}" is empty.' });
+  return null;
+}
+
+/**
+ * The same, for several files chosen at once: one short sentence per file refused,
+ * then the rule ONCE ("PDF, JPG, PNG or WebP, up to 10 MB."). Null when all can go.
+ */
+export function checkAttachments(files: File[]): string | null {
+  const lines: string[] = [];
+  let rule = false;
+  for (const file of files) {
+    if (!ATTACHMENT_TYPES.includes(attachmentType(file))) {
+      lines.push(i18n.t('messages.files.wrongTypeShort', { name: file.name, defaultValue: '"{{name}}" cannot be sent.' }));
+      rule = true;
+    } else if (file.size > ATTACHMENT_MAX_BYTES) {
+      lines.push(i18n.t('messages.files.tooBigShort', { name: file.name, size: formatBytes(file.size), defaultValue: '"{{name}}" is too big ({{size}}).' }));
+      rule = true;
+    } else if (file.size === 0) {
+      lines.push(i18n.t('messages.files.empty', { name: file.name, defaultValue: '"{{name}}" is empty.' }));
+    }
+  }
+  if (lines.length === 0) return null;
+  return [...lines, ...(rule ? [attachmentRule()] : [])].join(' ');
+}
+
+/**
+ * The name a file is stored under: letters, digits, dot, dash and underscore, at most
+ * 120 characters, the extension kept (the database accepts nothing else). People
+ * still see the original name.
+ */
+export function safeFileName(name: string): string {
+  const plain = name.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+  const dot = plain.lastIndexOf('.');
+  const ext = dot > 0 ? plain.slice(dot + 1).replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toLowerCase() : '';
+  const base = (dot > 0 ? plain.slice(0, dot) : plain)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .replace(/[-._]+$/, '')
+    .slice(0, 100) || 'file';
+  return ext ? `${base}.${ext}` : base;
+}
+
+function newUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+function parseAttachments(raw: unknown): Attachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && typeof (a as Record<string, unknown>).path === 'string')
+    .map((a) => ({
+      path: String(a.path),
+      name: typeof a.name === 'string' && a.name ? a.name : String(a.path).split('/').pop() || 'file',
+      size: Number(a.size) || 0,
+      mime: typeof a.mime === 'string' ? a.mime : '',
+    }));
+}
+
+/* Signed links: the bucket is private. The photos shown in a conversation get a link
+   for 15 minutes (kept here, asked again shortly before it expires); a download gets
+   its own link for 60 seconds. */
+const VIEW_SECONDS = 15 * 60;
+const viewUrls = new Map<string, { url: string; until: number }>();
+
+function cachedView(path: string): string | null {
+  const hit = viewUrls.get(path);
+  return hit && hit.until > Date.now() + 60_000 ? hit.url : null;
+}
+
+/** Links to show these photos, by path (only the ones that could be signed). */
+export async function signAttachmentViews(paths: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const p of new Set(paths)) {
+    const hit = cachedView(p);
+    if (hit) out[p] = hit;
+    else missing.push(p);
+  }
+  if (missing.length) {
+    const { data } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrls(missing, VIEW_SECONDS);
+    for (const row of data ?? []) {
+      if (row.path && row.signedUrl && !row.error) {
+        viewUrls.set(row.path, { url: row.signedUrl, until: Date.now() + VIEW_SECONDS * 1000 });
+        out[row.path] = row.signedUrl;
+      }
+    }
+  }
+  return out;
+}
+
+/** Saves a file of a conversation under its own name (a link valid 60 seconds). False when it failed. */
+export async function downloadAttachment(a: Attachment): Promise<boolean> {
+  const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(a.path, 60, { download: a.name || true });
+  if (error || !data?.signedUrl) return false;
+  // The answer says "attachment": the browser saves the file and the page stays where it is.
+  const link = document.createElement('a');
+  link.href = data.signedUrl;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return true;
+}
+
+/** Uploads one file into the conversation's folder. Throws a plain sentence when it fails. */
+async function uploadAttachment(requestId: string, file: File): Promise<Attachment> {
+  const mime = attachmentType(file);
+  const path = `${requestId}/${newUuid()}/${safeFileName(file.name)}`;
+  // A file goes up as a form, with the type the browser gave it (the contentType
+  // option is ignored then): a browser that gave none ("application/octet-stream"
+  // for the bucket, refused) or "image/jpg" gets the type of its name instead.
+  const body = file.type === mime ? file : new File([file], file.name, { type: mime, lastModified: file.lastModified });
+  const { error } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(path, body, { contentType: mime, upsert: false, cacheControl: '3600' });
+  if (error) {
+    const msg = `${(error as { statusCode?: string | number }).statusCode ?? ''} ${error.message}`.toLowerCase();
+    if (/413|too large|maximum allowed size/.test(msg)) throw new Error(tooBigText(file));
+    if (/415|mime type|not supported/.test(msg)) throw new Error(wrongTypeText(file));
+    if (/bucket not found/.test(msg)) throw new Error(i18n.t('messages.files.notYet', 'Files cannot be sent yet. Please write your message as text.'));
+    throw new Error(i18n.t('messages.files.uploadFailed', { name: file.name, defaultValue: '"{{name}}" could not be sent. Please check your connection and try again.' }));
+  }
+  return { path, name: file.name, size: file.size, mime };
+}
 
 /* ------------------------------------------------------------------ conversations */
 
@@ -45,6 +240,10 @@ export interface Conversation {
   lastAuthorName: string | null;
   lastFromMySide: boolean;
   unread: number;
+  /** Files of the last message (0 when none, or before messaging v2). */
+  lastAttachmentCount: number;
+  lastAttachmentName: string | null;
+  lastAttachmentMime: string | null;
 }
 
 interface ConversationRow {
@@ -65,6 +264,9 @@ interface ConversationRow {
   last_author_name: string | null;
   last_from_my_side: boolean;
   unread_count: number;
+  last_attachment_count?: number | null;
+  last_attachment_name?: string | null;
+  last_attachment_mime?: string | null;
 }
 
 /** The signed-in member's conversations, most recent first. `ok` is false when they could not be read. */
@@ -87,6 +289,9 @@ export async function loadConversations(): Promise<{ ok: boolean; items: Convers
     lastAuthorName: r.last_author_name,
     lastFromMySide: !!r.last_from_my_side,
     unread: Number(r.unread_count) || 0,
+    lastAttachmentCount: Number(r.last_attachment_count) || 0,
+    lastAttachmentName: r.last_attachment_name ?? null,
+    lastAttachmentMime: r.last_attachment_mime ?? null,
   }));
   return { ok: true, items };
 }
@@ -99,12 +304,14 @@ export interface ThreadMessage {
   authorAvatarUrl: string | null;
   authorOrgId: string | null;
   authorOrgName: string | null;
-  /** Null when the message was removed. */
+  /** Null when the message was removed. Empty for a file sent without text. */
   body: string | null;
   createdAt: string;
   isFirst: boolean;
   fromMySide: boolean;
   isDeleted: boolean;
+  /** Its files (none for a removed message). */
+  attachments: Attachment[];
   /** Only on the screen, while it is being sent. */
   pending?: boolean;
 }
@@ -122,6 +329,7 @@ interface ThreadRow {
   is_first: boolean;
   from_my_side: boolean;
   is_deleted: boolean;
+  attachments?: unknown;
 }
 
 /** One conversation, oldest first. Throws when it cannot be read. */
@@ -141,25 +349,68 @@ export async function loadThread(requestId: string): Promise<ThreadMessage[]> {
     isFirst: !!r.is_first,
     fromMySide: !!r.from_my_side,
     isDeleted: !!r.is_deleted,
+    attachments: r.is_deleted ? [] : parseAttachments(r.attachments),
   }));
+}
+
+/** "Seen": when someone of the other company last opened the conversation, and who. */
+export interface SeenInfo {
+  otherReadAt: string | null;
+  otherFirstName: string | null;
+  otherName: string | null;
+}
+
+/** Null when it cannot be told (before messaging v2, or offline): nothing is shown then. */
+export async function loadSeen(requestId: string): Promise<SeenInfo | null> {
+  const { data, error } = await supabase.rpc('msg_thread_seen', { p_request: requestId });
+  if (error) return null;
+  const rows = (data ?? []) as { side: string; is_my_side: boolean; last_read_at: string | null; reader_first_name: string | null; reader_name: string | null }[];
+  const other = rows.find((r) => !r.is_my_side) ?? null;
+  return {
+    otherReadAt: other?.last_read_at ?? null,
+    otherFirstName: other?.reader_first_name ?? null,
+    otherName: other?.reader_name ?? null,
+  };
 }
 
 export type SendResult = { ok: true } | { ok: false; rateLimited: boolean; message: string };
 
-/** Posts a message in a conversation (the database sets the author, company and time). */
-export async function sendThreadMessage(requestId: string, body: string): Promise<SendResult> {
+/**
+ * Posts a message in a conversation (the database sets the author, company and time),
+ * with its files when there are some: they are uploaded first, into the
+ * conversation's folder, then named in the message (the database checks each one).
+ * A message may be a file alone. Without files it is sent exactly as before.
+ */
+export async function sendThreadMessage(requestId: string, body: string, files: File[] = []): Promise<SendResult> {
   const text = body.trim();
-  if (!text) return { ok: false, rateLimited: false, message: i18n.t('messages.err.empty', 'Write a message first.') };
-  const { error } = await supabase.from('conversation_messages').insert({ partner_request_id: requestId, body: text.slice(0, THREAD_MESSAGE_MAX) });
+  const notSent = i18n.t('messages.err.notSent', 'Your message could not be sent. Please check your connection and try again.');
+  if (!text && files.length === 0) return { ok: false, rateLimited: false, message: i18n.t('messages.err.empty', 'Write a message first.') };
+  if (files.length > ATTACHMENT_MAX_FILES) {
+    return { ok: false, rateLimited: false, message: i18n.t('messages.files.tooMany', { max: ATTACHMENT_MAX_FILES, defaultValue: 'You can send up to {{max}} files at once.' }) };
+  }
+  for (const f of files) {
+    const problem = checkAttachment(f);
+    if (problem) return { ok: false, rateLimited: false, message: problem };
+  }
+  let attachments: Attachment[] = [];
+  try {
+    attachments = await Promise.all(files.map((f) => uploadAttachment(requestId, f)));
+  } catch (e) {
+    return { ok: false, rateLimited: false, message: e instanceof Error ? e.message : notSent };
+  }
+  const row: Record<string, unknown> = { partner_request_id: requestId, body: text.slice(0, THREAD_MESSAGE_MAX) };
+  if (attachments.length) row.attachments = attachments.map(({ path, name, size, mime }) => ({ path, name, size, mime }));
+  const { error } = await supabase.from('conversation_messages').insert(row);
   if (!error) return { ok: true };
-  const rateLimited = error.hint === 'rate_limited';
-  return {
-    ok: false,
-    rateLimited,
-    message: rateLimited
-      ? i18n.t('messages.err.tooManyPerHour', 'You have sent many messages in the last hour. Please wait a little before sending more.')
-      : i18n.t('messages.err.notSent', 'Your message could not be sent. Please check your connection and try again.'),
-  };
+  const hint = error.hint || '';
+  const rateLimited = hint === 'rate_limited';
+  let message = notSent;
+  if (rateLimited) message = i18n.t('messages.err.tooManyPerHour', 'You have sent many messages in the last hour. Please wait a little before sending more.');
+  else if (hint === 'attachment_type' || hint === 'attachment_size') message = i18n.t('messages.files.cannotSend', { rule: attachmentRule(), defaultValue: 'This file cannot be sent. {{rule}}' });
+  else if (hint === 'too_many_files') message = i18n.t('messages.files.tooMany', { max: ATTACHMENT_MAX_FILES, defaultValue: 'You can send up to {{max}} files at once.' });
+  else if (hint.startsWith('attachment_')) message = i18n.t('messages.files.attachAgain', 'A file could not be sent. Please attach it again.');
+  else if (attachments.length && (error.code === 'PGRST204' || error.code === '42703')) message = i18n.t('messages.files.notYet', 'Files cannot be sent yet. Please write your message as text.');
+  return { ok: false, rateLimited, message };
 }
 
 /**
@@ -439,7 +690,7 @@ export function shortWhen(iso: string | null | undefined, now = new Date()): str
     : { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** "Today", "Yesterday", or "3 October 2026": the day headings of a conversation. */
+/** "Today", "Yesterday", or "Mon 6 Oct" ("Mon 6 Oct 2025" another year): the day separators of a conversation. */
 export function dayLabel(iso: string, now = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -447,7 +698,18 @@ export function dayLabel(iso: string, now = new Date()): string {
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
   if (days === 0) return i18n.t('messages.today', 'Today');
   if (days === 1) return i18n.t('messages.yesterday', 'Yesterday');
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const text = d.toLocaleDateString('en-GB', d.getFullYear() === now.getFullYear()
+    ? { weekday: 'short', day: 'numeric', month: 'short' }
+    : { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  // en-GB writes "Mon, 6 Oct": without the comma.
+  return text.replace(/,/g, '');
+}
+
+/** Whether two moments fall on the same calendar day (local time). */
+export function sameDay(a: string, b: string): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
 }
 
 /** "14:05". */

@@ -22,7 +22,9 @@ import { myOrganizationIds } from '@/components/inbox/inboxCounts';
  * One shared store, so the navbar and the dashboard never show two numbers and
  * never run the queries twice; `refresh()` asks again (Messages calls it after a
  * conversation was read or a request answered). It also asks again when the window
- * gets the focus back (at most every 20 seconds).
+ * gets the focus back (at most every 20 seconds), and at once when a message or a
+ * request arrives live (refreshInboxCount(), called by the site-wide alerts,
+ * src/components/messages/MessageAlerts.tsx).
  */
 export interface InboxCount {
   /** Unread messages in my conversations. */
@@ -44,7 +46,11 @@ interface Snapshot {
 
 let snapshot: Snapshot = { key: null, value: null };
 let inflight: { key: string; promise: Promise<void> } | null = null;
+/** A forced read asked for while another was on its way (which may predate the change): one more after it. */
+let again = false;
 let fetchedAt = 0;
+/** The member the counts are for: what refreshInboxCount() reads again. */
+let current: { key: string; uid: string; orgId: string | null; isOwner: boolean } | null = null;
 const listeners = new Set<() => void>();
 
 function emit(next: Snapshot) {
@@ -68,7 +74,10 @@ const FRESH_MS = 20_000;
 
 async function load(key: string, uid: string, orgId: string | null, isOwner: boolean, force: boolean) {
   if (!force && snapshot.key === key && snapshot.value && Date.now() - fetchedAt < FRESH_MS) return;
-  if (inflight && inflight.key === key) return inflight.promise;
+  if (inflight && inflight.key === key) {
+    if (force) again = true;
+    return inflight.promise;
+  }
   const promise = (async () => {
     try {
       // Since 8 Oct 2026 a request goes to the whole receiving company: count the
@@ -103,10 +112,20 @@ async function load(key: string, uid: string, orgId: string | null, isOwner: boo
       /* the count is a hint: it stays as it was */
     } finally {
       if (inflight?.key === key) inflight = null;
+      if (again) {
+        again = false;
+        if (snapshot.key === key) void load(key, uid, orgId, isOwner, true);
+      }
     }
   })();
   inflight = { key, promise };
   return promise;
+}
+
+/** Reads the counts again now (a message or a request arrived): the navbar dot and the dashboard tile follow. */
+export function refreshInboxCount() {
+  const c = current;
+  if (c && snapshot.key === c.key) void load(c.key, c.uid, c.orgId, c.isOwner, true);
 }
 
 export function useInboxCount(enabled = true): InboxCount & { loaded: boolean; refresh: () => void } {
@@ -120,6 +139,7 @@ export function useInboxCount(enabled = true): InboxCount & { loaded: boolean; r
 
   useEffect(() => {
     if (!key || !uid) return;
+    current = { key, uid, orgId, isOwner };
     if (snapshot.key !== key) emit({ key, value: null });
     void load(key, uid, orgId, isOwner, false);
   }, [key, uid, orgId, isOwner]);

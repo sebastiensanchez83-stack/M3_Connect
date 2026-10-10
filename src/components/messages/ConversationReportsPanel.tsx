@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Flag, Loader2 } from 'lucide-react';
+import { Download, FileText, Flag, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ADMIN_BTN, AdminEmpty, AdminPanel, AdminStatusPill } from '@/components/admin/AdminUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { downloadOrTell } from './Attachments';
+import { ATTACHMENT_BUCKET, formatBytes, type Attachment } from './messagesApi';
 
 /**
  * Admin: what members reported with "Report to M3" in Messages (table
@@ -19,6 +21,10 @@ import { cn } from '@/lib/utils';
  * applied the table does not exist and the panel shows nothing. A report outlives
  * its conversation (deleted with an account): it then has no request, but keeps
  * its excerpt.
+ *
+ * Files (messaging v2, 10 Oct 2026): the excerpt names them ("[files: a.pdf]"), and
+ * "See the files" lists the photos and PDFs of a REPORTED conversation to download
+ * (the storage policy lets verified moderators open those, and only those).
  */
 
 interface OrgName { name: string | null }
@@ -153,6 +159,7 @@ export function ConversationReportsPanel() {
                     <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-field bg-page p-3 font-sans text-[13px] leading-5 text-ink [overflow-wrap:anywhere]">{r.excerpt}</pre>
                   </details>
                 )}
+                {r.partner_request_id && r.excerpt?.includes('[files: ') && <ReportFiles requestId={r.partner_request_id} />}
                 {r.partner_request_id && (
                   <p className="mt-2 text-[13px]">
                     <Link to={`/admin/partner-requests/${r.partner_request_id}`} className="text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
@@ -166,5 +173,62 @@ export function ConversationReportsPanel() {
         </ul>
       )}
     </AdminPanel>
+  );
+}
+
+/** The files of a reported conversation, listed on demand (two folder levels: <request>/<uuid>/<name>). */
+function ReportFiles({ requestId }: { requestId: string }) {
+  const { t } = useTranslation();
+  const [files, setFiles] = useState<Attachment[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const list = async () => {
+    setLoading(true);
+    const bucket = supabase.storage.from(ATTACHMENT_BUCKET);
+    const { data: folders } = await bucket.list(requestId, { limit: 200 });
+    const found: Attachment[] = [];
+    for (const folder of folders ?? []) {
+      const { data: inside } = await bucket.list(`${requestId}/${folder.name}`, { limit: 10 });
+      for (const f of inside ?? []) {
+        if (!f.id) continue;
+        const meta = (f.metadata ?? {}) as { size?: number; mimetype?: string };
+        found.push({ path: `${requestId}/${folder.name}/${f.name}`, name: f.name, size: Number(meta.size) || 0, mime: meta.mimetype || '' });
+      }
+    }
+    setFiles(found);
+    setLoading(false);
+  };
+
+  if (files === null) {
+    return (
+      <p className="mt-2">
+        <button
+          type="button"
+          onClick={list}
+          disabled={loading}
+          className="inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold disabled:opacity-60"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileText className="h-4 w-4" aria-hidden="true" />}
+          {t('adminReports.files', 'See the files of this conversation')}
+        </button>
+      </p>
+    );
+  }
+  if (files.length === 0) {
+    return <p className="mt-2 text-[13px] text-meta">{t('adminReports.noFiles', 'No file could be found (it may have been removed).')}</p>;
+  }
+  return (
+    <ul className="mt-2 space-y-1.5">
+      {files.map((f) => (
+        <li key={f.path} className="flex flex-wrap items-center gap-2 text-[14px]">
+          <FileText className="h-4 w-4 text-meta" aria-hidden="true" />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{f.name}</span>
+          <span className="text-[12px] text-meta">{formatBytes(f.size)}</span>
+          <Button type="button" variant="outline" size="sm" className={cn(ADMIN_BTN, 'gap-1.5')} onClick={() => void downloadOrTell(f, t)}>
+            <Download className="h-4 w-4" aria-hidden="true" /> {t('messages.files.download', 'Download')}
+          </Button>
+        </li>
+      ))}
+    </ul>
   );
 }

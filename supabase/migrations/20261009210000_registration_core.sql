@@ -21,9 +21,15 @@
 -- * auth: "Confirm email" is still OFF in effect: 0 unconfirmed users, only 1
 --   has confirmation_sent_at. With it off, GoTrue inserts a user and then sets
 --   email_confirmed_at in an UPDATE of the same transaction, so
---   email_confirmed_at going from null to a value PROVES NOTHING unless an
---   e-mail was sent first (confirmation_sent_at / invited_at / recovery_sent_at
---   set before the update). The proof trigger below relies on exactly that.
+--   email_confirmed_at going from null to a value PROVES NOTHING. Worse, a
+--   public sign-up with the address of an EXISTING unconfirmed account
+--   confirms that account and returns a session to the caller, without
+--   setting the caller's password (GoTrue signup.go, "do not update the user").
+--   And when Confirm email is on, the click on a sign-up confirmation, a
+--   recovery link or an e-mail change link proves the mailbox, not that the
+--   account's password belongs to the mailbox owner. So NO auth event proves an
+--   address here: only mark_email_proven, called once a NEW password has been
+--   saved from an e-mailed link's session (integration review, 10 Oct 2026).
 -- * trg_link_guest_registrations (AFTER INSERT ON profiles) links legacy
 --   event_registrations guest rows to any new account typed with the same
 --   address, unproven. event_registrations: 1 row.
@@ -57,7 +63,11 @@
 --     Backfill: wys26 keeps those values; its account e-mail timing is
 --     'with_confirmation' (Victor, 7 Oct: WYS guests get their account at
 --     validation, not after the gala; spec Q2 default was after_event).
---     canary-v2 becomes core_v2 / webinar / instant / separate door.
+--     canary-v2 becomes core_v2 / webinar / instant / separate door, and is
+--     CLOSED (closes_at in the past): its slug is in the public repository and
+--     a hidden event skips the registration flags, so an open canary would let
+--     anyone make the platform e-mail any address. A test run opens it for an
+--     hour and closes it again (docs/registration-contract.md §9).
 --  2. gl_ticket and gl_question (new), staff-only RLS like gl_event.
 --  3. gl_guest: user_id, organization_id, ticket_key, answers, consents,
 --     source_detail, payment_status, amount_cents, currency, checkin_token,
@@ -104,17 +114,21 @@
 --         apply) gets its job too, once (ON CONFLICT DO NOTHING).
 -- 11. Identity: attach_my_records(), attach_my_records_for(uuid),
 --     mark_email_proven(), on_email_proven(uuid), complete_signup_for(uuid)
---     (a no-op placeholder that Phase 2 replaces), and two AFTER UPDATE
---     triggers on auth.users (e-mail confirmed after a sent link; e-mail
---     changed). Both swallow every error (RAISE WARNING): auth never breaks.
---     postgres may CREATE OR REPLACE them (TRIGGER privilege) but not DROP them
---     (auth.users belongs to supabase_auth_admin): the undo turns their
---     functions into no-ops.
+--     (a no-op placeholder that Phase 2 replaces), and ONE AFTER UPDATE
+--     trigger on auth.users (e-mail changed: profiles.email follows, the proof
+--     is cleared). It swallows every error (RAISE WARNING): auth never breaks.
+--     postgres may CREATE OR REPLACE it (TRIGGER privilege) but not DROP it
+--     (auth.users belongs to supabase_auth_admin): the undo turns its function
+--     into a no-op. There is NO trigger on e-mail confirmation (integration
+--     review, 10 Oct 2026: see "auth" above): /welcome and /reset-password call
+--     mark_email_proven once a new password is saved from the e-mailed link's
+--     session, and that is the only way an address becomes proven.
 --     on_email_proven also re-queues the person's provisioning jobs left
 --     'pending_link' (the account existed but had not proved the address), so
---     M3's choices are applied once the proof arrives (/welcome and
---     /reset-password call mark_email_proven once a new password is saved
---     from the e-mailed link's session).
+--     M3's choices are applied once the proof arrives; only jobs whose
+--     registration carries the address just proved (a row attached from a
+--     status link opened in an account of ANOTHER address stays as it is:
+--     staff decide by hand).
 --     trg_link_guest_registrations is KEPT (integration review, 10 Oct 2026):
 --     it is the only auto-link the live main site has (legacy webinar guest
 --     rows -> a new account typed with the same address), and with Confirm
@@ -177,13 +191,13 @@
 -- Checks after applying (read-only)
 -- ════════════════════════════════════════════════════════════════════════════
 --   select conname from pg_constraint where conrelid = 'public.gl_event'::regclass and conname = 'gl_event_door_matches_engine';  -> 1 row
---   select slug, engine, kind, registration_mode, door_token, account_email_timing, requests_open, hidden from gl_event order by slug;
---     -> canary-onsite guest_list_v1 onsite invitation shared with_confirmation f t
---        canary-v2     core_v2 webinar instant separate with_confirmation f t
---        wys26         guest_list_v1 onsite invitation shared with_confirmation t f
+--   select slug, engine, kind, registration_mode, door_token, account_email_timing, requests_open, hidden, closes_at < now() from gl_event order by slug;
+--     -> canary-onsite guest_list_v1 onsite invitation shared with_confirmation f t (null)
+--        canary-v2     core_v2 webinar instant separate with_confirmation f t t
+--        wys26         guest_list_v1 onsite invitation shared with_confirmation t f (null)
 --   select status, source, count(*) from gl_guest group by 1, 2;     -> only legacy values
 --   select tgname from pg_trigger where tgrelid = 'auth.users'::regclass and not tgisinternal;
---     -> on_auth_user_created, on_auth_user_email_changed, on_auth_user_email_confirmed
+--     -> on_auth_user_created, on_auth_user_email_changed
 --   select tgrelid::regclass, tgname from pg_trigger where tgname in ('event_registrations_engine_guard', 'events_publish_guard');  -> 2 rows
 --   select jobname, schedule from cron.job where jobname like 'registration-cron-%';   -> 3 jobs
 --   scripts/contract/sm26-snapshot.sql before and after: core tables identical.
@@ -321,9 +335,12 @@ update public.gl_event
        access = 'public', door_token = 'shared', account_email_timing = 'with_confirmation'
  where slug = 'wys26';
 -- canary-v2: the core_v2 webinar canary (prereqs created it closed and hidden).
+-- requests_open means nothing to core_v2: closes_at keeps it CLOSED between test
+-- runs (a hidden event skips the registration flags, and this slug is public).
 update public.gl_event
    set engine = 'core_v2', kind = 'webinar', registration_mode = 'instant', door_token = 'separate',
-       requests_open = false, reminders = '["P1D", "PT1H"]'::jsonb, updated_at = now()
+       requests_open = false, reminders = '["P1D", "PT1H"]'::jsonb,
+       closes_at = '2026-10-01 00:00:00+00', updated_at = now()
  where slug = 'canary-v2' and legacy_event_id is null and engine = 'guest_list_v1';
 
 -- ═════════════════════════════════════════════════════════════════════════════
@@ -1034,7 +1051,11 @@ begin
     -- address: the row may have been made signed out by the owner of the mailbox,
     -- and with Confirm email off an account alone proves nothing about its
     -- address. Otherwise the row stays unlinked (or linked as before) and the
-    -- person manages it from the personal link e-mailed to that address.
+    -- person manages it from the personal link e-mailed to that address. Such a
+    -- row also keeps the names, company, job title, phone and country it had:
+    -- they belong to whoever registered that address, not to the signed-in
+    -- profile that brought it back. (Signed out, the details typed in the form
+    -- replace them, as for any public registration.)
     v_link := coalesce(v_user is not null
                        and (v_existing.user_id = v_user
                             or (v_existing.user_id is null and v_proven and lower(v_existing.email) = v_email)), false);
@@ -1042,8 +1063,12 @@ begin
        set status = v_status,
            user_id = case when v_link then v_user else g.user_id end,
            organization_id = case when v_link then coalesce(v_org, g.organization_id) else g.organization_id end,
-           first_name = v_first, last_name = v_last,
-           company = v_company, job_title = v_job, phone = v_phone, country = v_country,
+           first_name = case when v_user is not null and not v_link then g.first_name else v_first end,
+           last_name  = case when v_user is not null and not v_link then g.last_name else v_last end,
+           company    = case when v_user is not null and not v_link then g.company else v_company end,
+           job_title  = case when v_user is not null and not v_link then g.job_title else v_job end,
+           phone      = case when v_user is not null and not v_link then g.phone else v_phone end,
+           country    = case when v_user is not null and not v_link then g.country else v_country end,
            ticket_key = v_ticket_key, answers = v_answers,
            consents = v_consents,
            source_detail = case when v_source_detail <> '{}'::jsonb then v_source_detail else g.source_detail end,
@@ -1061,7 +1086,10 @@ begin
     returning id into v_id;
   end if;
 
-  -- Written back to the signed-in person's profile when the profile field is empty.
+  -- Written back to the signed-in person's profile when the profile field is empty:
+  -- job title, country and LinkedIn. NEVER the phone (integration review, 10 Oct
+  -- 2026): co-members of a company can read each other's profiles, and a number
+  -- given to M3 for one event is not meant for them.
   if v_user is not null then
     with pf as (
       select qq.profile_field as f, v_answers ->> qq.key as v
@@ -1071,11 +1099,10 @@ begin
     update public.profiles pr
        set job_title    = coalesce(nullif(pr.job_title, ''), v_job, (select left(v, 160) from pf where f = 'job_title' limit 1)),
            country      = coalesce(nullif(pr.country, ''), v_country, (select left(v, 80) from pf where f = 'country' limit 1)),
-           phone        = coalesce(nullif(pr.phone, ''), v_phone, (select left(v, 40) from pf where f = 'phone' limit 1)),
            linkedin_url = coalesce(nullif(pr.linkedin_url, ''), (select left(v, 300) from pf where f = 'linkedin_url' limit 1))
      where pr.user_id = v_user
        and (nullif(pr.job_title, '') is null or nullif(pr.country, '') is null
-            or nullif(pr.phone, '') is null or nullif(pr.linkedin_url, '') is null);
+            or nullif(pr.linkedin_url, '') is null);
   end if;
 
   return jsonb_build_object('ok', true, 'duplicate', false, 'reactivated', v_existing.id is not null,
@@ -1533,7 +1560,7 @@ declare
   v_legacy integer := 0;
 begin
   -- Proven = email_proven_at set AND profiles.email (the address the proof was
-  -- stamped for; synced by the auth triggers) still equals the auth e-mail.
+  -- stamped for; synced by the auth trigger) still equals the auth e-mail.
   select lower(u.email) into v_email from auth.users u where u.id = p_user_id;
   select pr.email_proven_at, lower(pr.email) into v_proven, v_proven_for from public.profiles pr where pr.user_id = p_user_id;
   if v_email is null or v_proven is null or v_proven_for is distinct from v_email then
@@ -1599,6 +1626,10 @@ begin
   -- M3's choices not applied). Now that the proof is here, its job goes back to
   -- the queue: the next provisioning run links the row and applies the choices.
   -- Before the attach below, which turns 'pending_link' into 'linked'.
+  -- Only registrations of the address just proved: a row linked to this account
+  -- from a status link of ANOTHER address (attach) stays 'pending_link', and
+  -- M3's choices for it wait for staff (provision-person applies them only to
+  -- an account that proved the registration's own address).
   begin
     update public.account_provision_job j
        set status = 'queued', done_at = null, last_error = null, attempts = 0
@@ -1608,9 +1639,8 @@ begin
        and j.status = 'done'
        and g.status = 'confirmed'
        and g.account_action = 'pending_link'
-       and (g.user_id = p_user_id
-            or (g.user_id is null
-                and lower(g.email) = (select lower(u.email) from auth.users u where u.id = p_user_id)));
+       and (g.user_id = p_user_id or g.user_id is null)
+       and lower(g.email) = (select lower(u.email) from auth.users u where u.id = p_user_id);
     get diagnostics v_requeued = row_count;
   exception when others then
     raise warning 'on_email_proven(%): re-queue failed: % (%)', p_user_id, sqlerrm, sqlstate;
@@ -1630,10 +1660,15 @@ begin
 end
 $function$;
 
--- Called by /welcome, /reset-password and /verify-email as soon as the page
--- opens: stamps proof when THIS session was opened from an auth e-mail link (JWT
--- amr) less than 15 minutes ago, after the last e-mail change, and not by an
--- admin's "view as user".
+-- Called by /welcome and /reset-password once a NEW password has been saved from
+-- the e-mailed link's session (never as soon as the page opens: until then the
+-- account's password may be someone else's). Stamps proof when THIS session was
+-- opened from an auth e-mail link (JWT amr) less than 60 minutes ago, after the
+-- last e-mail change, and not by an admin's "view as user". The ONLY way an
+-- address becomes proven (no auth trigger proves anything). A link session too
+-- old to count is noted in review_log (subject 'person', action
+-- 'email_proof_late', at most once an hour), so staff can tell the person to use
+-- "Forgot password?" again.
 create or replace function public.mark_email_proven()
 returns jsonb
 language plpgsql
@@ -1678,10 +1713,25 @@ begin
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'email_changed_since');
   end if;
   -- Only a FRESH link session proves the current address: the pages call this
-  -- right after the click. An older session (amr entries live as long as the
-  -- session) may predate an e-mail change made before this migration, which
-  -- email_changed_at does not know about.
-  if v_link_at < now() - interval '15 minutes' then
+  -- once the new password is saved, a few minutes after the click (an hour
+  -- leaves time to people who are not at ease with passwords). An older session
+  -- (amr entries live as long as the session) may predate an e-mail change made
+  -- before this migration, which email_changed_at does not know about.
+  if v_link_at < now() - interval '60 minutes' then
+    -- Noted for staff (a WYS guest left 'pending_link' otherwise never hears of
+    -- it); one row an hour at most, whoever keeps calling.
+    begin
+      if not exists (select 1 from public.review_log l
+                      where l.subject_type = 'person' and l.subject_id = v_uid
+                        and l.action = 'email_proof_late' and l.created_at > now() - interval '1 hour') then
+        insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
+        values ('person', v_uid, 'email_proof_late',
+                'New password saved more than an hour after the e-mailed link was opened: the address is not proven. Ask the person to use "Forgot password?" again.',
+                jsonb_build_object('reason', 'link_session_too_old', 'link_at', v_link_at), v_uid);
+      end if;
+    exception when others then
+      raise warning 'mark_email_proven(%): review_log failed: % (%)', v_uid, sqlerrm, sqlstate;
+    end;
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'link_session_too_old');
   end if;
   -- An admin "view as user" session is opened from a magic link a few seconds
@@ -1697,60 +1747,37 @@ begin
 end
 $function$;
 
--- auth.users: the address was confirmed by clicking a link that was SENT to it.
-create or replace function public.on_auth_email_confirmed()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-begin
-  begin
-    if new.email is not null
-       and (old.confirmation_sent_at is not null or old.invited_at is not null or old.recovery_sent_at is not null)
-       and not exists (select 1 from public.admin_impersonation_log l
-                        where l.target_user_id = new.id and l.created_at > now() - interval '10 minutes') then
-      perform public.on_email_proven(new.id);
-    end if;
-  exception when others then
-    raise warning 'on_auth_email_confirmed(%): % (%)', new.id, sqlerrm, sqlstate;
-  end;
-  return null;
-end
-$function$;
+-- No trigger on e-mail CONFIRMATION (integration review, 10 Oct 2026). A click
+-- on a confirmation, invite or recovery link proves the mailbox, not that the
+-- account's password belongs to its owner: someone may have signed up with
+-- another person's address, and while Confirm email is off GoTrue even confirms
+-- an existing unconfirmed account for a public sign-up and returns a session to
+-- that caller. The address is proven only by mark_email_proven, once a NEW
+-- password has been saved from the e-mailed link's session.
 
--- auth.users: the address changed. profiles.email follows; the proof follows only
--- a change confirmed from the new inbox (secure e-mail change), else it is cleared.
+-- auth.users: the address changed. profiles.email follows and the proof is
+-- CLEARED, whatever the flow: a change confirmed from the new inbox proves that
+-- inbox, not that the account's password belongs to its owner (the owner of the
+-- new address may click a "confirm your new address" e-mail for a change they
+-- never asked for). The person proves the new address like any other: a new
+-- password saved from an e-mailed link (Forgot password?).
 create or replace function public.on_auth_email_changed()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $function$
-declare
-  v_proven boolean;
 begin
   -- If this block fails, profiles.email keeps the OLD address, so any proof left
   -- in email_proven_at no longer counts (proven = profiles.email = auth e-mail).
   begin
-    v_proven := old.email_change_sent_at is not null
-                and nullif(old.email_change, '') is not null
-                and lower(old.email_change) = lower(new.email);
     update public.profiles
        set email = new.email,
            email_changed_at = now(),
-           email_proven_at = case when v_proven then now() else null end
+           email_proven_at = null
      where user_id = new.id;
   exception when others then
     raise warning 'on_auth_email_changed(%): % (%)', new.id, sqlerrm, sqlstate;
-  end;
-  -- Separate block: a failing attach never undoes the profile update above.
-  begin
-    if v_proven then
-      perform public.attach_my_records_for(new.id);
-    end if;
-  exception when others then
-    raise warning 'on_auth_email_changed(%): attach failed: % (%)', new.id, sqlerrm, sqlstate;
   end;
   return null;
 end
@@ -1758,12 +1785,6 @@ $function$;
 
 -- auth.users belongs to supabase_auth_admin: postgres holds the TRIGGER
 -- privilege (enough to CREATE OR REPLACE a trigger) but cannot DROP one.
-create or replace trigger on_auth_user_email_confirmed
-  after update of email_confirmed_at on auth.users
-  for each row
-  when (old.email_confirmed_at is null and new.email_confirmed_at is not null)
-  execute function public.on_auth_email_confirmed();
-
 create or replace trigger on_auth_user_email_changed
   after update of email on auth.users
   for each row
@@ -2151,9 +2172,14 @@ begin
      or exists (select 1 from public.sm_event s where s.slug = v_slug) then
     raise exception using errcode = '22023', message = 'slug_taken';
   end if;
-  if v_gl.slug is not null and v_slug <> v_gl.slug and coalesce(v_published, false) then
+  -- Fixed once published, AND once anyone registered (hidden test events and
+  -- events unpublished again included): e-mailed door passes and reminders carry
+  -- /admin/guest-list/<slug>/checkin?token=, which a new slug would refuse.
+  if v_gl.slug is not null and v_slug <> v_gl.slug
+     and (coalesce(v_published, false)
+          or exists (select 1 from public.gl_guest g where g.event_id = v_gl.id)) then
     raise exception using errcode = '22023', message = 'slug_locked',
-      detail = 'The web address cannot change once the event is published.';
+      detail = 'The web address cannot change once the event is published or has registrations.';
   end if;
   if v_kind not in ('webinar', 'onsite') then
     raise exception using errcode = '22023', message = 'bad_kind';
@@ -2594,7 +2620,6 @@ revoke all on function public.on_email_proven(uuid) from public, anon, authentic
 revoke all on function public.invoke_registration_cron(text) from public, anon, authenticated;
 revoke all on function public.gl_guest_engine_guard() from public, anon, authenticated;
 revoke all on function public.gl_guest_queue_provisioning() from public, anon, authenticated;
-revoke all on function public.on_auth_email_confirmed() from public, anon, authenticated;
 revoke all on function public.on_auth_email_changed() from public, anon, authenticated;
 revoke all on function public.event_registrations_engine_guard() from public, anon, authenticated;
 revoke all on function public.events_publish_guard() from public, anon, authenticated;
@@ -2636,6 +2661,6 @@ grant execute on function public.public_registration_events() to anon, authentic
 comment on function public.gl_register_v2(jsonb) is 'Service role. Atomic core_v2 registration: {ok, duplicate, reactivated, guest_id, status} or {ok:false, error|state}. See docs/registration-contract.md.';
 comment on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) is 'Service role. Atomic staff decision on core_v2 registrations (approve / reject / waitlist / request_info): capacity under the event lock, statuses, provisioning job choices, review_log. See docs/registration-contract.md.';
 comment on function public.my_participations() is 'Signed-in read model: every registration of the caller across gl_guest (both engines), legacy event_registrations and SM26 (read-only).';
-comment on function public.mark_email_proven() is 'Stamps profiles.email_proven_at when the session was opened from an auth e-mail link, then attaches records. Called by /welcome, /reset-password, /verify-email.';
+comment on function public.mark_email_proven() is 'Stamps profiles.email_proven_at when the session was opened from an auth e-mail link less than 60 minutes ago, then attaches records and re-queues pending_link jobs of that address. Called by /welcome and /reset-password once a new password is saved. The only way an address becomes proven.';
 comment on function public.admin_save_event(jsonb) is 'Staff. Writes events + gl_event (+ gl_ticket, gl_question) in one transaction; core_v2 only.';
 comment on function public.gl_checkin_v2(uuid, uuid, uuid, boolean) is 'Staff. gl_checkin for both engines: door_token separate -> checkin_token, shared -> token.';

@@ -2011,6 +2011,9 @@ async function actionCancel(req: Request, body: Json, caller: Caller | null, fla
 // ─── Public: reminders on / off for one registration ─────────────────────────
 async function actionReminders(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
   const t = await resolveTarget(body, caller, flags, { touch: false, allowGuestLink: false });
+  // A row linked to another account that proved its address: that account decides (as
+  // for update and cancel).
+  if (t.readOnly) throw new HttpError(403, "sign_in_required");
   const on = body.on === true;
   const g = t.g;
   const rs = { ...obj(g.reminders_sent) };

@@ -12,7 +12,10 @@ Phase 1 EDGE lane, 9 Oct 2026. Built on the DB lane's contract
 | `send-profile-reminders` (changed) | false (unchanged) | pg_cron |
 
 Deploy only after both migrations are applied. Every behaviour is behind
-`platform_settings.registration_flags` (missing key = off).
+`platform_settings.registration_flags` (missing key = off), except HIDDEN events (canaries,
+staff tests), which skip the flags: keep them closed (`closes_at` in the past) outside a test
+run. canary-v2 (its slug is in this public repository) is created closed; contract §9 says
+how to open it for an hour.
 
 ## `registration`
 
@@ -97,8 +100,8 @@ Status view (`status`, `update`):
 - `linked`: the registration is linked to an account; `linked_to_me`: to the account that is
   asking (a status link opened while signed in), so the page can say "In your account".
 - `read_only: true`: the registration is linked to an account whose address is PROVEN and
-  the page was not opened by that account: show "Sign in to manage"; `update` / `cancel`
-  answer 403 `sign_in_required`. A row linked to an account that has not proved its address
+  the page was not opened by that account: show "Sign in to manage"; `update` / `cancel` /
+  `reminders` answer 403 `sign_in_required`. A row linked to an account that has not proved its address
   stays editable by the status link (the token proves the mailbox).
 - Signed in without a token, a registration is found by account, or (proven address only)
   by the address when no account holds it yet: the `registration_id` that `form` / `register`
@@ -189,13 +192,19 @@ Event settings read (`gl_event.settings`): `timezone` (IANA, default Europe/Mona
 - Results per job: `created | linked | pending_link | skipped | failed | busy`; e-mails:
   `sent | not_needed | no_account | failed | failed_gave_up | busy`.
 - `pending_link` = an account has the address (or already holds the registration) but has
-  not PROVED it: M3's choices (validate the person, company action) are NOT applied;
+  not PROVED it, or holds the registration under ANOTHER address (a status link forwarded and
+  attached to someone else's account: `same_address: false` in `review_log`; never applied by
+  a run, staff decide by hand): M3's choices (validate the person, company action) are NOT applied;
   `review_log` (action `provisioned`) says `proven: false` and what was not applied. Once the
   person proved the address, a staff `run` of that job applies them (a `done` job whose row
   is still `pending_link` is queued again). The proof re-queues it by itself: `on_email_proven`
-  (auth trigger, or `mark_email_proven`, called by /welcome and /reset-password once a new
-  password is saved from the e-mailed link) puts the
-  person's `pending_link` jobs back to `queued`, and the next provisioning run applies them.
+  (through `mark_email_proven`, called by /welcome and /reset-password once a new password is
+  saved from the e-mailed link; no auth trigger proves anything) puts the person's
+  `pending_link` jobs of that address back to `queued`, and the next provisioning run applies them.
+- Accounts created here are CONFIRMED (no password anyone knows, `pw_pending`): an unconfirmed
+  account could be taken over by a public sign-up with its address while Confirm email is off.
+  Their account e-mail is a `recovery` link through /welcome. The phone of a registration is
+  never copied to a profile.
 - Retries: a job is tried at most 5 times by the cron (a run that crashed counts); then it
   is `failed` and only a staff `run` retries it. An account e-mail that failed 5 times is
   given up (`email_due_at` cleared, `last_error` "e-mail: gave up ..."); staff "Send account

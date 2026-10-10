@@ -509,7 +509,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             onChange={(v) => setSection('basics', v)}
             issues={issues}
             isNew={isNew}
-            slugLocked={!isNew && wasPublished}
+            slugLocked={!isNew && (wasPublished || regCount > 0)}
+            slugLockedByRegistrations={!isNew && !wasPublished && regCount > 0}
             canPublish={canPublish}
             eventId={eventId}
             savedVisibility={isNew ? null : initial.basics.visibility}

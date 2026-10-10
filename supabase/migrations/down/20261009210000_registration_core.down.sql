@@ -37,7 +37,12 @@ select cron.unschedule(jobname) from cron.job
  where jobname in ('registration-cron-provision', 'registration-cron-reminders', 'registration-cron-digest');
 drop function if exists public.invoke_registration_cron(text);
 
--- 11. auth.users triggers. auth.users belongs to supabase_auth_admin: postgres
+-- 11. auth.users triggers. The migration creates only on_auth_user_email_changed
+--     (integration review, 10 Oct 2026: no trigger on e-mail confirmation);
+--     on_auth_user_email_confirmed is handled too, in case an earlier draft of
+--     the migration was applied somewhere (if absent, its no-op function is
+--     created and dropped again below, harmless).
+--     auth.users belongs to supabase_auth_admin: postgres
 --     may not DROP a trigger there. First make both trigger functions no-ops
 --     (always possible: postgres owns them), then try to drop the triggers; if
 --     refused, they stay, harmless, and their functions are kept (a function

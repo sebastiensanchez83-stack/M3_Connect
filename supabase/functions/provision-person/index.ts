@@ -26,10 +26,14 @@
 // One job, idempotent (a job is claimed by bumping attempts; a retry finds its own work):
 //   1. The registration is gone or no longer confirmed -> status 'skipped'.
 //   2. The row is already linked to an account (signed-in registration, attach):
-//        PROVEN     -> 'linked'; verify a pending person if validate_person; org_action.
-//        not proven -> 'pending_link': nothing applied (review_log says what was not);
-//                      the proof re-queues the job (on_email_proven), or a staff run
-//                      of it once the address is proven applies it.
+//        PROVEN for THIS row's address (the account's auth e-mail = gl_guest.email,
+//        and the account proved it) -> 'linked'; verify a pending person if
+//        validate_person; org_action.
+//        otherwise -> 'pending_link': nothing applied (review_log says what was not).
+//          Same address, not proven yet: the proof re-queues the job (on_email_proven),
+//          or a staff run of it once the address is proven applies it.
+//          Another address (a status link forwarded and attached to someone else's
+//          account): never applied automatically, staff decide by hand.
 //   3. An account has the address (lower(auth.users.email); profiles.email is only used
 //      to find candidates, each checked against auth):
 //        PROVEN  -> link the row ('linked'), verify a pending person if validate_person;
@@ -37,25 +41,32 @@
 //                   org_action for a person who has no company at all;
 //        not proven -> 'pending_link', no write (after the proof, on_email_proven re-queues
 //                      the job and attach_my_records links the row).
-//   4. No account -> auth.admin.createUser (unconfirmed, no e-mail sent, metadata
-//      pw_pending and the job id), then the profile: verified (if validate_person),
-//      onboarding completed, persona individual (or the company's type), signup_source
-//      'provisioned', affiliation = declared company, country, phone, job title; the row
-//      is linked ('created'), then org_action.
+//   4. No account -> auth.admin.createUser (CONFIRMED, no e-mail sent, metadata
+//      pw_pending and the job id; GoTrue gives it a random password nobody knows),
+//      then the profile: verified (if validate_person), onboarding completed, persona
+//      individual (or the company's type), signup_source 'provisioned', affiliation =
+//      declared company, country, job title (never the phone: co-members read
+//      profiles); the row is linked ('created'), then org_action.
+//      Confirmed on purpose (integration review, 10 Oct 2026): while Confirm email is
+//      off, a public sign-up with the address of an UNCONFIRMED account confirms that
+//      account and returns a session to whoever typed it, without changing its
+//      password (GoTrue signup.go). A confirmed account answers "already registered".
 //   5. org_action {mode: none|link|create, org_id, type, name, website, country, as_owner}:
 //        link   collaborator (owner only with as_owner when the company has no owner);
 //               the owner gets an FYI e-mail ("remove if wrong");
 //        create a verified company of that type, the person as owner.
 //   6. Done: status 'done'. email_due_at = null unless an account was created (no
 //      account e-mail for linked / pending_link / skipped). email_proven_at is never
-//      written here: the set-password link proves the address when it is clicked
-//      (auth trigger on email_confirmed_at, or mark_email_proven on /welcome and
-//      /reset-password once the new password is saved).
+//      written here: the address is proven by mark_email_proven, which /welcome and
+//      /reset-password call once a new password is saved from the e-mailed link (no
+//      auth trigger proves anything; on the old main site the account works but stays
+//      unproven until the person sets a password on the redesign).
 //   One review_log row per processed job (subject 'registration', action 'provisioned').
 // Account e-mail (account_ready_set_password) at email_due_at: the link is generated at
-// send time (auth.admin.generateLink 'invite' while the user is unconfirmed, else
-// 'recovery'; nothing is sent by GoTrue) and goes through /welcome?token_hash=…, the
-// scanner-proof page that redeems it. Skipped when the person already set a password.
+// send time (auth.admin.generateLink 'recovery' for the confirmed accounts made here;
+// 'invite' only for an unconfirmed one made by an older version; nothing is sent by
+// GoTrue) and goes through /welcome?token_hash=…, the scanner-proof page that redeems
+// it. Skipped when the person already set a password.
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles them).
 
@@ -739,16 +750,23 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       const { data: u } = await db.auth.admin.getUserById(guest.user_id);
       const user = u?.user as AuthUser | undefined;
       const p = user ? await profileOf(user.id) : null;
-      if (!user || !isProven(p, user.email || "")) {
-        // Linked by a signed-in registration, but the account has not proved its address
-        // (Confirm email is off): M3's choices (validate the person, company action) are
-        // NOT applied. 'pending_link' + review_log say so in the queue; a staff run of the
-        // job after the proof applies them ({action:"run", job_ids}); the proof itself also
-        // re-queues it (on_email_proven puts the person's pending_link jobs back to queued).
+      const accountEmail = (user?.email || "").trim().toLowerCase();
+      // The account must have proved THIS registration's address (contract §5): a status
+      // link forwarded to someone else and attached to their own (proven) account must
+      // never get them validated by M3, or made a company member.
+      const sameAddress = !!accountEmail && accountEmail === String(guest.email || "").trim().toLowerCase();
+      if (!user || !sameAddress || !isProven(p, user.email || "")) {
+        // M3's choices (validate the person, company action) are NOT applied.
+        // 'pending_link' + review_log say so in the queue.
+        //  - Same address, not proven yet (Confirm email is off): a staff run of the job
+        //    after the proof applies them ({action:"run", job_ids}); the proof itself also
+        //    re-queues it (on_email_proven puts the person's pending_link jobs of that
+        //    address back to queued).
+        //  - Another address: never applied by a run; staff decide by hand.
         await setGuestAction(j, "pending_link");
         await finish(j, { email_due_at: null });
         await logReview(j, by, {
-          account_action: "pending_link", already_linked: true, proven: false,
+          account_action: "pending_link", already_linked: true, proven: false, same_address: sameAddress,
           not_applied: { validate_person: !!j.validate_person, org_action: String(obj(j.org_action).mode || "none") },
         });
         return { id: j.id, result: "pending_link" };
@@ -789,11 +807,13 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       return { id: j.id, result: action };
     }
 
-    // 4. No account: create one (no e-mail from GoTrue).
+    // 4. No account: create one (no e-mail from GoTrue). CONFIRMED, as sm26-provision
+    // does: an unconfirmed account can be taken over by a public sign-up with its address
+    // while Confirm email is off (GoTrue confirms it and returns a session to that caller).
     if (!user) {
       const { data: c, error } = await db.auth.admin.createUser({
         email,
-        email_confirm: false,
+        email_confirm: true,
         user_metadata: {
           first_name: clean(pl.first_name, 80), last_name: clean(pl.last_name, 80), job_title: clean(pl.job_title, 160),
           persona: "individual", pw_pending: true, pw_pending_reason: "provisioned", provision_job_id: j.id, lang: "en",
@@ -818,7 +838,8 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       signup_source: "provisioned",
       affiliation: clean(pl.company, 200) || null,
       country: clean(pl.country, 80) || null,
-      phone: clean(pl.phone, 40) || null,
+      // Never the phone: co-members of a company read each other's profiles, and a
+      // number given to M3 for one event stays on the registration (gl_guest.phone).
       job_title: clean(pl.job_title, 160) || null,
     };
     if (j.validate_person) patch.access_status = "verified";

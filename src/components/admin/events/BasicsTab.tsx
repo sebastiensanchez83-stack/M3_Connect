@@ -18,7 +18,8 @@ interface SectorRow { id: string; label: string }
 
 /**
  * Basics: what the event is and when. The web address follows the title until it is
- * typed by hand or the event is saved; it is fixed once the event is published.
+ * typed by hand or the event is saved; it is fixed once the event is published or
+ * someone has registered (their e-mails and door passes carry it).
  */
 export function BasicsTab({
   value,
@@ -26,6 +27,7 @@ export function BasicsTab({
   issues,
   isNew,
   slugLocked,
+  slugLockedByRegistrations = false,
   canPublish,
   eventId,
   savedVisibility,
@@ -35,8 +37,10 @@ export function BasicsTab({
   onChange: (next: BasicsForm) => void;
   issues: FormIssue[];
   isNew: boolean;
-  /** Published once: the web address cannot change any more. */
+  /** Published once, or someone registered: the web address cannot change any more. */
   slugLocked: boolean;
+  /** Locked because people registered (the event is not published). */
+  slugLockedByRegistrations?: boolean;
   /** The registration switch of this kind is on, or the event is already published. */
   canPublish: boolean;
   eventId: string | null;
@@ -152,9 +156,11 @@ export function BasicsTab({
           label={t('adminEvents.basics.slug', 'Web address')}
           htmlFor="ev-slug"
           error={err('slug')}
-          hint={slugLocked
-            ? t('adminEvents.basics.slugLocked', 'Fixed: the event is published and this address may already be shared.')
-            : t('adminEvents.basics.slugHint', 'Lower-case letters, numbers and dashes. It cannot change once the event is published.')}
+          hint={slugLockedByRegistrations
+            ? t('adminEvents.basics.slugLockedRegs', 'Fixed: people have registered, and their e-mails and door passes use this address.')
+            : slugLocked
+              ? t('adminEvents.basics.slugLocked', 'Fixed: the event is published and this address may already be shared.')
+              : t('adminEvents.basics.slugHint', 'Lower-case letters, numbers and dashes. It cannot change once the event is published or someone has registered.')}
         >
           <div className="flex min-w-0 items-center gap-2">
             <span className="hidden shrink-0 text-[14px] text-meta sm:inline">/register/</span>

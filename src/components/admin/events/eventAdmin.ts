@@ -150,7 +150,7 @@ function saveErrorText(code: string, t: TFunction): string | null {
     case 'slug_invalid': return t('adminEvents.err.slugInvalid', 'The web address can only use lower-case letters, numbers and single dashes (60 characters at most).');
     case 'slug_reserved': return t('adminEvents.err.slugReserved', 'This web address is reserved for another page. Choose another one.');
     case 'slug_taken': return t('adminEvents.err.slugTaken', 'Another event already uses this web address. Choose another one.');
-    case 'slug_locked': return t('adminEvents.err.slugLocked', 'The web address cannot change once the event is published.');
+    case 'slug_locked': return t('adminEvents.err.slugLocked', 'The web address cannot change once the event is published or someone has registered.');
     case 'bad_kind': return t('adminEvents.err.kind', 'Choose webinar or on-site event.');
     case 'bad_mode': return t('adminEvents.err.mode', 'Choose how people register.');
     case 'instant_needs_webinar': return t('adminEvents.err.instant', 'Open registration works for webinars only. On-site events are checked by M3.');

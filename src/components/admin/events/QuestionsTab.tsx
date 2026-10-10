@@ -16,11 +16,14 @@ import {
 } from './eventAdmin';
 import type { FormIssue, QuestionsForm } from './editorModel';
 
-/** Which profile field an answer of this kind may fill (contract: profile_field). */
+/**
+ * Which profile field an answer of this kind may fill (contract: profile_field). Never
+ * the phone: co-members of a company read each other's profiles, and a number given to
+ * M3 for one event is not meant for them (the database ignores it too).
+ */
 const PROFILE_FOR_KIND: Partial<Record<QuestionKind, ProfileField[]>> = {
   text: ['job_title'],
   country: ['country'],
-  phone: ['phone'],
   url: ['linkedin_url'],
 };
 
@@ -220,7 +223,7 @@ export function QuestionsTab({
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <AdminStatusPill>{questionKindWord(q.kind, t)}</AdminStatusPill>
                         {q.required && <AdminStatusPill tone="warning">{t('adminEvents.q.required', 'Required')}</AdminStatusPill>}
-                        {q.profile_field && <AdminStatusPill tone="info">{t('adminEvents.q.toProfile', 'Saved to profile')}</AdminStatusPill>}
+                        {q.profile_field && q.profile_field !== 'phone' && <AdminStatusPill tone="info">{t('adminEvents.q.toProfile', 'Saved to profile')}</AdminStatusPill>}
                         {!q.editable_after_submit && <AdminStatusPill>{t('adminEvents.q.final', 'Cannot be changed later')}</AdminStatusPill>}
                       </div>
                       {err(i) && <p role="alert" className="mt-2 text-[13px] font-medium text-red-700">{err(i)}</p>}

@@ -151,7 +151,8 @@ export function ConfirmInline({
         type="button"
         variant="ghost"
         className={cn(
-          'h-11 w-full rounded-pill',
+          // md:h-11 too: the Button's default size drops to 40 px from md (44 px tap target).
+          'h-11 w-full rounded-pill md:h-11',
           tone === 'danger' ? 'text-red-700 hover:bg-red-50 hover:text-red-800' : 'text-navy hover:bg-chip',
           className,
           buttonClassName,

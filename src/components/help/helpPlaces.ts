@@ -82,6 +82,10 @@ export interface HelpReader {
   orgVerified: boolean;
   /** The person is approved by M3. */
   verified: boolean;
+  /** profiles.persona: marina, developer, partner (service provider), investor, media_partner… */
+  persona: string | null;
+  /** M3 staff (admin, moderator): every page opens for them. */
+  staff: boolean;
 }
 
 /* ------------------------------------------------------------ per page */
@@ -132,10 +136,36 @@ function homePanelPlace(panel: string, r: HelpReader): HelpPlace | null {
   }
 }
 
-/** A need being published: the page's questions, or, while the page is closed to the reader, who may and why not yet. */
+/** Only these profiles may publish a tender, an expert question or a project (App.tsx: requirePersona). */
+const PUBLISHERS = new Set(['marina', 'developer']);
+
+/** "What can a … do here?" for the reader's profile. */
+function canId(persona: string | null): string {
+  switch (persona) {
+    case 'marina': return 'marina-can';
+    case 'developer': return 'developer-can';
+    case 'partner': return 'provider-can';
+    case 'investor': return 'investor-can';
+    case 'media_partner': return 'media-can';
+    default: return 'account-dashboard';
+  }
+}
+
+/**
+ * A need being published: the page's questions or, while the page is closed to
+ * the reader, who may publish and why not yet. The same locks as the pages:
+ * submit-* needs a marina or developer profile (App.tsx requirePersona), a
+ * verified person and a verified company (SubmitRFPPage…); proposing a webinar
+ * a verified person and company (WebinarRequestPage).
+ */
 function publishPlace(key: string, ids: string[], r: HelpReader): HelpPlace {
-  if (!r.verified || !r.orgVerified) {
-    const who = key === 'request-webinar' ? 'events-propose' : 'publishing-who';
+  const webinar = key === 'request-webinar';
+  const who = webinar ? 'events-propose' : 'publishing-who';
+  // Another profile: being verified would not open this page. Who may, and what this profile can do.
+  if (!webinar && !r.staff && !PUBLISHERS.has(r.persona ?? '')) {
+    return { key: `${key}-locked`, ids: [who, 'publishing-visible', canId(r.persona)], keepPage: true };
+  }
+  if (!r.staff && (!r.verified || !r.orgVerified)) {
     const waits = r.verified ? ['verification-company', 'verification-time'] : ['verification-time', 'verification-company'];
     return { key: `${key}-locked`, ids: [who, ...waits], keepPage: true };
   }
@@ -175,11 +205,12 @@ export function helpPlaceFor(pathname: string, search: string, r: HelpReader): H
   if (path === '/welcome') return { key: 'welcome', ids: ['account-password-rules', 'verification-time', 'emails-missing'], keepPage: true };
   if (path === '/reset-password') return { key: 'password', ids: ['account-password', 'account-password-rules', 'emails-missing'], keepPage: true };
 
-  // Publishing a need, proposing a webinar (with or without the id of a draft).
-  const publish = /^\/(submit-project|submit-rfp|submit-consultation|request-webinar)(\/[^/]+)?$/.exec(path);
-  if (publish) {
+  // Publishing a need (with or without the id of a draft), proposing a webinar
+  // (App.tsx has no /request-webinar/<id>: that address is "Page not found").
+  const publish = /^\/(submit-project|submit-rfp|submit-consultation)(\/[^/]+)?$/.exec(path);
+  if (publish || path === '/request-webinar') {
     if (!r.signedIn) return SIGN_IN;
-    switch (publish[1]) {
+    switch (publish?.[1]) {
       case 'submit-project': return publishPlace('submit-project', ['publishing-project', 'publishing-review', 'publishing-who'], r);
       case 'submit-rfp': return publishPlace('submit-rfp', ['publishing-kinds', 'publishing-review', 'publishing-answers'], r);
       case 'submit-consultation': return publishPlace('submit-consultation', ['publishing-kinds', 'publishing-review', 'publishing-visible'], r);
@@ -190,15 +221,18 @@ export function helpPlaceFor(pathname: string, search: string, r: HelpReader): H
   // Messages.
   if (path === '/inbox') return r.signedIn ? MESSAGES : SIGN_IN;
 
-  // The tenders and expert questions.
+  // The tenders and expert questions: the side that publishes them, the side that answers.
   if (path === '/opportunities') {
-    return r.signedIn
-      ? { key: 'opportunities', ids: ['provider-answer', 'publishing-visible', 'publishing-kinds'] }
-      : { key: 'opportunities-visitor', ids: ['publishing-visible', 'account-sign-up', 'provider-can'] };
+    if (!r.signedIn) return { key: 'opportunities-visitor', ids: ['publishing-visible', 'account-sign-up', 'provider-can'] };
+    if (PUBLISHERS.has(r.persona ?? '')) return { key: 'opportunities-publisher', ids: ['publishing-answers', 'publishing-visible', 'publishing-change'] };
+    // Investors do not see the tenders (database rules): who sees what, and their own Deal flow.
+    if (r.persona === 'investor') return { key: 'opportunities-investor', ids: ['publishing-visible', 'investor-deal-flow', 'investor-can'] };
+    return { key: 'opportunities', ids: ['provider-answer', 'publishing-visible', 'publishing-kinds'] };
   }
 
-  // An event's page: registering, joining on the day, cancelling.
-  if (/^\/events\/[^/]+$/.test(path)) return { key: 'event', ids: ['events-webinar', 'events-join', 'events-cancel'] };
+  // An event's page: registering, events by invitation, cancelling. True of a webinar
+  // and of an event on site alike (the page does not tell the button which it is).
+  if (/^\/events\/[^/]+$/.test(path)) return { key: 'event', ids: ['events-webinar', 'events-invitation', 'events-cancel'] };
 
   return null;
 }

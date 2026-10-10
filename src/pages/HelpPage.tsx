@@ -353,6 +353,7 @@ export function HelpPage() {
  * "Show the help button again": only for a reader who hid the floating Help
  * button (HelpLauncher.tsx) in this browser. It stays after being switched on,
  * so the reader sees the change, and can switch it off again from here.
+ * /help#help-button lands on it (the note shown when the button is hidden links here).
  */
 function HelpButtonToggle() {
   const { t } = useTranslation();
@@ -360,7 +361,7 @@ function HelpButtonToggle() {
   const [touched, setTouched] = useState(false);
   if (!hidden && !touched) return null;
   return (
-    <div className="mt-10 flex items-center justify-between gap-4 rounded-card border border-rule bg-white p-5 sm:p-6 lg:ml-[calc(25%+0.75rem)]">
+    <div id="help-button" className="mt-10 flex items-center justify-between gap-4 rounded-card border border-rule bg-white p-5 sm:p-6 lg:ml-[calc(25%+0.75rem)]">
       <div className="min-w-0">
         <label htmlFor="help-button-toggle" className="block cursor-pointer text-[16px] font-semibold leading-6 text-navy">
           {t('help.buttonToggle', 'Show the help button again')}

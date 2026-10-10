@@ -397,7 +397,7 @@ export function ResetPasswordPage() {
           {resendError && (
             <FieldError>{resendError}</FieldError>
           )}
-          <Button type="submit" variant="cta" className="w-full justify-between" disabled={resendBusy}>
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={resendBusy} data-help-avoid>
             {resendBusy ? (
               <><Loader2 className="h-4 w-4 animate-spin" />{t('resetPassword.sending', 'Sending...')}</>
             ) : (
@@ -476,7 +476,8 @@ export function ResetPasswordPage() {
               disabled={loading}
             />
           </div>
-          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+          {/* data-help-avoid: the floating Help button steps aside instead of covering it on phones. */}
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading} data-help-avoid>
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />

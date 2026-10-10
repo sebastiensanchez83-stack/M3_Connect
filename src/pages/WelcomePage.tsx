@@ -429,7 +429,7 @@ export function WelcomePage() {
                   placeholder={t('auth.emailPlaceholder', 'you@example.com')}
                 />
               </div>
-              <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
+              <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()} data-help-avoid>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.reauthSend', 'E-mail me a link to set my password')}
               </Button>
               <p className="text-center text-sm leading-6 text-meta">
@@ -539,7 +539,8 @@ export function WelcomePage() {
               )}
             </AuthNotice>
           )}
-          <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !pw || !pw2}>
+          {/* data-help-avoid: the floating Help button steps aside instead of covering it on phones. */}
+          <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !pw || !pw2} data-help-avoid>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {isEvent
               ? t('welcome.ctaEvent', 'Set password & open my event hub')

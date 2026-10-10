@@ -15,6 +15,8 @@ import { useMotion } from '@/components/motion/MotionProvider';
 import { Reveal } from '@/components/motion/Reveal';
 import { buildHelpSections, PERSONA_SECTION, type HelpItem, type HelpSection } from '@/components/help/helpContent';
 import { buildHelpIndex, helpQueryWords, searchHelp } from '@/components/help/helpSearch';
+import { setHelpButtonHidden, useHelpButtonHidden } from '@/components/help/helpPlaces';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { plainPageMeta } from '@/lib/seoMeta';
@@ -340,8 +342,48 @@ export function HelpPage() {
             </div>
           )}
 
+          <HelpButtonToggle />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Show the help button again": only for a reader who hid the floating Help
+ * button (HelpLauncher.tsx) in this browser. It stays after being switched on,
+ * so the reader sees the change, and can switch it off again from here.
+ * /help#help-button lands on it (the note shown when the button is hidden links here).
+ */
+function HelpButtonToggle() {
+  const { t } = useTranslation();
+  const hidden = useHelpButtonHidden();
+  const [touched, setTouched] = useState(false);
+  if (!hidden && !touched) return null;
+  return (
+    <div id="help-button" className="mt-10 flex items-center justify-between gap-4 rounded-card border border-rule bg-white p-5 sm:p-6 lg:ml-[calc(25%+0.75rem)]">
+      <div className="min-w-0">
+        <label htmlFor="help-button-toggle" className="block cursor-pointer text-[16px] font-semibold leading-6 text-navy">
+          {t('help.buttonToggle', 'Show the help button again')}
+        </label>
+        <p id="help-button-toggle-hint" className="mt-1 text-[15px] leading-[22px] text-meta">
+          {t('help.buttonToggleHint', 'A small Help button at the bottom left of the pages where members often have questions.')}
+        </p>
+        <p className="mt-1 text-[14px] font-medium leading-5 text-teal-text empty:hidden" role="status" aria-live="polite">
+          {touched ? (hidden ? t('help.buttonToggleOff', 'The Help button is hidden.') : t('help.buttonToggleOn', 'The Help button is back.')) : ''}
+        </p>
+      </div>
+      <Switch
+        id="help-button-toggle"
+        checked={!hidden}
+        onCheckedChange={(on) => {
+          setTouched(true);
+          setHelpButtonHidden(!on);
+        }}
+        aria-describedby="help-button-toggle-hint"
+        // 24 px to look at, 44 px to touch.
+        className="relative before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=checked]:bg-navy data-[state=unchecked]:bg-checkbox/40"
+      />
     </div>
   );
 }

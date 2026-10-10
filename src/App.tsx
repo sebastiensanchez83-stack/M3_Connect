@@ -9,11 +9,13 @@ import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
+import { HelpLauncher } from '@/components/help/HelpLauncher';
 import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
 import { ScreenLoader } from '@/components/LoadingSkeleton';
 import { RedirectKeepingQuery } from '@/components/RedirectKeepingQuery';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Capture ?invite= param on initial page load (before React renders)
 captureInviteFromUrl();
@@ -87,6 +89,22 @@ const BrandShowcasePage = import.meta.env.DEV
   ? lazyWithRetry(() => import('@/pages/BrandShowcasePage').then(m => ({ default: m.BrandShowcasePage })))
   : null;
 
+// The site-wide alert when a message arrives (messaging v2, 10 Oct 2026): its own chunk, loaded for verified members only.
+const MessageAlerts = lazyWithRetry(() => import('@/components/messages/MessageAlerts').then(m => ({ default: m.MessageAlerts })));
+
+/** Mounted once for every page: signed-in, verified members whose sign-up is finished. A failure there never takes the page down. */
+function MemberMessageAlerts() {
+  const { user, profile, isVerified } = useAuth();
+  if (!user || !isVerified || profile?.onboarding_status === 'draft') return null;
+  return (
+    <ErrorBoundary fallback={null}>
+      <Suspense fallback={null}>
+        <MessageAlerts />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
 /** A route's chunk is loading: the same full-screen loader as the pages that wait for their data (LoadingSkeleton). */
 function LazyFallback() {
   return <ScreenLoader />;
@@ -110,6 +128,8 @@ function App() {
       <SiteTicker />
       <AuthRedirector />
       <AnnouncementPopup />
+      {/* New messages and requests, live, on any page (bottom-left; never on /admin). */}
+      <MemberMessageAlerts />
       <main id="main-content" className="flex-1">
         <ErrorBoundary>
           <Suspense fallback={<LazyFallback />}>
@@ -253,6 +273,8 @@ function App() {
       </main>
       <Footer />
       <CookieBanner />
+      {/* The floating Help button: only on the pages where people get stuck (helpPlaces.ts). */}
+      <HelpLauncher />
     </div>
   );
 }

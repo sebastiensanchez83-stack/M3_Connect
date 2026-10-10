@@ -2,7 +2,8 @@
 // 9 Oct 2026, memory "messaging-decisions"). There is NO e-mail per message or per
 // request: once a week, each person who has something waiting gets ONE e-mail:
 // "This week you received X messages", up to three previews (sender, company, first
-// 140 characters), the requests to connect waiting for their company listed
+// 140 characters; "Sent a file" for a photo or PDF sent without text, messaging v2 of
+// 10 Oct 2026), the requests to connect waiting for their company listed
 // separately, and a button to their Messages (/inbox: a signed-out reader gets the
 // sign-in form there, then Messages; /?open=inbox would show them the public home
 // page instead).
@@ -492,6 +493,9 @@ interface DigestContent {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** The preview of a message that is a file without text (a photo or a PDF, messaging v2). */
+const SENT_A_FILE = "Sent a file";
+
 /** The first 140 characters (cut by the database), with an ellipsis when there was more. */
 function excerpt(text: string): string {
   const t = (text || "").replace(/\s+/g, " ").trim();
@@ -522,8 +526,10 @@ function renderDigest(c: DigestContent, unsubscribeUrl: string): { subject: stri
       : "Companies you are connected with wrote to you on Smart Marina Connect. The latest:");
     for (const it of c.previews.slice(0, 3)) {
       parts.push(emP(`<strong style="color:${EM.navy};">${emEsc(it.name)}</strong>${it.company ? ` &middot; ${emEsc(it.company)}` : ""}`, 6));
-      parts.push(emNote(emEsc(excerpt(it.text))));
-      textParts.push(`${who(it)}:\n"${excerpt(it.text)}"`);
+      // A photo or a PDF sent without text (messaging v2): its preview is empty.
+      const said = excerpt(it.text);
+      parts.push(emNote(said ? emEsc(said) : `<em>${SENT_A_FILE}</em>`));
+      textParts.push(`${who(it)}:\n${said ? `"${said}"` : SENT_A_FILE}`);
     }
     const more = c.messageCount - Math.min(c.previews.length, 3);
     if (more > 0) {
@@ -553,7 +559,7 @@ function renderDigest(c: DigestContent, unsubscribeUrl: string): { subject: stri
   const footerNote = "We send this summary on Fridays, only when something is waiting for you. We never e-mail you for each message.";
   const reason = "You received this e-mail because you have an account on Smart Marina Connect.";
   const preheader = c.previews[0]
-    ? excerpt(`${c.previews[0].name}: ${c.previews[0].text}`)
+    ? excerpt(`${c.previews[0].name}: ${excerpt(c.previews[0].text) || SENT_A_FILE}`)
     : c.requests[0] ? excerpt(`${c.requests[0].name} would like to connect`) : subject;
 
   const html = emailLayout({

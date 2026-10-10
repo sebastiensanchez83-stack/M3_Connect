@@ -16,9 +16,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
 import {
-  GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, getRegistrationForm, questionsFor,
-  registerForEvent, registrationErrorText, resendRegistrationLinks, statusPagePath, ticketOpen, useReviewSla,
-  type RegForm, type RegStatus, type RegTarget,
+  GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, getRegistrationForm, isShownRegistration, noOpenTicket, questionsFor,
+  registerForEvent, registerOutcomeText, registrationErrorText, resendRegistrationLinks, statusPagePath, ticketOpen, useReviewSla,
+  type RegForm, type RegStatus, type RegTarget, type RegisterDone,
 } from '@/lib/registration';
 import { cn, downloadICS, type CalendarEventInput } from '@/lib/utils';
 import { ruleOf } from './IdentityBlock';
@@ -34,10 +34,12 @@ import { ConfirmInline, NoteLine, longDate, regLocale } from './RegistrationUI';
  *
  * It reads the event through the registration function (`form`), which says
  * how this event takes registrations and, for a signed-in member, where their
- * own registration stands. An event the function does not know (an old event
- * with no registration engine) keeps the page's own path: the page passes it
- * as `legacy`, shown as it was. The World Yachting Summit (the guest list)
- * keeps its own page, /wys26.
+ * own registration stands. Only events with a registration engine get here:
+ * the page asks the database first (gl_event_slug_for) and an old event keeps
+ * the page's own card, without ever calling the function, so an outage of the
+ * function never blocks the old events. An event the function still does not
+ * know comes back as `legacy` (the page's card). The World Yachting Summit
+ * (the guest list) keeps its own page, /wys26.
  *
  * Used on /events/:id when the new event pages are switched on
  * (registration_flags.webinar_v2 or onsite_v2). The page calls
@@ -181,6 +183,8 @@ export type ParticipateView =
   | { k: 'closed' }
   | { k: 'full' }
   | { k: 'invitation_only' }
+  /** Every participation type is by invitation, or kept for company types the person is not (yet) known for. */
+  | { k: 'no_ticket' }
   | { k: 'not_published' };
 
 /** A participation type to choose, or a question to answer, before a registration can go: the form is needed. */
@@ -218,11 +222,13 @@ export function participationView(model: ParticipationModel, signedIn: boolean):
   const form = model.form;
   if (form.engine === 'guest_list_v1') return { k: 'guest_list', path: GUEST_LIST_PAGES[form.event.slug] ?? null };
   const mine = form.mine;
-  if (mine && mine.status !== 'cancelled' && mine.status !== 'declined') return { k: 'mine', status: mine.status, id: mine.registration_id ?? null };
+  if (mine && isShownRegistration(mine.status)) return { k: 'mine', status: mine.status, id: mine.registration_id ?? null };
   if (form.paused) return { k: 'paused' };
   switch (form.state) {
     case 'open':
     case 'waitlist': {
+      // Nothing this person can choose: say so here, not at the last step of the form.
+      if (noOpenTicket(form)) return { k: 'no_ticket' };
       const waitlist = form.state === 'waitlist';
       if (signedIn) return oneTapEligible(form) ? { k: 'one_tap', waitlist } : { k: 'form', waitlist };
       return form.event.kind === 'webinar' && quickEligible(form) ? { k: 'quick', waitlist } : { k: 'form', waitlist };
@@ -279,6 +285,8 @@ export function ParticipateBlock({
   const [busy, setBusy] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Signed out, after a quick registration: where it was sent, so the block says it (and does not invite a second one).
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   const view = participationView(model, signedIn);
   if (view.k === 'legacy') return <>{legacy ?? null}</>;
@@ -305,13 +313,14 @@ export function ParticipateBlock({
 
   const changed = () => { model.reload(); onChanged?.(); };
 
-  const run = async (fn: () => Promise<{ ok: boolean }>, success: string, failureFallback?: (res: unknown) => boolean) => {
+  /** `success`: the words for the answer (a string, or read from the answer itself). */
+  const run = async <R extends { ok: boolean }>(fn: () => Promise<R>, success: string | ((res: R) => string), failureFallback?: (res: unknown) => boolean) => {
     setBusy(true);
     setInlineError(null);
     const res = await fn();
     setBusy(false);
     if (res.ok) {
-      toast({ title: success });
+      toast({ title: typeof success === 'function' ? success(res) : success });
       changed();
       return;
     }
@@ -323,11 +332,8 @@ export function ParticipateBlock({
     if (!eventTarget) return;
     void run(
       () => registerForEvent(eventTarget, { source_detail: { entry: 'event_page' } }),
-      view.k === 'one_tap' && view.waitlist
-        ? t('reg.toast.waitlisted', 'You are on the waiting list. We sent you an e-mail.')
-        : form?.event.mode === 'review'
-          ? t('reg.toast.received', 'Registration received. The M3 team will reply by e-mail.')
-          : t('reg.toast.registered', "You're registered. We sent you the details by e-mail."),
+      // What the function says happened (a seat, the waiting list, a request, already registered).
+      (res) => registerOutcomeText(t, res as RegisterDone),
       (res) => {
         // Something to fill in after all: the full form, with what the account knows.
         const err = (res as { error?: string }).error ?? '';
@@ -373,7 +379,7 @@ export function ParticipateBlock({
       {t('reg.block.haveAccount', 'Have an account?')}{' '}
       <button
         type="button"
-        className="rounded font-medium text-navy underline underline-offset-4 hover:text-teal-text focus:outline-none focus-visible:shadow-focus"
+        className="inline-flex min-h-11 items-center rounded px-1 font-medium text-navy underline underline-offset-4 hover:text-teal-text focus:outline-none focus-visible:shadow-focus"
         onClick={onSignIn}
       >
         {t('reg.signIn', 'Sign in')}
@@ -500,7 +506,8 @@ export function ParticipateBlock({
                 </li>
               ) : (
                 <>
-                  <li><NoteLine icon={Ticket}>{t('reg.block.passWhere', 'Your entry pass is in your confirmation e-mail and on your registration page. Show it at the entrance.')}</NoteLine></li>
+                  {/* The pass reaches a session only once its e-mail is confirmed: the e-mail is the sure place. */}
+                  <li><NoteLine icon={Ticket}>{t('reg.block.passByEmail', 'Your entry pass is in your confirmation e-mail. Show it at the entrance.')}</NoteLine></li>
                   <li><NoteLine icon={MapPin}>{t('eventsPage.nextVenue', 'On the day, come to the venue — the address and map are on this page.')}</NoteLine></li>
                 </>
               )}
@@ -513,7 +520,7 @@ export function ParticipateBlock({
             )}
             {!isWebinar && minePage && (
               <Button asChild variant="cta" className={MAIN_BTN}>
-                <Link to={minePage}>{t('reg.block.showPass', 'Show my entry pass')}</Link>
+                <Link to={minePage}>{t('reg.block.viewMine', 'See my registration')}</Link>
               </Button>
             )}
             {calendarEvent && !live && (
@@ -647,19 +654,35 @@ export function ParticipateBlock({
       break;
     }
 
-    case 'quick':
-      title = view.waitlist ? t('reg.block.fullWaitlist', 'Full: waiting list open') : t('eventsPage.registerWebinar', 'Register for this webinar');
+    case 'quick': {
+      const reviewed = form?.event.mode === 'review';
+      // "Free" only when the event says so: no participation type, or its only one at no cost.
+      const tickets = form?.tickets ?? [];
+      const free = tickets.length === 0 || (tickets.length === 1 && tickets[0].price_cents === 0);
+      title = view.waitlist ? t('reg.block.fullWaitlist', 'Full: waiting list open')
+        : reviewed ? t('reg.quick.titleReview', 'Ask for a seat at this webinar') : t('eventsPage.registerWebinar', 'Register for this webinar');
       icon = view.waitlist ? Hourglass : Ticket;
       tone = 'navy';
       body = (
         <div className="space-y-4">
-          <p className="text-sm leading-[22px] text-ink">
-            {view.waitlist
-              ? t('reg.block.waitlistIntro', 'All places are taken. Join the waiting list: we e-mail you if one frees up.')
-              : t('reg.block.quickIntro', 'Free. No account needed: your name and e-mail are enough.')}
-          </p>
-          <Button variant="cta" className={MAIN_BTN} onClick={() => setSheetOpen(true)}>
-            {view.waitlist ? t('reg.submit.waitlist', 'Join the waiting list') : t('reg.block.register', 'Register')}
+          {sentTo ? (
+            <AuthNotice tone="success" role="status" icon={<Mail className="h-4 w-4" />}>
+              <p className="[overflow-wrap:anywhere]">{t('reg.block.sentTo', { email: sentTo, defaultValue: 'Sent to {{email}}: please check your inbox.' })}</p>
+            </AuthNotice>
+          ) : (
+            <p className="text-sm leading-[22px] text-ink">
+              {view.waitlist
+                ? t('reg.block.waitlistIntro', 'All places are taken. Join the waiting list: we e-mail you if one frees up.')
+                : reviewed
+                  ? t('reg.block.quickReviewIntro', { sla, defaultValue: 'No account needed. The M3 team reviews every registration and replies {{sla}}.' })
+                  : free
+                    ? t('reg.block.quickIntro', 'Free. No account needed: your name and e-mail are enough.')
+                    : t('reg.block.quickIntroNoAccount', 'No account needed: your name and e-mail are enough.')}
+            </p>
+          )}
+          <Button variant={sentTo ? 'ctaOutline' : 'cta'} className={MAIN_BTN} onClick={() => setSheetOpen(true)}>
+            {sentTo ? t('reg.block.registerSomeoneElse', 'Register someone else')
+              : view.waitlist ? t('reg.submit.waitlist', 'Join the waiting list') : t('reg.block.register', 'Register')}
           </Button>
           {signInLine}
           {form && (
@@ -668,13 +691,16 @@ export function ParticipateBlock({
               onOpenChange={setSheetOpen}
               form={form}
               waitlist={view.waitlist}
+              sla={sla}
               onSignIn={onSignIn}
               onSignUp={onSignUp}
+              onRegistered={setSentTo}
             />
           )}
         </div>
       );
       break;
+    }
 
     case 'form': {
       const mode = form?.event.mode;
@@ -732,7 +758,7 @@ export function ParticipateBlock({
             {t('eventsPage.noAccount', 'New here?')}{' '}
             <button
               type="button"
-              className="rounded font-medium text-navy underline underline-offset-4 hover:text-teal-text focus:outline-none focus-visible:shadow-focus"
+              className="inline-flex min-h-11 items-center rounded px-1 font-medium text-navy underline underline-offset-4 hover:text-teal-text focus:outline-none focus-visible:shadow-focus"
               onClick={onSignUp}
             >
               {t('reg.quick.createAccount', 'Create my account')}
@@ -805,6 +831,29 @@ export function ParticipateBlock({
       body = (
         <div className="space-y-3">
           <p className="text-sm leading-[22px] text-ink">{t('reg.block.byInvitationBody', 'Places at this event are given by invitation from the organisers.')}</p>
+          <p className="text-sm leading-[22px] text-meta">
+            {t('reg.block.questions', 'A question? Write to')}{' '}
+            <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false} className="!text-sm">{M3_PUBLIC_EMAIL}</UnderlineLink>
+          </p>
+        </div>
+      );
+      break;
+
+    case 'no_ticket':
+      title = t('reg.block.byInvitation', 'By invitation only');
+      icon = Lock;
+      tone = 'gray';
+      body = (
+        <div className="space-y-4">
+          <p className="text-sm leading-[22px] text-ink">{t('reg.block.noTicketBody', 'Places at this event are given by invitation, or kept for some companies validated by M3.')}</p>
+          {!signedIn && (
+            <>
+              <p className="text-sm leading-[22px] text-meta">{t('reg.block.noTicketSignIn', 'Your company is validated by M3? Sign in to see the places it can take.')}</p>
+              <Button variant="ctaOutline" size="sm" className={MAIN_BTN} onClick={onSignIn}>
+                {t('reg.signIn', 'Sign in')}
+              </Button>
+            </>
+          )}
           <p className="text-sm leading-[22px] text-meta">
             {t('reg.block.questions', 'A question? Write to')}{' '}
             <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false} className="!text-sm">{M3_PUBLIC_EMAIL}</UnderlineLink>
@@ -908,6 +957,7 @@ export function participateBarAction(view: ParticipateView, model: Participation
     case 'paused':
       return <span className={quiet}>{t('reg.bar.closed', 'Closed')}</span>;
     case 'invitation_only':
+    case 'no_ticket':
       return <span className={quiet}>{t('eventsPage.invitationOnly', 'By invitation')}</span>;
     case 'not_yet_open':
     case 'not_published':

@@ -296,15 +296,27 @@ function EventDetailContent() {
       });
   }, [id]);
 
-  // Invitation-only events run on a guest list (e.g. /wys26) take requests there, with no account.
-  // gl_event_slug_for answers for every registration event, the new ones (core_v2) included, and
-  // those have no page at /<slug>: only a guest list with a page of its own is followed.
-  const [guestListPath, setGuestListPath] = useState<string | null>(null);
+  // Whether the event takes registrations through the registration engine (a gl_event), and
+  // its slug: gl_event_slug_for answers for every registration event, the new ones (core_v2)
+  // included. 'pending' while asking; 'none' for an old event (it keeps the card below and never
+  // calls the registration function, so an outage of that function cannot block it); 'unknown'
+  // when the read failed (the registration function decides: its not_found gives the card back).
+  const [glEvent, setGlEvent] = useState<'pending' | 'none' | 'unknown' | { slug: string }>('pending');
   useEffect(() => {
-    if (!id) { setGuestListPath(null); return; }
+    if (!id) { setGlEvent('none'); return; }
+    let alive = true;
+    setGlEvent('pending');
     supabase.rpc('gl_event_slug_for', { p_event_id: id })
-      .then(({ data }) => setGuestListPath(typeof data === 'string' && data ? GUEST_LIST_PAGES[data] ?? null : null));
+      .then(({ data, error }) => {
+        if (!alive) return;
+        setGlEvent(error ? 'unknown' : typeof data === 'string' && data ? { slug: data } : 'none');
+      });
+    return () => { alive = false; };
   }, [id]);
+  // Invitation-only events run on a guest list (e.g. /wys26) take requests there, with no account.
+  // A new (core_v2) event has no page at /<slug>: only a guest list with a page of its own is followed.
+  const guestListPath = typeof glEvent === 'object' ? GUEST_LIST_PAGES[glEvent.slug] ?? null : null;
+  const hasEngine = glEvent === 'unknown' || typeof glEvent === 'object';
 
   // Whether the logged-in user holds a registration for this event (their own
   // row, or a guest row made with their confirmed e-mail before they had an
@@ -498,8 +510,8 @@ function EventDetailContent() {
     event_type: event.event_type,
     replay_url: event.replay_url,
   } : null), [event]);
-  // Smart Marina 2026 keeps its own path (an SM module edition).
-  const participationModel = useParticipation(participateEvent, v2On && !smRegisterPath);
+  // Smart Marina 2026 keeps its own path (an SM module edition); an old event keeps the card below.
+  const participationModel = useParticipation(participateEvent, v2On && !smRegisterPath && hasEngine);
 
   // ---------------------------------------------------------------- sticky bar plumbing
   const panelRef = useRef<HTMLDivElement>(null);
@@ -949,11 +961,14 @@ function EventDetailContent() {
       </Button>
     );
   }
-  // Unified registration switched on: the block decides the card and the bar.
-  const v2View = v2On && !smRegisterPath ? participationView(participationModel, !!user) : null;
+  // Unified registration switched on, for an event of the registration engine: the block
+  // decides the card and the bar. An old event, or the switches off, keep the card below.
+  const v2View = v2On && !smRegisterPath && hasEngine ? participationView(participationModel, !!user) : null;
   const useBlock = !!v2View && v2View.k !== 'legacy';
+  // Which card applies is not known yet: the switches, or (switched on) whether the event has an engine.
+  const cardPending = !smRegisterPath && glEvent !== 'none' && (!flagsReady || (v2On && glEvent === 'pending'));
   if (v2View && useBlock) barAction = participateBarAction(v2View, participationModel, t, scrollToPanel);
-  if (!flagsReady) barAction = null;
+  if (cardPending) barAction = null;
   const showBar = !!barAction && !panelInView && !endInView;
 
   const PanelIcon = panelIcon;
@@ -1419,7 +1434,7 @@ function EventDetailContent() {
           onChanged={() => setAccessVersion((v) => v + 1)}
           headingRef={panelHeadingRef}
         />
-      ) : !flagsReady ? (
+      ) : cardPending ? (
         // Which card applies is known in a moment (the registration switches): a quiet placeholder meanwhile.
         <div role="status" aria-label={t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
           <div className="flex items-center gap-3">

@@ -30,7 +30,7 @@ import { canCreate } from '@/lib/nav';
 import { cn, downloadICS } from '@/lib/utils';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
 import {
-  fetchMyParticipations, fetchOpenRegistrations, isActiveStatus,
+  fetchMyParticipations, fetchOpenRegistrations, isActiveStatus, isShownRegistration,
   type OpenRegistration, type Participation,
 } from '@/lib/registration';
 import { ParticipateCardAction } from '@/components/registration/ParticipateCardAction';
@@ -213,11 +213,11 @@ export function EventsPage() {
     fetchMyParticipations().then(({ rows }) => {
       if (!alive) return;
       const m = new Map<string, Participation>();
-      // One row per event: an active registration wins over a cancelled one.
+      // One row per event: a registration to show wins over a cancelled or declined one.
       for (const r of rows) {
         if (!r.event_id) continue;
         const prev = m.get(r.event_id);
-        if (!prev || (!isActiveStatus(prev.status) && isActiveStatus(r.status))) m.set(r.event_id, r);
+        if (!prev || (!isShownRegistration(prev.status) && isShownRegistration(r.status))) m.set(r.event_id, r);
       }
       setMyParts(m);
     });
@@ -308,12 +308,13 @@ export function EventsPage() {
     return set;
   }, [registeredEvents, myParts]);
   // The cards' "Registered" mark: a place held. A request still under review, or a waiting
-  // list, is not one (the card's button says where it stands).
+  // list, is not one (the card's button says where it stands). An old member registration
+  // (engine 'legacy') keeps the mark it had before, whatever its payment stage.
   const placeSet = useMemo(() => {
     const set = new Set(registeredEvents);
     for (const [eventId, p] of myParts) {
       if (p.status_display === 'confirmed') set.add(eventId);
-      else set.delete(eventId);
+      else if (p.engine !== 'legacy') set.delete(eventId);
     }
     return set;
   }, [registeredEvents, myParts]);

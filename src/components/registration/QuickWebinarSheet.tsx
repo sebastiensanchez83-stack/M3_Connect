@@ -20,13 +20,15 @@ import { regLocale, whenLine } from './RegistrationUI';
  * One window with the three ways in: register without an account (first name,
  * last name, e-mail, company, the terms), sign in, or create an account. On a
  * phone it fills the screen. The answer is the same whether the address was
- * already registered or not: "check your inbox".
+ * already registered or not: "check your inbox". A webinar that M3 reviews
+ * says so, and promises no calendar invitation before the answer.
  */
 export function QuickWebinarSheet({
   open,
   onOpenChange,
   form,
   waitlist,
+  sla,
   onSignIn,
   onSignUp,
   onRegistered,
@@ -36,13 +38,17 @@ export function QuickWebinarSheet({
   form: RegForm;
   /** The webinar is full: this joins the waiting list. */
   waitlist: boolean;
+  /** The delay M3 promises ("within 2 working days"). */
+  sla: string;
   onSignIn: () => void;
   onSignUp: () => void;
-  onRegistered?: () => void;
+  /** Sent: the address it went to. */
+  onRegistered?: (email: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = regLocale(i18n.language);
   const ev = form.event;
+  const reviewed = ev.mode === 'review';
   const companyRule = ruleOf(form.fields, 'company');
   const [v, setV] = useState({ first_name: '', last_name: '', email: '', company: '' });
   const [terms, setTerms] = useState(false);
@@ -87,7 +93,7 @@ export function QuickWebinarSheet({
     captcha.reset();
     if (res.ok) {
       setSentTo(email);
-      onRegistered?.();
+      onRegistered?.(email);
       return;
     }
     setFailure(registrationErrorText(t, res));
@@ -137,7 +143,8 @@ export function QuickWebinarSheet({
         <div className="px-5 pb-8 pt-6 sm:px-8">
           <Eyebrow>{waitlist ? t('reg.quick.eyebrowWaitlist', 'Waiting list') : t('reg.quick.eyebrow', 'Webinar')}</Eyebrow>
           <DialogTitle className="mt-3 pr-8 text-h3 text-navy">
-            {waitlist ? t('reg.quick.titleWaitlist', 'Join the waiting list') : t('reg.quick.title', 'Register for this webinar')}
+            {waitlist ? t('reg.quick.titleWaitlist', 'Join the waiting list')
+              : reviewed ? t('reg.quick.titleReview', 'Ask for a seat at this webinar') : t('reg.quick.title', 'Register for this webinar')}
           </DialogTitle>
           <DialogDescription className="mt-2 space-y-1 text-[15px] leading-6 text-meta">
             <span className="block font-semibold text-navy [overflow-wrap:anywhere]">{ev.title}</span>
@@ -147,7 +154,9 @@ export function QuickWebinarSheet({
             </span>
             <span className="flex items-center gap-2">
               <Video className="h-4 w-4 shrink-0" aria-hidden="true" />
-              {t('reg.quick.online', 'Online: the joining link comes by e-mail')}
+              {reviewed
+                ? t('reg.quick.onlineReview', 'Online: the joining link comes by e-mail once M3 confirms your seat')
+                : t('reg.quick.online', 'Online: the joining link comes by e-mail')}
             </span>
           </DialogDescription>
 
@@ -156,14 +165,16 @@ export function QuickWebinarSheet({
               <AuthNotice tone="success" role="status" icon={<MailCheck className="h-4 w-4" />} title={t('reg.quick.doneTitle', 'Thank you. Check your inbox')}>
                 <p>{waitlist
                   ? t('reg.quick.doneWaitlist', { email: sentTo, defaultValue: 'We have sent the details to {{email}}. We will write again as soon as a place frees up.' })
-                  : t('reg.quick.done', { email: sentTo, defaultValue: 'We have sent the details to {{email}}, with a calendar invitation and your personal link to manage your registration.' })}
+                  : reviewed
+                    ? t('reg.quick.doneReview', { email: sentTo, sla, defaultValue: 'We have received your registration. The M3 team will reply to {{email}} {{sla}}. Your personal link is in the e-mail.' })
+                    : t('reg.quick.done', { email: sentTo, defaultValue: 'We have sent the details to {{email}}, with a calendar invitation and your personal link to manage your registration.' })}
                 </p>
                 <p className="text-meta">{t('reg.quick.spam', 'Nothing after 10 minutes? Look in your spam folder.')}</p>
               </AuthNotice>
               <div className="rounded-field border border-rule bg-page p-4">
                 <p className="text-sm font-semibold leading-5 text-navy">{t('reg.quick.accountTitle', 'Find all your events in one place')}</p>
                 <p className="mt-1 text-sm leading-5 text-meta">{t('reg.quick.accountBody', 'A free account keeps your registrations, replays and contacts together. M3 checks every new member.')}</p>
-                <Button type="button" variant="outline" className="mt-3 h-10 rounded-pill border-navy/25 px-4 text-navy" onClick={() => { close(false); onSignUp(); }}>
+                <Button type="button" variant="outline" className="mt-3 h-11 rounded-pill border-navy/25 px-4 text-navy" onClick={() => { close(false); onSignUp(); }}>
                   <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
                   {t('reg.quick.createAccount', 'Create my account')}
                 </Button>
@@ -176,6 +187,9 @@ export function QuickWebinarSheet({
             <>
               <form onSubmit={submit} noValidate className="mt-6 space-y-4">
                 <p className="text-sm font-semibold leading-5 text-navy">{t('reg.quick.noAccount', 'No account needed')}</p>
+                {reviewed && !waitlist && (
+                  <p className="text-sm leading-5 text-meta">{t('reg.quick.reviewIntro', { sla, defaultValue: 'The M3 team reviews every registration and replies {{sla}}.' })}</p>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   {field('first_name', t('reg.field.firstName', 'First name'), { autoComplete: 'given-name' })}
                   {field('last_name', t('reg.field.lastName', 'Last name'), { autoComplete: 'family-name' })}
@@ -209,7 +223,7 @@ export function QuickWebinarSheet({
                 <Button type="submit" variant="cta" className="w-full justify-between" disabled={sending || captcha.waiting} arrow={!sending} roll={!sending}>
                   {sending
                     ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</>
-                    : waitlist ? t('reg.submit.waitlist', 'Join the waiting list') : t('reg.quick.submit', 'Register')}
+                    : waitlist ? t('reg.submit.waitlist', 'Join the waiting list') : reviewed ? t('reg.submit.review', 'Send my registration') : t('reg.quick.submit', 'Register')}
                 </Button>
               </form>
 

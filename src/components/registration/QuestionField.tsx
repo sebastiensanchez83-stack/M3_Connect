@@ -50,14 +50,18 @@ export function answerError(q: RegQuestion, v: AnswerValue | undefined, t: TFunc
   return null;
 }
 
-/** Sector options for a "sectors" question without options of its own: the platform's sector list. */
+/**
+ * Sector options for a "sectors" question without options of its own: the
+ * platform's sector list. The answer keeps the sector's name (not its id), so
+ * the summaries, the staff screens and the e-mails read it as it is.
+ */
 function useSectorOptions(enabled: boolean): QuestionOption[] {
   const [opts, setOpts] = useState<QuestionOption[]>([]);
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
     supabase.from('sectors').select('id, label').eq('is_active', true).order('label').then(({ data }) => {
-      if (alive && data) setOpts((data as { id: string; label: string }[]).map((s) => ({ value: s.id, label: s.label })));
+      if (alive && data) setOpts((data as { id: string; label: string }[]).map((s) => ({ value: s.label, label: s.label })));
     });
     return () => { alive = false; };
   }, [enabled]);

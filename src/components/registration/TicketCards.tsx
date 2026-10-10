@@ -31,6 +31,7 @@ export function TicketCards({
   error,
   locale,
   name = 'ticket',
+  signedIn = false,
 }: {
   tickets: RegTicket[];
   value: string | null;
@@ -38,6 +39,8 @@ export function TicketCards({
   error?: string | null;
   locale: string;
   name?: string;
+  /** Signed out, a type kept for some company types may open once the person signs in. */
+  signedIn?: boolean;
 }) {
   const { t } = useTranslation();
   const errId = error ? `${name}-err` : undefined;
@@ -85,6 +88,13 @@ export function TicketCards({
                   </span>
                 )}
               </span>
+              {/* Nothing is paid on the platform before M3 has said yes (Victor, 7 Oct 2026). */}
+              {(tk.price_cents ?? 0) > 0 && !tk.invite_only && (
+                <span className="mt-1 text-[13px] leading-5 text-meta">{t('reg.ticket.payAfter', 'Payment after M3 approves your registration (card or invoice).')}</span>
+              )}
+              {blocked && !tk.invite_only && types.length > 0 && !signedIn && (
+                <span className="mt-1 text-[13px] leading-5 text-meta">{t('reg.ticket.signInToChoose', 'Sign in with your company account to choose it.')}</span>
+              )}
             </label>
           );
         })}

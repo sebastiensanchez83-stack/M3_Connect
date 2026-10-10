@@ -39,6 +39,8 @@ import { regLocale } from './RegistrationUI';
 export interface RegistrationDone {
   email: string;
   status?: RegStatus | null;
+  /** Signed in: the account already had a registration for this event (the function says so only to its owner). */
+  duplicate?: boolean;
   /** Registered while the event was full: on the waiting list (as far as the page knows). */
   waitlist: boolean;
 }
@@ -247,7 +249,7 @@ export function RegistrationForm({
     setSending(false);
     if (!signedIn) captcha.reset(); // a token works once, whatever the answer
     if (res.ok) {
-      onDone({ email: values.email.trim().toLowerCase(), status: res.status ?? null, waitlist: form.state === 'waitlist' });
+      onDone({ email: values.email.trim().toLowerCase(), status: res.status ?? null, duplicate: res.duplicate === true, waitlist: form.state === 'waitlist' });
       return;
     }
     handleFailure(res);
@@ -298,7 +300,7 @@ export function RegistrationForm({
           <p className="text-sm leading-5 text-ink">
             {t('reg.signInHint', 'Already have an account? Sign in and we fill this in for you.')}
           </p>
-          <Button type="button" variant="outline" className="h-10 shrink-0 rounded-pill border-navy/25 px-4 text-navy" onClick={onSignIn}>
+          <Button type="button" variant="outline" className="h-11 shrink-0 rounded-pill border-navy/25 px-4 text-navy" onClick={onSignIn}>
             <LogIn className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('reg.signIn', 'Sign in')}
           </Button>
@@ -338,6 +340,7 @@ export function RegistrationForm({
               onChange={(k) => { setTicketKey(k); setTicketError(null); }}
               error={ticketError}
               locale={locale}
+              signedIn={signedIn}
             />
           )}
           {asked.map((q) => (
@@ -362,7 +365,7 @@ export function RegistrationForm({
                   <button
                     type="button"
                     onClick={() => setStep(row.step)}
-                    className="inline-flex min-h-10 shrink-0 items-center rounded-pill px-2 text-sm font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold focus:outline-none focus-visible:shadow-focus"
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-pill px-2 text-sm font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold focus:outline-none focus-visible:shadow-focus"
                   >
                     {t('reg.change', 'Change')}
                     <span className="sr-only">: {row.label}</span>

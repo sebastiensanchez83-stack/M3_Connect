@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
+import { humanize } from '@/components/account/format';
 import {
   GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, fetchMyParticipations, registrationErrorText, statusPagePath,
   type Participation,
@@ -31,6 +32,29 @@ import { ResendLinksForm } from './ResendLinksForm';
  * Registrations made with the member's e-mail before they had an account show
  * once that e-mail is proven (the database decides: my_participations).
  */
+
+/** The old member registrations' types, in words (as the old My events said them). */
+export const REGISTRATION_TYPE_LABELS: Record<string, { key: string; fallback: string }> = {
+  visitor: { key: 'accountArea.events.regType.visitor', fallback: 'Visitor' },
+  sponsor_included: { key: 'accountArea.events.regType.sponsor_included', fallback: 'Sponsor seat' },
+  member_discount: { key: 'accountArea.events.regType.member_discount', fallback: 'Member rate' },
+  package: { key: 'accountArea.events.regType.package', fallback: 'Package' },
+  marina_package: { key: 'accountArea.events.regType.marina_package', fallback: 'Marina package' },
+  invitation_request: { key: 'accountArea.events.regType.invitation_request', fallback: 'Invitation request' },
+  exhibitor: { key: 'accountArea.events.regType.exhibitor', fallback: 'Exhibitor' },
+};
+
+/** "Registered as …": a participation type is shown as it is; old and SM26 database values in words. */
+function roleText(p: Participation, t: (key: string, fallback: string) => string): string | null {
+  const raw = p.role_or_ticket?.trim();
+  if (!raw) return null;
+  if (p.engine === 'legacy') {
+    const known = REGISTRATION_TYPE_LABELS[raw];
+    return known ? t(known.key, known.fallback) : humanize(raw);
+  }
+  if (p.engine === 'sm26') return raw.split(',').map((x) => humanize(x.trim())).filter(Boolean).join(', ');
+  return raw;
+}
 
 interface EventExtra {
   id: string;
@@ -125,9 +149,21 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
   const reload = useCallback(() => setVersion((v) => v + 1), []);
 
   const cancel = async (p: Participation) => {
-    const target = { registration_id: p.registration_id };
     setBusyId(p.registration_id);
-    const res = await cancelRegistration(target);
+    if (p.engine === 'legacy') {
+      // An old member registration (event_registrations): removed as the old My events did
+      // (the database lets a member remove their own row only).
+      const { error } = await supabase.from('event_registrations').delete().eq('id', p.registration_id);
+      setBusyId(null);
+      if (error) {
+        toast({ title: t('accountArea.events.unregisterFailed', 'Failed to unregister'), description: t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.'), variant: 'destructive' });
+      } else {
+        toast({ title: t('accountArea.events.unregistered', 'Unregistered from event') });
+        reload();
+      }
+      return;
+    }
+    const res = await cancelRegistration({ registration_id: p.registration_id });
     setBusyId(null);
     if (res.ok) {
       toast({ title: t('reg.toast.cancelled', 'Your registration is cancelled.') });
@@ -137,7 +173,9 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
     }
   };
 
-  const shown = rows.filter((r) => !(hideSm26 && r.engine === 'sm26'));
+  // Smart Marina 2026: the mark above says it (hideSm26); a cancelled or refused SM26 registration
+  // is history, not a participation.
+  const shown = rows.filter((r) => !(r.engine === 'sm26' && (hideSm26 || r.status_display === 'cancelled' || r.status_display === 'not_accepted')));
   const upcoming = shown.filter((r) => !r.is_past).sort((a, b) => (a.starts_at ?? '9999').localeCompare(b.starts_at ?? '9999'));
   const past = shown.filter((r) => r.is_past).sort((a, b) => (b.starts_at ?? '').localeCompare(a.starts_at ?? ''));
 
@@ -213,7 +251,7 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
         {upcoming.length === 0 ? (
           <div className="flex flex-wrap items-center gap-x-2 px-5 py-6 text-sm text-meta">
             <span>{t('accountArea.events.noUpcoming', 'You have no upcoming events.')}</span>
-            <Link to="/events" className="inline-flex min-h-10 items-center font-medium text-navy underline-offset-2 hover:underline">
+            <Link to="/events" className="inline-flex min-h-11 items-center font-medium text-navy underline-offset-2 hover:underline">
               {t('accountArea.events.browse', 'Browse events')}
             </Link>
           </div>
@@ -252,7 +290,8 @@ function ParticipationCard({
   const now = Date.now();
   const isWebinar = p.kind === 'webinar';
   const live = !!p.starts_at && new Date(p.starts_at).getTime() <= now && !!p.ends_at && now < new Date(p.ends_at).getTime();
-  const display = p.engine === 'sm26' && past ? 'event_ended' : p.status_display;
+  // As the database says it (an SM26 submission never finished reads "Event ended" there already).
+  const display = p.status_display;
   const confirmed = display === 'confirmed';
   const closed = display === 'cancelled' || display === 'declined' || display === 'not_accepted';
   const href = eventHref(p);
@@ -268,6 +307,10 @@ function ParticipationCard({
   const personal = v1 && p.status_url ? p.status_url : null;
   // A new registration linked to the account: its own page, managed with the session.
   const mine = v2 && p.linked;
+  // An old member registration of the account, still ahead and not paid for: unregistering stays
+  // possible here, as in the old My events (a paid one needs a refund: the M3 team).
+  const legacyCancel = p.engine === 'legacy' && p.linked && !past && p.status !== 'paid';
+  const role = roleText(p, (key, fallback) => t(key, fallback));
 
   return (
     <li className={cn('p-4 sm:p-5', (display === 'needs_info' || display === 'invited' || display === 'payment_due') && !past && 'bg-amber-50/40')}>
@@ -300,10 +343,10 @@ function ParticipationCard({
               {isWebinar ? <Video className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
               <span>{isWebinar ? t('accountArea.events.online', 'Online') : (p.location || t('accountArea.events.venueTbc', 'Venue to be confirmed'))}</span>
             </li>
-            {p.role_or_ticket && (
+            {role && (
               <li className="flex items-start gap-1.5">
                 <Ticket className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span>{t('accountArea.events.registeredAs', { type: p.role_or_ticket, defaultValue: 'Registered as {{type}}' })}</span>
+                <span>{t('accountArea.events.registeredAs', { type: role, defaultValue: 'Registered as {{type}}' })}</span>
               </li>
             )}
           </ul>
@@ -382,7 +425,7 @@ function ParticipationCard({
           </p>
         )}
 
-        {mine && p.can_cancel && !past && !closed && (
+        {((mine && p.can_cancel) || legacyCancel) && !past && !closed && (
           <div className="max-w-sm">
           <ConfirmInline
             label={display === 'under_review' || display === 'needs_info' ? t('reg.block.cancelRequest', 'Cancel my request')

@@ -286,7 +286,12 @@ export interface RegChanges {
   phone?: string;
   country?: string;
   answers?: Record<string, unknown>;
+  /** needs_info only: the person's answer to M3's question, in their words (up to 2000 characters). */
+  info_answer?: string;
 }
+
+/** The longest answer to M3's question the function keeps. */
+export const INFO_ANSWER_MAX = 2000;
 
 /* ------------------------------------------------------------------ the call */
 
@@ -294,37 +299,47 @@ function isFailure(x: unknown): x is RegFailure {
   return !!x && typeof x === 'object' && (x as { ok?: unknown }).ok === false;
 }
 
+/** An HTTP refusal without a code of the function (the platform's gateway, a crash): a code from the status. */
+function codeForStatus(status: number | undefined): string {
+  if (status === 401) return 'session_expired';
+  if (status === 429) return 'rate_limited';
+  // A 404 without the function's own `not_found` is the gateway (the function is missing):
+  // never "this registration does not exist".
+  return 'unavailable';
+}
+
 /**
  * Calls the registration function. Always resolves: a refusal (an HTTP 4xx
  * `{ error }`, or a 200 `{ ok: false, state }`) comes back as one failure
- * shape, a network failure as `{ ok: false, error: 'network' }`.
+ * shape, a network failure as `{ ok: false, error: 'network' }`. An answer
+ * that does not have the expected shape (`valid`) is a failure too
+ * (`bad_response`), never a half-read success.
  */
-export async function callRegistration<T>(body: Record<string, unknown>): Promise<RegResult<T>> {
+export async function callRegistration<T>(body: Record<string, unknown>, valid?: (d: Record<string, unknown>) => boolean): Promise<RegResult<T>> {
   try {
     const { data, error } = await supabase.functions.invoke('registration', { body });
     if (!error) {
-      if (data && typeof data === 'object') {
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
         const d = data as Record<string, unknown>;
         if (d.ok === false || typeof d.error === 'string') return { ...(d as object), ok: false } as RegFailure;
+        if (valid && !valid(d)) return { ok: false, error: 'bad_response' };
         return { ...(d as object), ok: true } as T;
       }
       return { ok: false, error: 'bad_response' };
     }
     const ctx = (error as { context?: Response }).context;
     if (ctx && typeof ctx.json === 'function') {
-      try {
-        const payload = await ctx.json();
-        if (payload && typeof payload === 'object') {
-          return {
-            ...(payload as object),
-            ok: false,
-            error: (payload as { error?: string }).error ?? (ctx.status === 429 ? 'rate_limited' : undefined),
-          } as RegFailure;
-        }
-      } catch { /* not JSON */ }
-      if (ctx.status === 429) return { ok: false, error: 'rate_limited' };
-      if (ctx.status === 404) return { ok: false, error: 'not_found' };
-      if (ctx.status === 401) return { ok: false, error: 'session_expired' };
+      let payload: unknown = null;
+      try { payload = await ctx.json(); } catch { /* not JSON */ }
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const code = (payload as { error?: unknown }).error;
+        return {
+          ...(payload as object),
+          ok: false,
+          error: typeof code === 'string' && code ? code : codeForStatus(ctx.status),
+        } as RegFailure;
+      }
+      return { ok: false, error: codeForStatus(ctx.status) };
     }
     return { ok: false, error: 'network' };
   } catch {
@@ -334,8 +349,13 @@ export async function callRegistration<T>(body: Record<string, unknown>): Promis
 
 export const regFailed = isFailure;
 
+const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+
 export function getRegistrationForm(event: EventSelector): Promise<RegResult<RegForm>> {
-  return callRegistration<RegForm>({ action: 'form', ...event });
+  return callRegistration<RegForm>(
+    { action: 'form', ...event },
+    (d) => typeof d.engine === 'string' && isObj(d.event) && typeof d.event.slug === 'string',
+  );
 }
 
 /** Signed in with nothing else: one click (the function fills in what the account knows). */
@@ -343,13 +363,16 @@ export function registerForEvent(event: EventSelector, input: RegisterInput = {}
   return callRegistration<RegisterDone>({ action: 'register', ...event, ...input });
 }
 
+const isStatusView = (d: Record<string, unknown>) =>
+  isObj(d.event) && isObj(d.registration) && typeof d.registration.status === 'string';
+
 export function getRegistrationStatus(target: RegTarget): Promise<RegResult<RegStatusView>> {
-  return callRegistration<RegStatusView>({ action: 'status', ...target });
+  return callRegistration<RegStatusView>({ action: 'status', ...target }, isStatusView);
 }
 
 /** Saves the changed keys; a registration waiting for information goes back to review. Answers the new view. */
 export function updateRegistration(target: RegTarget, changes: RegChanges): Promise<RegResult<RegStatusView>> {
-  return callRegistration<RegStatusView>({ action: 'update', ...target, ...changes });
+  return callRegistration<RegStatusView>({ action: 'update', ...target, ...changes }, isStatusView);
 }
 
 export function cancelRegistration(target: RegTarget): Promise<RegResult<{ ok: true; status: 'cancelled' }>> {
@@ -553,6 +576,32 @@ export function isActiveStatus(status: string | null | undefined): boolean {
   return !!status && !['cancelled', 'declined', 'rejected'].includes(status);
 }
 
+/**
+ * A registration the person has to be told about, rather than offered a new
+ * one: anything but one they cancelled or declined (a request M3 did not
+ * accept stays visible, with its words).
+ */
+export function isShownRegistration(status: string | null | undefined): boolean {
+  return !!status && !['cancelled', 'declined'].includes(status);
+}
+
+/**
+ * What to tell a signed-in member after `register`, from the function's answer
+ * (never from what the page expected): already registered, on the waiting
+ * list, received for review, registered. A bare `{ ok: true }` (an account
+ * whose e-mail is not confirmed yet gets the public answer) says only that an
+ * e-mail is on its way.
+ */
+export function registerOutcomeText(t: TFunction, res: RegisterDone): string {
+  if (res.duplicate) return t('reg.toast.already', 'You already have a registration for this event. Its page says where it stands.');
+  switch (res.status) {
+    case 'confirmed': return t('reg.toast.registered', "You're registered. We sent you the details by e-mail.");
+    case 'waitlisted': return t('reg.toast.waitlisted', 'You are on the waiting list. We sent you an e-mail.');
+    case 'requested': return t('reg.toast.received', 'Registration received. The M3 team will reply by e-mail.');
+    default: return t('reg.toast.checkInbox', 'Thank you. Please check your inbox: we sent you an e-mail about this registration.');
+  }
+}
+
 /** One sentence for any refusal of the function. Never says whether an address is known. */
 export function registrationErrorText(t: TFunction, failure: RegFailure | null | undefined): string {
   if (!failure) return t('reg.error.generic', 'Something went wrong. Please try again.');
@@ -583,6 +632,8 @@ export function registrationErrorText(t: TFunction, failure: RegFailure | null |
     case 'sign_in_required': return t('reg.error.signInRequired', 'This registration belongs to an account. Please sign in to change it.');
     case 'not_found':
     case 'wrong_engine': return t('reg.error.notFound', 'This registration could not be found.');
+    case 'unavailable':
+    case 'bad_response': return t('reg.error.unavailable', 'Registration is not available right now. Please try again in a few minutes.');
     case 'locked': return t('reg.error.locked', 'This registration can no longer be changed.');
     case 'changed': return t('reg.error.changed', 'This registration was just changed somewhere else. The page now shows the latest version.');
     case 'linked_elsewhere': return t('reg.error.linkedElsewhere', 'This registration already belongs to another account.');
@@ -607,6 +658,12 @@ export function questionsFor(questions: RegQuestion[] | undefined, ticketKey: st
 /** Whether a participation type can be chosen by this caller. */
 export function ticketOpen(tk: RegTicket): boolean {
   return tk.allowed !== false && !tk.invite_only;
+}
+
+/** The event offers participation types, and none of them can be chosen by this caller. */
+export function noOpenTicket(form: RegForm): boolean {
+  const tickets = form.tickets ?? [];
+  return tickets.length > 0 && !tickets.some(ticketOpen);
 }
 
 /** Where the visitor came from, for source_detail: the campaign tags of the address, else `fallback`. */

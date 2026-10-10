@@ -44,8 +44,10 @@ export function ResendLinksForm({
     setSending(true);
     const res = await resendRegistrationLinks(clean, honeypot);
     setSending(false);
-    // Only a refusal of the request itself is said: never "unknown address".
-    if (!res.ok && (res.error === 'invalid_email' || res.error === 'rate_limited' || res.error === 'network')) {
+    // The function answers { ok: true } for any valid address, known or not (and for its own
+    // limit): a refusal here is a real failure (a wrong address, the network, the server), said as
+    // such, so nobody waits for an e-mail that will not come. It never reveals an address.
+    if (!res.ok) {
       setError(registrationErrorText(t, res));
       return;
     }

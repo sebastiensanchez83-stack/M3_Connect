@@ -5,7 +5,7 @@ import { CheckCircle2, Hourglass, Loader2, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import {
-  isActiveStatus, registerForEvent, registrationErrorText, statusLabel,
+  isShownRegistration, registerForEvent, registerOutcomeText, registrationErrorText, statusLabel,
   type OpenRegistration, type Participation,
 } from '@/lib/registration';
 import { cn } from '@/lib/utils';
@@ -46,7 +46,9 @@ export function ParticipateCardAction({
   const detail = reg.event_id ? `/events/${reg.event_id}` : `/register/${reg.slug}`;
   const form = `/register/${reg.slug}?from=event`;
 
-  if (mine && isActiveStatus(mine.status)) {
+  // The member's own registration, whatever it became (a request M3 did not accept included):
+  // never a fresh "Save my seat" over it. Only a cancelled or declined one leaves room for a new one.
+  if (mine && isShownRegistration(mine.status)) {
     const confirmed = mine.status_display === 'confirmed';
     return (
       <Button asChild size={size} variant={second}>
@@ -64,7 +66,9 @@ export function ParticipateCardAction({
     const waitlist = state === 'waitlist';
     const label = waitlist ? t('reg.submit.waitlist', 'Join the waiting list')
       : reg.registration_mode === 'invitation' ? t('eventsPage.requestInvitation', 'Request an invitation')
-        : signedIn && reg.kind === 'webinar' ? t('reg.block.saveSeat', 'Save my seat') : t('events.register', 'Register');
+        : signedIn && reg.kind === 'webinar'
+          ? (reg.registration_mode === 'review' ? t('reg.submit.review', 'Send my registration') : t('reg.block.saveSeat', 'Save my seat'))
+          : t('events.register', 'Register');
 
     // Signed in, a webinar: one tap. Anything to fill in, and the form opens.
     if (signedIn && reg.kind === 'webinar' && reg.registration_mode !== 'invitation' && reg.event_id) {
@@ -73,11 +77,8 @@ export function ParticipateCardAction({
         const res = await registerForEvent({ event_id: reg.event_id! }, { source_detail: { entry: 'event_page', ref: 'events_list' } });
         setBusy(false);
         if (res.ok) {
-          toast({
-            title: waitlist ? t('reg.toast.waitlisted', 'You are on the waiting list. We sent you an e-mail.')
-              : reg.registration_mode === 'review' ? t('reg.toast.received', 'Registration received. The M3 team will reply by e-mail.')
-                : t('reg.toast.registered', "You're registered. We sent you the details by e-mail."),
-          });
+          // The words follow the function's answer, never what the list showed a moment ago.
+          toast({ title: registerOutcomeText(t, res) });
           onRegistered?.();
           return;
         }

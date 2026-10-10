@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { cn, type CalendarEventInput } from '@/lib/utils';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
-import { MyParticipations } from '@/components/registration/MyParticipations';
+import { MyParticipations, REGISTRATION_TYPE_LABELS } from '@/components/registration/MyParticipations';
 import { humanize, uiLocale } from './format';
 
 /**
@@ -55,15 +55,6 @@ interface EventRegistration {
   events: RegisteredEvent | null;
 }
 
-const REGISTRATION_TYPE_LABELS: Record<string, { key: string; fallback: string }> = {
-  visitor: { key: 'accountArea.events.regType.visitor', fallback: 'Visitor' },
-  sponsor_included: { key: 'accountArea.events.regType.sponsor_included', fallback: 'Sponsor seat' },
-  member_discount: { key: 'accountArea.events.regType.member_discount', fallback: 'Member rate' },
-  package: { key: 'accountArea.events.regType.package', fallback: 'Package' },
-  marina_package: { key: 'accountArea.events.regType.marina_package', fallback: 'Marina package' },
-  invitation_request: { key: 'accountArea.events.regType.invitation_request', fallback: 'Invitation request' },
-  exhibitor: { key: 'accountArea.events.regType.exhibitor', fallback: 'Exhibitor' },
-};
 
 /** As the calendar links assume: an event without an end time lasts an hour. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;

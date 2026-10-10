@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
 import { ArrowRight, Check, CheckCircle2 } from 'lucide-react';
@@ -25,7 +26,7 @@ import { ConnectionsDialog, JoinRequestsDialog } from './teamDialogs';
  * profile); this only shows them and their windows.
  */
 
-export type TodoAction = 'connections' | 'join' | 'logo' | 'banner' | 'description' | 'sectors' | 'photo' | 'job';
+export type TodoAction = 'connections' | 'join' | 'logo' | 'banner' | 'description' | 'sectors' | 'photo' | 'job' | 'event_info';
 
 export interface TodoItem {
   key: TodoAction;
@@ -34,6 +35,8 @@ export interface TodoItem {
   icon: LucideIcon;
   /** Someone waits for an answer. */
   urgent: boolean;
+  /** Opens this page instead of a small window (the answer is given there). */
+  to?: string;
 }
 
 type Phase = 'ticking' | 'leaving';
@@ -55,6 +58,7 @@ export function TodoList({
   onInboxChanged: () => void;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user, profile, organization, refreshProfile } = useAuth();
   const [open, setOpen] = useState<TodoAction | null>(null);
   // Items ticked off: shown with their check for a moment, then gone.
@@ -137,7 +141,7 @@ export function TodoList({
               >
                 <button
                   type="button"
-                  onClick={() => { if (!p) { allAnswered.current = false; setOpen(item.key); } }}
+                  onClick={() => { if (p) return; if (item.to) { navigate(item.to); return; } allAnswered.current = false; setOpen(item.key); }}
                   aria-disabled={!!p}
                   className={cn('group flex min-h-[72px] w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page', ROW_FOCUS)}
                 >

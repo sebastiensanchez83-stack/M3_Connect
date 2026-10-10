@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  AlertCircle, CheckCircle2, Clock, Hourglass, ListChecks, Lock, MailCheck,
-  ShieldCheck, Ticket, UserPlus, Video,
+  AlertCircle, CheckCircle2, Clock, Hourglass, ListChecks, Lock, MailCheck, MessageSquare,
+  ShieldCheck, Ticket, UserPlus, Video, XCircle,
 } from 'lucide-react';
 import { Seo } from '@/components/seo/Seo';
 import { Button } from '@/components/ui/button';
@@ -15,13 +15,14 @@ import { ContactCard } from '@/components/brand/ContactCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { RegistrationForm, type RegistrationDone } from '@/components/registration/RegistrationForm';
-import { EventBand, NoteLine, regLocale, whenLine } from '@/components/registration/RegistrationUI';
+import { EventBand, NoteLine, RegStatusPill, eventZone, regLocale, whenLine } from '@/components/registration/RegistrationUI';
+import { M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import {
-  GUEST_LIST_PAGES, getRegistrationForm, registrationErrorText, sourceFromUrl, statusPagePath, useReviewSla,
-  type RegFailure, type RegForm,
+  GUEST_LIST_PAGES, getRegistrationForm, isShownRegistration, noOpenTicket, registrationErrorText, sourceFromUrl, statusPagePath, useReviewSla,
+  type RegFailure, type RegForm, type RegStatus,
 } from '@/lib/registration';
 import { withSiteSuffix } from '@/lib/seoText';
 import { cn } from '@/lib/utils';
@@ -87,7 +88,7 @@ function RegisterContent({ slug }: { slug: string }) {
   const ev = form?.event ?? null;
   const eventHref = ev?.event_id ? `/events/${ev.event_id}` : null;
   const isWebinar = ev?.kind === 'webinar';
-  const when = ev ? whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced')) : '';
+  const when = ev ? whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'), false, eventZone(ev)) : '';
   const where = ev ? (isWebinar ? t('reg.online', 'Online') : ev.location || t('reg.venueTbd', 'Venue to be announced')) : '';
   const titleText = ev?.title ?? t('reg.page.title', 'Registration');
 
@@ -126,13 +127,11 @@ function RegisterContent({ slug }: { slug: string }) {
     );
   } else if (done) {
     main = <DoneView form={form} done={done} signedIn={!!user} sla={sla} eventHref={eventHref} />;
-  } else if (form.mine && !['cancelled', 'declined'].includes(form.mine.status)) {
+  } else if (form.mine && isShownRegistration(form.mine.status)) {
     const mineId = form.mine.registration_id;
     main = (
       <div className="space-y-5">
-        <AuthNotice tone="success" icon={<CheckCircle2 className="h-4 w-4" />} title={t('reg.page.alreadyTitle', 'You are already registered')}>
-          <p>{t('reg.page.alreadyBody', 'Your registration for this event is in My events, with where it stands.')}</p>
-        </AuthNotice>
+        <AlreadyNotice status={form.mine.status} />
         <div className="flex flex-wrap gap-3">
           {mineId ? (
             <Button asChild variant="cta" size="sm"><Link to={statusPagePath(mineId)}>{t('reg.block.viewMine', 'See my registration')}</Link></Button>
@@ -143,7 +142,7 @@ function RegisterContent({ slug }: { slug: string }) {
         </div>
       </div>
     );
-  } else if (form.engine === 'core_v2' && !form.paused && (form.state === 'open' || form.state === 'waitlist')) {
+  } else if (form.engine === 'core_v2' && !form.paused && (form.state === 'open' || form.state === 'waitlist') && !noOpenTicket(form)) {
     main = (
       <RegistrationForm
         form={form}
@@ -200,7 +199,9 @@ function RegisterContent({ slug }: { slug: string }) {
                 {isWebinar
                   ? <li><NoteLine icon={Video}>{t('reg.page.howJoin', 'The joining link comes by e-mail, and with a reminder before the start.')}</NoteLine></li>
                   : <li><NoteLine icon={Ticket}>{t('reg.page.howPass', 'Once confirmed, your entry pass comes by e-mail.')}</NoteLine></li>}
-                {!user && <li><NoteLine icon={UserPlus}>{t('reg.page.howAccount', 'No account needed. M3 creates your account once your place is confirmed at an on-site event.')}</NoteLine></li>}
+                {!user && (isWebinar
+                  ? <li><NoteLine icon={UserPlus}>{t('reg.page.howAccountWebinar', 'No account needed: your name and e-mail are enough.')}</NoteLine></li>
+                  : <li><NoteLine icon={UserPlus}>{t('reg.page.howAccount', 'No account needed. M3 creates your account once your place is confirmed.')}</NoteLine></li>)}
               </ul>
             </CardShell>
             <ContactCard line={t('reg.page.contact', 'A question about this event? Write to the M3 team.')} />
@@ -228,16 +229,21 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
   const navigate = useNavigate();
   const ev = form.event;
   const reviewed = ev.mode !== 'instant';
-  // Signed in, the function may say where the registration landed; otherwise the event's rule says it.
+  // Signed in, the function says where the registration landed (and whether it already existed):
+  // that answer comes first. Anonymous answers are all alike, so the event's rule says it.
   const status = done.status ?? null;
+  const duplicate = done.duplicate === true;
   const waitlist = status === 'waitlisted' || (!status && done.waitlist);
   const confirmed = status === 'confirmed' || (!status && !reviewed && !waitlist);
+  const underReview = status === 'requested' || status === 'needs_info' || (!status && reviewed && !waitlist);
 
-  const title = waitlist
-    ? t('reg.done.waitlistTitle', 'You are on the waiting list')
-    : reviewed
-      ? (ev.mode === 'invitation' ? t('reg.done.requestTitle', 'Thank you, your request is sent') : t('reg.done.reviewTitle', 'Thank you, your registration is sent'))
-      : t('reg.done.instantTitle', 'Thank you, you are registered');
+  const title = duplicate
+    ? t('reg.done.duplicateTitle', 'You already have a registration for this event')
+    : waitlist
+      ? t('reg.done.waitlistTitle', 'You are on the waiting list')
+      : confirmed
+        ? t('reg.done.instantTitle', 'Thank you, you are registered')
+        : ev.mode === 'invitation' ? t('reg.done.requestTitle', 'Thank you, your request is sent') : t('reg.done.reviewTitle', 'Thank you, your registration is sent');
 
   const calendar = confirmed && ev.starts_at ? {
     title: ev.title ?? '', description: null, date_time: ev.starts_at, end_date_time: ev.ends_at, location: ev.location ?? null,
@@ -246,19 +252,22 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
   return (
     <div role="status" className="space-y-6">
       <div className="flex items-start gap-4">
-        <span aria-hidden="true" className={cn('grid h-12 w-12 shrink-0 place-items-center rounded-full', waitlist ? 'bg-chip text-navy' : reviewed ? 'bg-gold text-navy' : 'bg-teal text-white')}>
-          {waitlist ? <Hourglass className="h-6 w-6" /> : reviewed ? <Clock className="h-6 w-6" /> : <CheckCircle2 className="h-6 w-6" />}
+        <span aria-hidden="true" className={cn('grid h-12 w-12 shrink-0 place-items-center rounded-full', waitlist ? 'bg-chip text-navy' : confirmed ? 'bg-teal text-white' : 'bg-gold text-navy')}>
+          {waitlist ? <Hourglass className="h-6 w-6" /> : confirmed ? <CheckCircle2 className="h-6 w-6" /> : <Clock className="h-6 w-6" />}
         </span>
         <div className="min-w-0">
           <h2 className="text-h3 text-navy">{title}</h2>
+          {duplicate && status && <div className="mt-2"><RegStatusPill status={status} /></div>}
           <p className="mt-2 text-[15px] leading-6 text-ink">
-            {t('reg.done.emailed', { email: done.email, defaultValue: 'We have sent a confirmation to {{email}}, with your personal link to follow your registration, change your answers or cancel.' })}
+            {duplicate
+              ? t('reg.done.duplicateBody', 'Nothing has changed: your registration stays as it was. Its page says where it stands.')
+              : t('reg.done.emailed', { email: done.email, defaultValue: 'We have sent a confirmation to {{email}}, with your personal link to follow your registration, change your answers or cancel.' })}
           </p>
         </div>
       </div>
 
       <ul className="space-y-3">
-        {reviewed && !waitlist && (
+        {underReview && !duplicate && (
           <li><NoteLine icon={ShieldCheck}>{t('reg.done.reviewNext', { sla, defaultValue: 'The M3 team reviews it and replies {{sla}}, by e-mail.' })}</NoteLine></li>
         )}
         {waitlist && <li><NoteLine icon={Hourglass}>{t('reg.done.waitlistNext', 'We e-mail you as soon as a place frees up.')}</NoteLine></li>}
@@ -280,15 +289,20 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
         {!eventHref && <Button asChild variant="ctaOutline" size="sm" arrow={false}><Link to="/events">{t('reg.page.allEvents', 'See all events')}</Link></Button>}
       </div>
 
-      {!signedIn && (
+      {/* An account: on request for a webinar. For an on-site event M3 creates it once the place is
+          confirmed (Victor, 6 Oct 2026): one opened now would not get M3's choices and would wait to be linked. */}
+      {!signedIn && ev.kind === 'webinar' && (
         <div className="rounded-field border border-rule bg-page p-4">
           <p className="text-sm font-semibold leading-5 text-navy">{t('reg.quick.accountTitle', 'Find all your events in one place')}</p>
           <p className="mt-1 text-sm leading-5 text-meta">{t('reg.quick.accountBody', 'A free account keeps your registrations, replays and contacts together. M3 checks every new member.')}</p>
-          <Button type="button" variant="outline" className="mt-3 h-10 rounded-pill border-navy/25 px-4 text-navy" onClick={() => openSignup()}>
+          <Button type="button" variant="outline" className="mt-3 h-11 rounded-pill border-navy/25 px-4 text-navy" onClick={() => openSignup()}>
             <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('reg.quick.createAccount', 'Create my account')}
           </Button>
         </div>
+      )}
+      {!signedIn && ev.kind !== 'webinar' && !duplicate && (
+        <NoteLine icon={UserPlus}>{t('reg.status.accountOnsite', 'Once M3 confirms your place, we create your Smart Marina Connect account and e-mail you a link to set your password.')}</NoteLine>
       )}
     </div>
   );
@@ -300,7 +314,10 @@ function ClosedView({ form, signedIn, onSignIn, locale }: { form: RegForm; signe
   const { t } = useTranslation();
   const { profile } = useAuth();
   // A guest list without a page of its own takes no registration here: the organisers invite.
-  const state = form.engine === 'guest_list_v1' ? 'invitation_only' : form.paused ? 'paused' : form.state;
+  const state = form.engine === 'guest_list_v1' ? 'invitation_only'
+    : form.paused ? 'paused'
+      : (form.state === 'open' || form.state === 'waitlist') && noOpenTicket(form) ? 'no_ticket'
+        : form.state;
   let title: string;
   let body: string;
   switch (state) {
@@ -332,6 +349,12 @@ function ClosedView({ form, signedIn, onSignIn, locale }: { form: RegForm; signe
       title = t('reg.block.draftTitle', 'Registration not open yet');
       body = t('reg.block.draftBody', 'This event is a draft: registration opens once it is published.');
       break;
+    case 'no_ticket':
+      title = t('reg.block.byInvitation', 'By invitation only');
+      body = signedIn
+        ? t('reg.block.noTicketBody', 'Places at this event are given by invitation, or kept for some companies validated by M3.')
+        : t('reg.page.noTicketSignedOut', 'Places at this event are given by invitation, or kept for some companies validated by M3. Your company is validated? Sign in to see the places it can take.');
+      break;
     default:
       title = t('reg.block.closedTitle', 'Registration closed');
       body = t('reg.error.closed', 'Registration for this event is closed.');
@@ -345,8 +368,48 @@ function ClosedView({ form, signedIn, onSignIn, locale }: { form: RegForm; signe
       <p className="mt-2 text-[15px] leading-6 text-ink">{body}</p>
       <div className="mt-6 flex flex-wrap gap-3">
         {state === 'members_only' && !signedIn && <Button variant="cta" size="sm" onClick={onSignIn}>{t('reg.block.signInToRegister', 'Sign in to register')}</Button>}
+        {state === 'no_ticket' && !signedIn && <Button variant="cta" size="sm" onClick={onSignIn}>{t('reg.signIn', 'Sign in')}</Button>}
         <UnderlineLink to="/events">{t('reg.page.allEvents', 'See all events')}</UnderlineLink>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ already sent */
+
+/**
+ * Signed in, the account already has a registration for this event: where it
+ * stands, in words. "Registered" only for a confirmed place; a request under
+ * review, a waiting list or a question from M3 say so; a refusal says it too,
+ * with the address to write to.
+ */
+function AlreadyNotice({ status }: { status: RegStatus }) {
+  const { t } = useTranslation();
+  if (status === 'confirmed') {
+    return (
+      <AuthNotice tone="success" icon={<CheckCircle2 className="h-4 w-4" />} title={t('reg.page.alreadyTitle', 'You are already registered')}>
+        <p>{t('reg.page.alreadyBody', 'Your registration for this event is in My events, with where it stands.')}</p>
+      </AuthNotice>
+    );
+  }
+  if (status === 'rejected') {
+    return (
+      <AuthNotice tone="info" icon={<XCircle className="h-4 w-4" />} title={t('reg.status.notAccepted', 'Not accepted')}>
+        <p>
+          {t('reg.page.notAcceptedBody', 'The organisers could not offer you a place at this event. A question? Write to')}{' '}
+          <a href={`mailto:${M3_PUBLIC_EMAIL}`} className="font-semibold text-navy underline underline-offset-4">{M3_PUBLIC_EMAIL}</a>
+        </p>
+      </AuthNotice>
+    );
+  }
+  return (
+    <AuthNotice tone="info" icon={status === 'needs_info' ? <MessageSquare className="h-4 w-4" /> : <Clock className="h-4 w-4" />} title={t('reg.page.alreadySentTitle', 'You have already sent a registration')}>
+      <div className="mt-1"><RegStatusPill status={status} /></div>
+      <p className="mt-2">
+        {status === 'needs_info'
+          ? t('reg.page.alreadyNeedsInfo', 'The M3 team needs one more detail from you: open your registration to answer.')
+          : t('reg.page.alreadySentBody', 'Your registration page says where it stands.')}
+      </p>
+    </AuthNotice>
   );
 }

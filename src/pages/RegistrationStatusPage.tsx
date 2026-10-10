@@ -5,35 +5,36 @@ import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
 import {
   BellOff, BellRing, CalendarPlus, Link2, Link2Off, Loader2, LogIn, Mail, Maximize2, MessageSquare, Pencil, Play,
-  Sun, Video, X,
+  Sun, UserPlus, Video, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
-import { AuthNotice } from '@/components/auth/fields';
 import { CardShell } from '@/components/brand/CardShell';
 import { ContactCard, M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { IdentityBlock, identityErrors, ruleOf, type IdentityKey, type IdentityValues } from '@/components/registration/IdentityBlock';
+import { AuthLabel, AuthNotice, AuthTextarea, FieldError, FieldHint } from '@/components/auth/fields';
 import { QuestionField, answerError, isAnswered, type AnswerValue } from '@/components/registration/QuestionField';
 import { ResendLinksForm } from '@/components/registration/ResendLinksForm';
 import { StatusTimeline } from '@/components/registration/StatusTimeline';
 import {
-  ConfirmInline, EventBand, NoteLine, PaymentPill, RegStatusPill, regLocale, whenLine,
+  ConfirmInline, EventBand, NoteLine, PaymentPill, RegStatusPill, eventZone, regLocale, whenLine,
 } from '@/components/registration/RegistrationUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import {
-  attachRegistration, cancelRegistration, displayOf, getRegistrationStatus, questionOptions,
-  registrationErrorText, setRegistrationReminders, updateRegistration, useReviewSla,
+  INFO_ANSWER_MAX, attachRegistration, cancelRegistration, displayOf, fetchMyParticipations, getRegistrationStatus,
+  questionOptions, registrationErrorText, setRegistrationReminders, updateRegistration, useReviewSla,
   type RegChanges, type RegFailure, type RegStatusView, type RegTarget,
 } from '@/lib/registration';
 import { withSiteSuffix } from '@/lib/seoText';
+import { cn } from '@/lib/utils';
 import { Seo } from '@/components/seo/Seo';
 
 /**
@@ -63,6 +64,15 @@ export function RegistrationStatusPage() {
   if (token) return <StatusContent target={{ token }} remindersOff={remindersOff} />;
   if (id) return <OwnerStatus id={id} />;
   return <FindMyLinks />;
+}
+
+/**
+ * Where a sign-in started here comes back to. It travels inside the e-mailed
+ * sign-in and password links (?next=), so never with the personal link's token
+ * ("never shown, logged or sent on"): from a personal link, My events.
+ */
+function signInNext(pathname: string, search: string): string {
+  return new URLSearchParams(search).has('t') ? accountHref('registrations') : `${pathname}${search}`;
 }
 
 const NO_REFERRER = (
@@ -145,7 +155,7 @@ function SignInPrompt() {
         description={t('reg.status.signInDesc', 'Sign in to manage your registrations.')}
         switchTo={{ onClick: () => { setLoginOpen(false); openSignup(); } }}
       >
-        <LoginForm onSuccess={() => setLoginOpen(false)} next={`${location.pathname}${location.search}`} />
+        <LoginForm onSuccess={() => setLoginOpen(false)} next={signInNext(location.pathname, location.search)} />
       </AuthDialog>
     </div>
   );
@@ -182,6 +192,10 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   const [qr, setQr] = useState<string | null>(null);
   const [passOpen, setPassOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  // Answering M3: the details form is open under the answer (then the "Your details" card steps aside).
+  const [replyDetailsOpen, setReplyDetailsOpen] = useState(false);
+  // Signed in, opened from a personal link of a registration linked to an account: is it this one?
+  const [linkedToMe, setLinkedToMe] = useState<boolean | null>(null);
   const token = 'token' in target ? target.token : null;
 
   // Read again when the account changes (signing in here may make the page the owner's).
@@ -194,6 +208,19 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
     });
     return () => { alive = false; };
   }, [target, version, userId]);
+
+  // The function says "linked" without saying to whom (an account that has not confirmed its e-mail
+  // keeps the link editable): the member's own list tells (my_participations, rows by account).
+  const regId = view?.registration.id ?? null;
+  const askLinked = !!userId && !!token && !!view && view.registration.linked === true && !view.read_only;
+  useEffect(() => {
+    if (!askLinked || !regId) { setLinkedToMe(null); return; }
+    let alive = true;
+    fetchMyParticipations().then(({ rows, failed }) => {
+      if (alive) setLinkedToMe(failed ? null : rows.some((r) => r.registration_id === regId && r.linked));
+    });
+    return () => { alive = false; };
+  }, [askLinked, regId, userId]);
 
   const qrText = view?.pass?.qr_text ?? null;
   useEffect(() => {
@@ -228,7 +255,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   const live = !!ev.starts_at && new Date(ev.starts_at).getTime() <= now && !ended;
   const readOnly = view.read_only;
   const active = !['cancelled', 'declined', 'rejected'].includes(reg.status);
-  const when = whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'));
+  const when = whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'), false, eventZone(ev));
   const where = isWebinar ? t('reg.online', 'Online') : ev.location || t('reg.venueTbd', 'Venue to be announced');
   const eventHref = ev.event_id ? `/events/${ev.event_id}` : null;
   const title = ev.title ?? t('reg.status.eyebrow', 'Your registration');
@@ -242,6 +269,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
     if (res.ok) {
       toast({ title: success });
       setEditing(false);
+      setReplyDetailsOpen(false);
       if ((res as unknown as RegStatusView).registration) setView(res as unknown as RegStatusView);
       else setVersion((v) => v + 1);
       return true;
@@ -327,6 +355,25 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
             <p className="mt-4 text-[17px] font-semibold leading-6 text-navy">{t('reg.status.hello', { name: reg.first_name, defaultValue: 'Hello {{name}},' })}</p>
           )}
 
+          {/* Confirmed on site: the entry pass first, the one thing needed on the day (on a phone, in the first screen). */}
+          {reg.status === 'confirmed' && !isWebinar && qr && !ended && (
+            <div className="mt-5 border-b border-dashed border-rule pb-6 text-center">
+              <p className="text-meta-caps">{t('reg.status.passLabel', 'Entry pass')}</p>
+              <button
+                type="button"
+                onClick={() => setPassOpen(true)}
+                className="mx-auto mt-3 block w-fit max-w-full rounded-card bg-white p-3 ring-1 ring-inset ring-rule focus:outline-none focus-visible:shadow-focus"
+                aria-label={t('reg.status.passOpen', 'Show my entry pass full screen')}
+              >
+                <img src={qr} alt={t('reg.status.qrAlt', 'Your entry QR code')} className="mx-auto h-auto w-[220px] max-w-full" />
+              </button>
+              <Button variant="ctaOutline" size="sm" arrow={false} className="mt-4" onClick={() => setPassOpen(true)}>
+                <Maximize2 className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.status.passFull', 'Show full screen')}
+              </Button>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-meta">{t('reg.status.passHelp', 'Show this QR code at the entrance. No QR? Just give your name at the desk.')}</p>
+            </div>
+          )}
+
           <div className="mt-5">
             <StatusTimeline
               status={reg.status}
@@ -340,7 +387,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
           </div>
 
           <div className="mt-6 space-y-4">
-            {/* M3 needs a detail: the question, then the details to complete and one button. */}
+            {/* M3 needs a detail: the question, a box for the answer, the details only if asked for. */}
             {needsInfo && (
               <div className="space-y-4 rounded-field border border-gold/60 bg-gold/10 p-4">
                 <p className="flex items-center gap-2 text-[15px] font-semibold text-navy">
@@ -348,10 +395,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
                 </p>
                 {reg.info_request && <blockquote className="rounded-field bg-white px-4 py-3 text-[15px] leading-6 text-navy [overflow-wrap:anywhere]">{reg.info_request}</blockquote>}
                 {canEdit ? (
-                  <>
-                    <p className="text-sm leading-6 text-ink">{t('reg.status.infoHow', 'Complete or correct your details below if that answers it, then press "Send my answer".')}</p>
-                    <EditDetails view={view} busy={busy} reply onSave={save} />
-                  </>
+                  <EditDetails view={view} busy={busy} reply onSave={save} onDetailsToggle={setReplyDetailsOpen} />
                 ) : (
                   <p className="text-sm leading-6 text-ink">{t('reg.status.infoByEmail', 'Please reply to the M3 team by e-mail.')}</p>
                 )}
@@ -401,24 +445,6 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
             {actionError && <AuthNotice tone="error" role="alert"><p>{actionError}</p></AuthNotice>}
           </div>
 
-          {/* Confirmed on site: the entry pass. */}
-          {reg.status === 'confirmed' && !isWebinar && qr && !ended && (
-            <div className="mt-6 border-t border-dashed border-rule pt-6 text-center">
-              <p className="text-meta-caps">{t('reg.status.passLabel', 'Entry pass')}</p>
-              <button
-                type="button"
-                onClick={() => setPassOpen(true)}
-                className="mx-auto mt-4 block w-fit max-w-full rounded-card bg-white p-3 ring-1 ring-inset ring-rule focus:outline-none focus-visible:shadow-focus"
-                aria-label={t('reg.status.passOpen', 'Show my entry pass full screen')}
-              >
-                <img src={qr} alt={t('reg.status.qrAlt', 'Your entry QR code')} className="mx-auto h-auto w-[240px] max-w-full" />
-              </button>
-              <Button variant="ctaOutline" size="sm" arrow={false} className="mt-4" onClick={() => setPassOpen(true)}>
-                <Maximize2 className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.status.passFull', 'Show full screen')}
-              </Button>
-              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-meta">{t('reg.status.passHelp', 'Show this QR code at the entrance. No QR? Just give your name at the desk.')}</p>
-            </div>
-          )}
         </CardShell>
 
         {/* Linked to an account: shown here, managed there. */}
@@ -450,21 +476,27 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.status.attach', 'Add this to my account')}
             </Button>
           </CardShell>
-        ) : user && reg.linked && view.via === 'token' ? (
-          <p className="flex items-center justify-center gap-2 text-center text-sm leading-6 text-meta">
+        ) : user && reg.linked && view.via === 'token' && linkedToMe === true ? (
+          <p className="flex flex-wrap items-center justify-center gap-x-2 text-center text-sm leading-6 text-meta">
             <Link2 className="h-4 w-4 shrink-0" aria-hidden="true" />
             {t('reg.status.inAccount', 'This registration is in your account.')}{' '}
-            <Link to={accountHref('registrations')} className="font-semibold text-navy underline underline-offset-4">{t('reg.myEvents', 'My events')}</Link>
+            <Link to={accountHref('registrations')} className="inline-flex min-h-11 items-center font-semibold text-navy underline underline-offset-4">{t('reg.myEvents', 'My events')}</Link>
+          </p>
+        ) : user && reg.linked && view.via === 'token' && linkedToMe === false ? (
+          // Linked to another account that has not confirmed its e-mail yet: this link still manages it.
+          <p className="flex items-start justify-center gap-2 text-center text-sm leading-6 text-meta">
+            <Link2 className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('reg.status.linkedOtherEditable', 'This registration is linked to another Smart Marina Connect account. You can still manage it from this link.')}
           </p>
         ) : null}
 
         {/* What was sent, and changing it. */}
-        {detailRows.length > 0 && (
+        {detailRows.length > 0 && !(needsInfo && replyDetailsOpen) && (
           <CardShell as="section" aria-labelledby="reg-st-details" className="p-6 sm:p-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 id="reg-st-details" className="text-card-title text-navy">{t('reg.status.detailsTitle', 'Your details')}</h2>
               {canEdit && !editing && !needsInfo && (
-                <Button variant="outline" size="sm" className="h-10 rounded-pill border-navy/25 px-4 text-navy" onClick={() => setEditing(true)}>
+                <Button variant="outline" size="sm" className="h-11 rounded-pill border-navy/25 px-4 text-navy" onClick={() => setEditing(true)}>
                   <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />{t('reg.change', 'Change')}
                 </Button>
               )}
@@ -531,13 +563,20 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
           />
         )}
 
-        {!user && !readOnly && (
+        {/* An account: on request for a webinar. For an on-site event M3 creates it once the place is
+            confirmed (Victor, 6 Oct 2026): one opened now would not get M3's choices and would wait to be linked. */}
+        {!user && !readOnly && isWebinar && (
           <p className="text-center text-sm leading-6 text-meta">
             {t('reg.status.accountHint', 'Want all your events in one place?')}{' '}
-            <button type="button" onClick={() => openSignup()} className="font-semibold text-navy underline underline-offset-4 focus:outline-none focus-visible:shadow-focus">
+            <button type="button" onClick={() => openSignup()} className="inline-flex min-h-11 items-center rounded px-1 font-semibold text-navy underline underline-offset-4 focus:outline-none focus-visible:shadow-focus">
               {t('reg.quick.createAccount', 'Create my account')}
             </button>
           </p>
+        )}
+        {!user && !readOnly && !isWebinar && ['requested', 'needs_info', 'waitlisted', 'invited', 'approved'].includes(reg.status) && (
+          <NoteLine icon={UserPlus} className="text-meta">
+            {t('reg.status.accountOnsite', 'Once M3 confirms your place, we create your Smart Marina Connect account and e-mail you a link to set your password.')}
+          </NoteLine>
         )}
 
         <ContactCard line={t('reg.status.contact', 'A question about your registration? Write to the M3 team.')} />
@@ -564,7 +603,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
         description={t('reg.status.signInDesc', 'Sign in to manage your registrations.')}
         switchTo={{ onClick: () => { setLoginOpen(false); openSignup(); } }}
       >
-        <LoginForm onSuccess={() => { setLoginOpen(false); navigate(`${location.pathname}${location.search}`, { replace: true }); }} next={`${location.pathname}${location.search}`} />
+        <LoginForm onSuccess={() => { setLoginOpen(false); navigate(`${location.pathname}${location.search}`, { replace: true }); }} next={signInNext(location.pathname, location.search)} />
       </AuthDialog>
     </div>
   );
@@ -574,12 +613,21 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
 
 const STD = ['company', 'job_title', 'phone', 'country'] as const;
 
+/**
+ * Changing the details, or answering M3's question (`reply`).
+ *
+ * Reply: a box for the answer first (sent as `info_answer`, kept in the
+ * registration's history and e-mailed to the M3 team), then, only if the
+ * person opens it, the details to correct. Sending needs an answer or a
+ * corrected detail: an empty "answer" would go back to M3 with nothing in it.
+ */
 function EditDetails({
   view,
   busy,
   reply = false,
   onCancel,
   onSave,
+  onDetailsToggle,
 }: {
   view: RegStatusView;
   busy: boolean;
@@ -587,6 +635,8 @@ function EditDetails({
   reply?: boolean;
   onCancel?: () => void;
   onSave: (changes: RegChanges) => void;
+  /** Reply only: the details under the answer were opened or closed. */
+  onDetailsToggle?: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
   const reg = view.registration;
@@ -613,41 +663,64 @@ function EditDetails({
   });
   const [errors, setErrors] = useState<Partial<Record<IdentityKey, string>>>({});
   const [qErrors, setQErrors] = useState<Record<string, string>>({});
-
-  const save = () => {
-    // The e-mail never changes here; the names only while the registration is not decided.
-    const idErrs = identityErrors({ ...values, ...(names ? {} : { first_name: 'x', last_name: 'x' }), email: 'x@x.xx' }, std, t);
-    const qe: Record<string, string> = {};
-    for (const q of editableQs) { const e = answerError(q, answers[q.key], t); if (e) qe[q.key] = e; }
-    setErrors(idErrs);
-    setQErrors(qe);
-    if (Object.keys(idErrs).length > 0 || Object.keys(qe).length > 0) return;
-    // Only the keys that changed.
-    const changes: RegChanges = {};
-    if (names) {
-      if (values.first_name.trim() !== initial.first_name) changes.first_name = values.first_name.trim();
-      if (values.last_name.trim() !== initial.last_name) changes.last_name = values.last_name.trim();
-    }
-    for (const k of STD) if (ruleOf(std, k) !== 'hidden' && values[k].trim() !== initial[k]) changes[k] = values[k].trim();
-    const changedAnswers: Record<string, unknown> = {};
-    for (const q of editableQs) {
-      const before = JSON.stringify(reg.answers?.[q.key] ?? null);
-      const now = answers[q.key];
-      const after = JSON.stringify(isAnswered(now) ? now : null);
-      if (before !== after) changedAnswers[q.key] = isAnswered(now) ? now : null;
-    }
-    if (Object.keys(changedAnswers).length > 0) changes.answers = changedAnswers;
-    onSave(changes);
+  const [infoAnswer, setInfoAnswer] = useState('');
+  const [infoError, setInfoError] = useState<string | null>(null);
+  // Reply: the details stay folded until the person asks for them (the question is often about something else).
+  const [detailsOpen, setDetailsOpen] = useState(!reply);
+  const toggleDetails = () => {
+    const next = !detailsOpen;
+    setDetailsOpen(next);
+    onDetailsToggle?.(next);
   };
 
   const shownStd = STD.some((k) => ruleOf(std, k) !== 'hidden');
+  const hasDetails = names || shownStd || editableQs.length > 0;
 
-  return (
-    <div className={reply ? 'space-y-6' : 'mt-5 space-y-6'}>
+  const save = () => {
+    const changes: RegChanges = {};
+    if (detailsOpen) {
+      // The e-mail never changes here; the names only while the registration is not decided.
+      const idErrs = identityErrors({ ...values, ...(names ? {} : { first_name: 'x', last_name: 'x' }), email: 'x@x.xx' }, std, t);
+      const qe: Record<string, string> = {};
+      for (const q of editableQs) { const e = answerError(q, answers[q.key], t); if (e) qe[q.key] = e; }
+      setErrors(idErrs);
+      setQErrors(qe);
+      if (Object.keys(idErrs).length > 0 || Object.keys(qe).length > 0) return;
+      // Only the keys that changed.
+      if (names) {
+        if (values.first_name.trim() !== initial.first_name) changes.first_name = values.first_name.trim();
+        if (values.last_name.trim() !== initial.last_name) changes.last_name = values.last_name.trim();
+      }
+      for (const k of STD) if (ruleOf(std, k) !== 'hidden' && values[k].trim() !== initial[k]) changes[k] = values[k].trim();
+      const changedAnswers: Record<string, unknown> = {};
+      for (const q of editableQs) {
+        const before = JSON.stringify(reg.answers?.[q.key] ?? null);
+        const now = answers[q.key];
+        const after = JSON.stringify(isAnswered(now) ? now : null);
+        if (before !== after) changedAnswers[q.key] = isAnswered(now) ? now : null;
+      }
+      if (Object.keys(changedAnswers).length > 0) changes.answers = changedAnswers;
+    }
+    if (reply) {
+      const text = infoAnswer.trim();
+      if (!text && Object.keys(changes).length === 0) {
+        setInfoError(hasDetails
+          ? t('reg.status.infoAnswerNeeded', 'Please type your answer, or correct your details below.')
+          : t('reg.status.infoAnswerNeededOnly', 'Please type your answer.'));
+        document.getElementById('sti-answer')?.focus();
+        return;
+      }
+      if (text) changes.info_answer = text.slice(0, INFO_ANSWER_MAX);
+    }
+    onSave(changes);
+  };
+
+  const detailsForm = (
+    <>
       {(names || shownStd) && (
         <IdentityBlock
           values={values}
-          onChange={(k, v) => { setValues((cur) => ({ ...cur, [k]: v })); setErrors((e) => ({ ...e, [k]: undefined })); }}
+          onChange={(k, v) => { setValues((cur) => ({ ...cur, [k]: v })); setErrors((e) => ({ ...e, [k]: undefined })); setInfoError(null); }}
           errors={errors}
           standardFields={std}
           emailLocked
@@ -661,11 +734,52 @@ function EditDetails({
           key={q.key}
           question={q}
           value={answers[q.key]}
-          onChange={(v) => { setAnswers((cur) => ({ ...cur, [q.key]: v })); setQErrors((e) => { const n = { ...e }; delete n[q.key]; return n; }); }}
+          onChange={(v) => { setAnswers((cur) => ({ ...cur, [q.key]: v })); setQErrors((e) => { const n = { ...e }; delete n[q.key]; return n; }); setInfoError(null); }}
           error={qErrors[q.key]}
           idPrefix={reply ? 'stiq' : 'stq'}
         />
       ))}
+    </>
+  );
+
+  return (
+    <div className={reply ? 'space-y-5' : 'mt-5 space-y-6'}>
+      {reply && (
+        <div className="space-y-2">
+          <AuthLabel htmlFor="sti-answer">
+            {t('reg.status.infoAnswerLabel', 'Your answer to the M3 team')}
+          </AuthLabel>
+          <AuthTextarea
+            id="sti-answer"
+            rows={4}
+            value={infoAnswer}
+            maxLength={INFO_ANSWER_MAX}
+            onChange={(e) => { setInfoAnswer(e.target.value.slice(0, INFO_ANSWER_MAX)); setInfoError(null); }}
+            aria-invalid={!!infoError}
+            aria-describedby={infoError ? 'sti-answer-err' : 'sti-answer-help'}
+            className={cn('bg-white', infoError && 'border-red-700')}
+          />
+          {infoError
+            ? <FieldError id="sti-answer-err">{infoError}</FieldError>
+            : <FieldHint><span id="sti-answer-help">{t('reg.status.infoAnswerHelp', 'In a few words. The M3 team receives it with your registration.')}</span></FieldHint>}
+        </div>
+      )}
+
+      {reply && hasDetails && (
+        <button
+          type="button"
+          onClick={toggleDetails}
+          aria-expanded={detailsOpen}
+          aria-controls="sti-details"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded px-1 text-sm font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold focus:outline-none focus-visible:shadow-focus"
+        >
+          <Pencil className="h-4 w-4" aria-hidden="true" />
+          {detailsOpen ? t('reg.status.hideDetails', 'Keep my details as they are') : t('reg.status.alsoDetails', 'Also correct my details')}
+        </button>
+      )}
+
+      {reply ? (detailsOpen && <div id="sti-details" className="space-y-6">{detailsForm}</div>) : detailsForm}
+
       {!reply && (
         <p className="text-[13px] leading-5 text-meta">
           {names

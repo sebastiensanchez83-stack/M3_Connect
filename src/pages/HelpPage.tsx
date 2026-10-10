@@ -76,6 +76,14 @@ export function HelpPage() {
   const hitCount = hits?.size ?? 0;
   const closest = result.mode === 'closest';
 
+  // One answer open at a time (Victor, 10 Oct 2026): opening an answer closes the one
+  // read before, so the page never fills up with open answers. Closing just closes.
+  const openOne = (value: string[]) =>
+    setOpen((prev) => {
+      const added = value.filter((v) => !prev.includes(v));
+      return added.length ? [added[added.length - 1]] : value;
+    });
+
   // A few results: open them at once.
   useEffect(() => {
     if (hits && hits.size > 0 && hits.size <= 3) setOpen((o) => Array.from(new Set([...o, ...hits])));
@@ -94,7 +102,7 @@ export function HelpPage() {
     const isItem = itemIds.has(id);
     if (isItem) {
       setQuery('');
-      setOpen((o) => (o.includes(id) ? o : [...o, id]));
+      setOpen([id]);
       setFlash(id);
     }
     let f1 = 0;
@@ -319,7 +327,7 @@ export function HelpPage() {
                     title={g.title}
                     sections={g.list}
                     open={open}
-                    onOpenChange={setOpen}
+                    onOpenChange={openOne}
                     flash={flash}
                     mine={mine}
                     member={!!user}

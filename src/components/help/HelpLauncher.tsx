@@ -126,6 +126,8 @@ function Launcher({ place }: { place: HelpPlace }) {
   }, [open, close]);
 
   const hide = () => {
+    // The button and its cross are about to go: the focus moves to the page, not dropped on <body>.
+    if (rootRef.current?.contains(document.activeElement)) focusMainContent();
     setOpen(false);
     setHelpButtonHidden(true);
     toast({
@@ -157,8 +159,12 @@ function Launcher({ place }: { place: HelpPlace }) {
 
   return (
     <>
-      {/* The footer's last row (copyright, pause control) stays readable below the button. */}
-      <style>{`.footer-last-row{padding-bottom:${footerRoom}px}`}</style>
+      {/*
+        The footer's last row (copyright, pause control) stays readable below the button.
+        !important: smc-motion.css gives that row 6rem under a page's bottom bar with a
+        stronger selector, and the button then sits above that bar (footerRoom counts it).
+      */}
+      <style>{`.footer-last-row{padding-bottom:${footerRoom}px !important}`}</style>
       <div
         ref={rootRef}
         data-help-launcher=""
@@ -274,6 +280,24 @@ function Launcher({ place }: { place: HelpPlace }) {
       </div>
     </>
   );
+}
+
+/**
+ * The focus to the page's main content (App.tsx: <main id="main-content">),
+ * without scrolling and without a ring around the whole page; both are undone
+ * when the focus moves on.
+ */
+function focusMainContent() {
+  const main = document.getElementById('main-content');
+  if (!main) return;
+  const hadTabIndex = main.hasAttribute('tabindex');
+  if (!hadTabIndex) main.setAttribute('tabindex', '-1');
+  main.style.outline = 'none';
+  main.addEventListener('blur', () => {
+    if (!hadTabIndex) main.removeAttribute('tabindex');
+    main.style.outline = '';
+  }, { once: true });
+  main.focus({ preventScroll: true });
 }
 
 function NewTabMark() {

@@ -79,16 +79,19 @@ export function HelpLauncherPanel({ place, panelRef }: { place: HelpPlace; panel
             : t('helpButton.foundCount', { count: found.length, defaultValue_one: '{{count}} answer found', defaultValue_other: '{{count}} answers found' })}
       </p>
 
-      <h3 className="text-meta-caps mt-4">
-        {searching
-          ? result.mode === 'closest'
-            ? t('helpButton.closest', 'The closest answers')
-            : t('helpButton.found', 'Answers found')
-          : t('helpButton.forThisPage', 'Questions about this page')}
-      </h3>
+      {/* No title over an empty list: the sentence below says it. */}
+      {!(searching && found.length === 0) && (
+        <h3 className="text-meta-caps mt-4">
+          {searching
+            ? result.mode === 'closest'
+              ? t('helpButton.closest', 'The closest answers')
+              : t('helpButton.found', 'Answers found')
+            : t('helpButton.forThisPage', 'Questions about this page')}
+        </h3>
+      )}
 
       {searching && found.length === 0 ? (
-        <p className="mt-2 text-[15px] leading-[22px] text-meta">
+        <p className="mt-4 text-[15px] leading-[22px] text-meta">
           {t('helpButton.noneBody', 'No answer has these words. Try a shorter word, such as “password”, or write to the team below.')}
         </p>
       ) : (

@@ -242,7 +242,8 @@ export function EventBand({
       <div aria-hidden="true" className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(8,29,64,.9)_0%,rgba(11,38,83,.86)_100%)]" />
       <div className={cn('mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6', overlaid ? 'pt-[92px] md:pt-[104px]' : 'pt-8')}>
         {back && (
-          <Link to={back.to} className="uline uline--light uline--plain !text-[14px] !font-normal">
+          // -my-3 py-3: a 44 px tap area around the one-line link, without moving it.
+          <Link to={back.to} className="uline uline--light uline--plain -my-3 py-3 !text-[14px] !font-normal">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             <span className="uline-t">{back.label}</span>
           </Link>

@@ -180,7 +180,7 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
   const past = shown.filter((r) => r.is_past).sort((a, b) => (b.starts_at ?? '').localeCompare(a.starts_at ?? ''));
 
   const browse = (
-    <Button asChild variant="outline" className={cn(BTN_OUTLINE, 'gap-2')}>
+    <Button asChild variant="outline" className={cn(BTN_OUTLINE, 'h-11 gap-2 md:h-11')}>
       <Link to="/events">
         <CalendarDays className="h-4 w-4" aria-hidden="true" />
         {t('accountArea.events.browse', 'Browse events')}
@@ -394,7 +394,7 @@ function ParticipationCard({
 
         <div className="flex flex-wrap gap-2">
           {personal && (
-            <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
+            <Button asChild variant="outline" size="sm" className={cn(BTN_OUTLINE, 'h-11')}>
               <Link to={personal}>
                 {t('reg.my.openInvitation', 'Open my invitation')}
                 <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
@@ -402,7 +402,7 @@ function ParticipationCard({
             </Button>
           )}
           {mine && (
-            <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
+            <Button asChild variant="outline" size="sm" className={cn(BTN_OUTLINE, 'h-11')}>
               <Link to={statusPagePath(p.registration_id)}>
                 {!past && !closed ? t('reg.my.manage', 'See or change') : t('reg.block.viewMine', 'See my registration')}
                 <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
@@ -410,7 +410,7 @@ function ParticipationCard({
             </Button>
           )}
           {href && !personal && p.engine !== 'sm26' && (
-            <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
+            <Button asChild variant="outline" size="sm" className={cn(BTN_OUTLINE, 'h-11')}>
               <Link to={href}>
                 {t('accountArea.events.eventPage', 'Event page')}
                 <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />

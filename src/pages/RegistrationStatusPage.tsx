@@ -33,6 +33,7 @@ import {
   questionOptions, registrationErrorText, setRegistrationReminders, updateRegistration, useReviewSla,
   type RegChanges, type RegFailure, type RegStatusView, type RegTarget,
 } from '@/lib/registration';
+import { useRegistrationFlags } from '@/lib/flags';
 import { withSiteSuffix } from '@/lib/seoText';
 import { cn } from '@/lib/utils';
 import { Seo } from '@/components/seo/Seo';
@@ -61,7 +62,9 @@ export function RegistrationStatusPage() {
   const token = (params.get('t') || '').trim();
   const id = (params.get('id') || '').trim();
   const remindersOff = params.get('reminders') === 'off';
-  if (token) return <StatusContent target={{ token }} remindersOff={remindersOff} />;
+  // One object per link: the page reads the registration again only when the link (or the account) changes.
+  const tokenTarget = useMemo(() => ({ token }), [token]);
+  if (token) return <StatusContent target={tokenTarget} remindersOff={remindersOff} />;
   if (id) return <OwnerStatus id={id} />;
   return <FindMyLinks />;
 }
@@ -216,6 +219,8 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   const userId = user?.id ?? null;
   const locale = regLocale(i18n.language);
   const sla = useReviewSla();
+  // M3 creates on-site accounts at confirmation only while its account creation runs (the `provisioning` switch).
+  const { flags } = useRegistrationFlags();
   const [view, setView] = useState<RegStatusView | null>(null);
   const [failure, setFailure] = useState<RegFailure | null>(null);
   const [loading, setLoading] = useState(true);
@@ -602,7 +607,7 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
             </button>
           </p>
         )}
-        {!user && !readOnly && !isWebinar && ['requested', 'needs_info', 'waitlisted', 'invited', 'approved'].includes(reg.status) && (
+        {!user && !readOnly && !isWebinar && flags.provisioning && ['requested', 'needs_info', 'waitlisted', 'invited', 'approved'].includes(reg.status) && (
           <NoteLine icon={UserPlus} className="text-meta">
             {t('reg.status.accountOnsite', 'Once M3 confirms your place, we create your Smart Marina Connect account and e-mail you a link to set your password.')}
           </NoteLine>

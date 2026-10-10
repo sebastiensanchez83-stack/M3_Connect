@@ -10,8 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { fileMeta, resizeImage } from '@/lib/image';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ADMIN_BTN } from '../AdminUI';
-import { Block, ChoiceCards, Field, INPUT, Note, TEXTAREA } from './editorUi';
+import { Block, ChoiceCards, EDITOR_BTN, Field, INPUT, Note, TEXTAREA } from './editorUi';
 import { TIMEZONE_VALUES, addMinutesToWall, formatInZone, slugify, timezoneLabel, wallToIso } from './eventAdmin';
 import type { BasicsForm, FormIssue, Visibility } from './editorModel';
 
@@ -96,7 +95,12 @@ export function BasicsTab({
     {
       value: 'hidden',
       title: t('adminEvents.basics.hidden', 'Hidden test'),
-      body: t('adminEvents.basics.hiddenBody', 'Never listed. Registration works only with the direct link, for tests.'),
+      // On-site registrations cannot be decided here before the on-site editor: test
+      // registrants would wait "under review" with nobody able to answer them.
+      body: webinar || savedVisibility === 'hidden'
+        ? t('adminEvents.basics.hiddenBody', 'Never listed. Registration works only with the direct link, for tests.')
+        : t('adminEvents.basics.hiddenLaterOnsite', 'Tests of on-site registration come with the on-site editor.'),
+      disabled: !webinar && savedVisibility !== 'hidden',
     },
   ];
 
@@ -339,7 +343,7 @@ export function BasicsTab({
                 type="button"
                 variant="outline"
                 size="sm"
-                className={cn(ADMIN_BTN, 'self-end sm:self-auto')}
+                className={cn(EDITOR_BTN, 'self-end sm:self-auto')}
                 onClick={() => set('speakers', v.speakers.filter((_, j) => j !== i))}
               >
                 <X className="mr-1 h-4 w-4" aria-hidden="true" /> {t('adminEvents.remove', 'Remove')}
@@ -348,7 +352,7 @@ export function BasicsTab({
             </li>
           ))}
         </ul>
-        <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={() => set('speakers', [...v.speakers, { name: '', title: '' }])}>
+        <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={() => set('speakers', [...v.speakers, { name: '', title: '' }])}>
           <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.basics.addSpeaker', 'Add a speaker')}
         </Button>
       </Block>
@@ -382,7 +386,7 @@ export function BasicsTab({
                     aria-pressed={on}
                     onClick={() => set('sectorIds', on ? v.sectorIds.filter((x) => x !== s.id) : [...v.sectorIds, s.id].sort())}
                     className={cn(
-                      'rounded-pill border px-3.5 py-2.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus',
+                      'min-h-11 rounded-pill border px-3.5 py-2.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus',
                       on ? 'border-navy bg-navy text-white' : 'border-rule bg-white text-navy hover:border-navy/40',
                     )}
                   >
@@ -457,11 +461,11 @@ function CoverBlock({ value, onChange }: { value: string; onChange: (url: string
             <img src={value} alt="" className="h-full w-full rounded-card object-cover" />
           </div>
           <div className="flex gap-2 sm:flex-col">
-            <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} disabled={busy} onClick={() => inputRef.current?.click()}>
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />}
               {t('adminEvents.cover.replace', 'Replace')}
             </Button>
-            <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={busy} onClick={() => onChange('')}>
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} disabled={busy} onClick={() => onChange('')}>
               <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.remove', 'Remove')}
             </Button>
           </div>

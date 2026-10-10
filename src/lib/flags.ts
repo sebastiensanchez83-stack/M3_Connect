@@ -33,13 +33,14 @@ const TTL_MS = 5 * 60 * 1000;
 let cached: { at: number; flags: RegistrationFlags } | null = null;
 let inflight: Promise<RegistrationFlags> | null = null;
 
-/** Only a literal `true` turns a switch on; anything else (missing, "true", 1) leaves it off. */
+/**
+ * Only a literal `true` in a JSON object turns a switch on; anything else (missing, "true", 1,
+ * or the whole value stored as a text) leaves it off. Same reading as the registration edge
+ * functions and admin_save_event, so the site and the server never disagree on a switch.
+ */
 function parseFlags(value: unknown): RegistrationFlags {
   const out = { ...DEFAULT_REGISTRATION_FLAGS };
-  let v = value;
-  if (typeof v === 'string') {
-    try { v = JSON.parse(v); } catch { v = null; }
-  }
+  const v = value;
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     for (const key of REGISTRATION_FLAG_KEYS) out[key] = (v as Record<string, unknown>)[key] === true;
   }

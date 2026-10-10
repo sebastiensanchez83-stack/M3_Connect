@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { Block, ChoiceCards, Field, INPUT, Note, ToggleRow } from './editorUi';
+import { Block, ChoiceCards, EDITOR_BTN, Field, INPUT, Note, ToggleRow } from './editorUi';
 import type { EventKind, RegistrationMode } from './eventAdmin';
 import type { EmailsForm, FormIssue } from './editorModel';
 
@@ -28,6 +29,8 @@ export function EmailsTab({
   issues,
   kind,
   mode,
+  attendanceRecorded = false,
+  onOpenRegistrations,
 }: {
   value: EmailsForm;
   onChange: (next: EmailsForm) => void;
@@ -35,6 +38,10 @@ export function EmailsTab({
   kind: EventKind;
   /** How people register (the How to register tab, saved or not): what the first e-mail says. */
   mode: RegistrationMode;
+  /** Staff pressed "Attendance is complete" (gl_event.settings.attendance_recorded === true). */
+  attendanceRecorded?: boolean;
+  /** Opens the People registered tab (existing events only). */
+  onOpenRegistrations?: () => void;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -106,11 +113,28 @@ export function EmailsTab({
       {webinar && (
         <Block
           title={t('adminEvents.mail.afterTitle', 'After the webinar')}
-          description={t(
-            'adminEvents.mail.afterBody2',
-            'In People registered, mark who attended (paste the list from Zoom or Teams), then press "Attendance is complete". From one hour after the end, the others get a "Sorry we missed you" e-mail with the replay link (without a replay link, it waits two days). Until you press it, nobody gets "Sorry we missed you": once the replay link is here, everyone gets a simple "The replay is available" e-mail instead. So mark attendance first, then add the replay link.',
-          )}
+          description={t('adminEvents.mail.afterBody3', 'People who did not attend get a "Sorry we missed you" e-mail. Do it in this order:')}
         >
+          <ol className="space-y-2 text-[15px] leading-6 text-navy">
+            {[
+              t('adminEvents.mail.step1', 'Mark who attended, in People registered (paste the list from Zoom or Teams).'),
+              t('adminEvents.mail.step2', 'Press "Attendance is complete".'),
+              t('adminEvents.mail.step3', 'Add the replay link below and save.'),
+            ].map((s, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-foam text-[13px] font-semibold tabular-nums text-navy" aria-hidden="true">{i + 1}</span>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="text-[13px] leading-[18px] text-meta">
+            {t('adminEvents.mail.afterTiming', 'The people not marked then get "Sorry we missed you" with the replay link, from one hour after the end. Without a replay link, it waits two days after the end.')}
+          </p>
+          {onOpenRegistrations && (
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={onOpenRegistrations}>
+              {t('adminEvents.mail.goPeople', 'Go to People registered')}
+            </Button>
+          )}
           <Field
             label={t('adminEvents.mail.replay', 'Replay link')}
             htmlFor="mail-replay"
@@ -130,6 +154,13 @@ export function EmailsTab({
               spellCheck={false}
             />
           </Field>
+          {v.replayUrl.trim() && !attendanceRecorded && (
+            <Note tone="warning">
+              <span role="status">
+                {t('adminEvents.mail.replayFirst', 'Attendance is not complete yet. Once this link is saved, the replay e-mail goes from one hour after the end: if attendance is not complete by then, everyone confirmed gets "The replay is available" and nobody gets "Sorry we missed you". To send that e-mail, mark attendance and press "Attendance is complete" first.')}
+              </span>
+            </Note>
+          )}
           <ToggleRow
             checked={v.replayPublic}
             onChange={(on) => set('replayPublic', on)}

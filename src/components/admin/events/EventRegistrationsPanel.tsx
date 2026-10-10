@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  Check, CheckCheck, CheckCircle2, Clock, Download, HelpCircle, ListChecks, Mail, RefreshCw, Undo2, UserCheck, Users, X,
+  Check, CheckCheck, CheckCircle2, Clock, Download, HelpCircle, ListChecks, Mail, RefreshCw, Reply, Undo2, UserCheck, Users, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,14 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { EditDialog } from '@/components/home/dashboard/EditKit';
 import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import {
-  ADMIN_BTN, AdminEmpty, AdminFilterBar, AdminKpiCard, AdminLoading, AdminStatusPill,
+  AdminEmpty, AdminFilterBar, AdminKpiCard, AdminLoading, AdminStatusPill,
 } from '../AdminUI';
-import { Field, Note, TEXTAREA, ToggleRow } from './editorUi';
+import { EDITOR_BTN, Field, Note, TEXTAREA, ToggleRow } from './editorUi';
 import {
-  EditorError, STATUS_TONE, downloadCsv, editorErrorText, formatInZone, loadGuests,
-  registrationStaff, setAttended, sourceText, staffErrorText, statusWord,
-  type EventKind, type GuestRow, type GuestStatus, type QuestionRow,
+  EditorError, STATUS_TONE, downloadCsv, editorErrorText, formatInZone, historyWord, isoToWall, loadGuests,
+  loadHistory, registrationStaff, setAttended, sourceText, staffErrorText, statusWord,
+  type EventKind, type GuestRow, type GuestStatus, type HistoryRow, type QuestionRow, type RegistrationMode,
 } from './eventAdmin';
 
 type Decision = 'approve' | 'reject' | 'waitlist' | 'request_info';
@@ -46,6 +47,9 @@ const inView = (g: GuestRow, view: View): boolean => {
 };
 
 const fullName = (g: GuestRow) => `${g.first_name || ''} ${g.last_name || ''}`.trim() || g.email;
+
+/** Back to "To review" after "Ask for more information": the person answered (the answer is in review_log). */
+const answeredInfo = (g: GuestRow) => g.status === 'requested' && !!g.info_requested_at;
 
 /** An answer as plain words (lists joined, ticks as Yes). */
 function answerText(q: QuestionRow | undefined, v: unknown, t: TFunction): string {
@@ -91,8 +95,11 @@ export function EventRegistrationsPanel({
   startIso,
   questions,
   onCount,
-  attendanceRecorded,
+  attendanceSetting,
   onAttendanceRecorded,
+  hasReplay = false,
+  mode = 'instant',
+  waitlist = false,
 }: {
   glEventId: string;
   kind: EventKind;
@@ -103,12 +110,22 @@ export function EventRegistrationsPanel({
   startIso: string | null;
   questions: QuestionRow[];
   onCount?: (n: number) => void;
-  /** gl_event.settings.attendance_recorded: registration-cron then e-mails the absentees. */
-  attendanceRecorded: boolean;
+  /**
+   * gl_event.settings.attendance_recorded as stored. true: registration-cron e-mails the
+   * absentees; false: it never does; absent: it treats the marking as complete 30 minutes
+   * after the last mark.
+   */
+  attendanceSetting: unknown;
   /** Saves attendance_recorded. Absent for a test event without an event page. */
   onAttendanceRecorded?: (value: boolean) => Promise<void>;
+  /** A replay link is saved (gl_event or the event page): the absentee e-mail goes one hour after the end, else two days. */
+  hasReplay?: boolean;
+  mode?: RegistrationMode;
+  waitlist?: boolean;
 }) {
   const { t } = useTranslation();
+  const attendanceRecorded = attendanceSetting === true;
+  const attendanceUnset = attendanceSetting !== true && attendanceSetting !== false;
   const [rows, setRows] = useState<GuestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -117,7 +134,7 @@ export function EventRegistrationsPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   // The dialogs keep their content while they fade out: open flags apart from the data.
-  const [decision, setDecision] = useState<{ kind: Decision; people: { id: string; name: string }[] } | null>(null);
+  const [decision, setDecision] = useState<{ kind: Decision; people: { id: string; name: string }[]; skipped: number } | null>(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
   const [notifyReject, setNotifyReject] = useState(true);
   const [infoText, setInfoText] = useState('');
@@ -125,9 +142,16 @@ export function EventRegistrationsPanel({
   const [overCapacity, setOverCapacity] = useState<{ held: number; capacity: number; adding: number } | null>(null);
   const [detail, setDetail] = useState<GuestRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  // review_log of the open registration: decisions and the person's answers.
+  const [history, setHistory] = useState<{ id: string; rows: HistoryRow[] | null; failed: boolean } | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const [pasteResult, setPasteResult] = useState<{ marked: number; already: number; notConfirmed: string[]; unknown: string[] } | null>(null);
+  const [pasteResult, setPasteResult] = useState<{
+    marked: number; already: number; notConfirmed: string[]; unknown: string[];
+    /** Could not be marked (network, session): can be tried again. */
+    failed: string[];
+    stopped: string | null;
+  } | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
 
@@ -170,6 +194,9 @@ export function EventRegistrationsPanel({
       .some((x) => (x || '').toLowerCase().includes(needle))));
   }, [rows, view, q]);
 
+  // A selection is about the people on screen: a new filter or search starts a new one,
+  // and a decision never reaches someone the list does not show.
+  useEffect(() => { setSelected(new Set()); }, [view, q]);
   const allVisibleSelected = visible.length > 0 && visible.every((g) => selected.has(g.id));
   const toggleAll = () => setSelected(allVisibleSelected ? new Set() : new Set(visible.map((g) => g.id)));
   const toggle = (id: string) => setSelected((s) => {
@@ -177,7 +204,7 @@ export function EventRegistrationsPanel({
     if (n.has(id)) n.delete(id); else n.add(id);
     return n;
   });
-  const chosen = rows.filter((g) => selected.has(g.id));
+  const chosen = visible.filter((g) => selected.has(g.id));
   const canDecide = (d: Decision, list: GuestRow[]) => decisionsAllowed && list.some((g) => DECIDE_FROM[d].includes(g.status));
   const canMark = attendanceAllowed && chosen.some((g) => g.status === 'confirmed' && !g.checked_in_at);
 
@@ -192,7 +219,7 @@ export function EventRegistrationsPanel({
     setDialogError(null);
     setInfoText('');
     setNotifyReject(true);
-    setDecision({ kind: kindOf, people });
+    setDecision({ kind: kindOf, people, skipped: list.length - people.length });
     setDecisionOpen(true);
   };
 
@@ -238,7 +265,7 @@ export function EventRegistrationsPanel({
       if (stopped) {
         setBusy(false);
         // What is left to decide stays in the dialog; what was done is said.
-        setDecision({ ...decision, people: people.slice(i) });
+        setDecision({ ...decision, people: people.slice(i), skipped: 0 });
         if (changed) {
           toast({ title: doneText(decision.kind, changed), description: [t('adminEvents.regs.partial', 'The others are not done yet.'), mailsKnown ? mailsText(sent, failed) : ''].filter(Boolean).join(' ') });
           void load();
@@ -264,6 +291,23 @@ export function EventRegistrationsPanel({
 
   /* ---------------------------------------------------------- attendance */
 
+  /**
+   * An event with no attendance_recorded value (made by SQL, or before the editor wrote it):
+   * registration-cron would treat the marking as complete 30 minutes after the last mark and
+   * e-mail everyone not marked yet. Record "not complete" before the first mark, so only
+   * "Attendance is complete" sends "Sorry we missed you", as this page says.
+   */
+  const ensureAttendanceOpen = async (): Promise<boolean> => {
+    if (!attendanceUnset || !onAttendanceRecorded) return true;
+    try {
+      await onAttendanceRecorded(false);
+      return true;
+    } catch (e) {
+      toast({ title: t('adminEvents.regs.openFailed', 'Attendance could not be prepared'), description: editorErrorText(e, t), variant: 'destructive' });
+      return false;
+    }
+  };
+
   const markAttended = async (list: GuestRow[], undo = false) => {
     const targets = list.filter((g) => g.status === 'confirmed' && (undo ? !!g.checked_in_at : !g.checked_in_at));
     if (!targets.length) {
@@ -271,15 +315,23 @@ export function EventRegistrationsPanel({
       return;
     }
     setBusy(true);
+    if (!undo && !(await ensureAttendanceOpen())) {
+      setBusy(false);
+      return;
+    }
     let ok = 0;
     let failed = 0;
-    for (const g of targets) {
+    for (let i = 0; i < targets.length; i++) {
       try {
-        const r = await setAttended(glEventId, g.id, undo);
+        const r = await setAttended(glEventId, targets[i].id, undo);
         if (r.ok) ok++; else failed++;
       } catch (e) {
         failed++;
-        if (e instanceof EditorError && e.code === 'not_installed') break;
+        // The session ended or the system is missing: the others would fail the same way.
+        if (e instanceof EditorError && (e.code === 'not_installed' || e.code === 'forbidden')) {
+          failed += targets.length - i - 1;
+          break;
+        }
       }
     }
     setBusy(false);
@@ -292,8 +344,9 @@ export function EventRegistrationsPanel({
     await load();
   };
 
-  const runPaste = async () => {
-    const found = Array.from(new Set((pasteText.toLowerCase().match(/[^\s@,;<>"'()]+@[^\s@,;<>"'()]+\.[a-z]{2,}/g) || [])));
+  /** Marks the addresses of a pasted list; `retry` = only the addresses that failed last time. */
+  const runPaste = async (retry?: string[]) => {
+    const found = retry ?? Array.from(new Set((pasteText.toLowerCase().match(/[^\s@,;<>"'()]+@[^\s@,;<>"'()]+\.[a-z]{2,}/g) || [])));
     if (!found.length) {
       setDialogError(t('adminEvents.regs.pasteNone', 'No e-mail address found in the text. Paste the list from your webinar tool.'));
       return;
@@ -312,15 +365,30 @@ export function EventRegistrationsPanel({
       else toMark.push(g);
     }
     setBusy(true);
+    if (toMark.length && !(await ensureAttendanceOpen())) {
+      setBusy(false);
+      return;
+    }
     let marked = 0;
+    const failed: string[] = [];
+    let stopped: string | null = null;
     for (const g of toMark) {
+      // After a session or installation error the rest would fail too: list them to retry.
+      if (stopped) { failed.push(g.email); continue; }
       try {
         const r = await setAttended(glEventId, g.id, false);
         if (r.ok) marked++;
-      } catch { /* counted as not marked */ }
+        else if (typeof r.error === 'string' && r.error.startsWith('status_')) notConfirmed.push(g.email);
+        else failed.push(g.email);
+      } catch (e) {
+        failed.push(g.email);
+        if (e instanceof EditorError && (e.code === 'forbidden' || e.code === 'not_installed')) stopped = editorErrorText(e, t);
+      }
     }
     setBusy(false);
-    setPasteResult({ marked, already, notConfirmed, unknown });
+    setPasteResult((prev) => (retry && prev
+      ? { marked: prev.marked + marked, already: prev.already + already, notConfirmed: [...prev.notConfirmed, ...notConfirmed], unknown: prev.unknown, failed, stopped }
+      : { marked, already, notConfirmed, unknown, failed, stopped }));
     await load();
   };
 
@@ -336,7 +404,9 @@ export function EventRegistrationsPanel({
           ? t('adminEvents.regs.completeDone', 'Attendance is complete')
           : t('adminEvents.regs.reopenDone', 'Attendance is open again'),
         description: value
-          ? t('adminEvents.regs.completeDoneBody', 'People not marked as attended get "Sorry we missed you" within the hour (one hour after the end at the earliest).')
+          ? (hasReplay
+            ? t('adminEvents.regs.completeDoneReplay', 'People not marked as attended get "Sorry we missed you" with the replay link, from one hour after the end.')
+            : t('adminEvents.regs.completeDoneNoReplay', 'People not marked as attended get "Sorry we missed you" two days after the end. Add the replay link in E-mails before then and it goes with it.'))
           : undefined,
       });
     } catch (e) {
@@ -357,6 +427,15 @@ export function EventRegistrationsPanel({
     else toast({ title: t('adminEvents.regs.linkSent', 'Personal link sent to {{email}}', { email: g.email }) });
   };
 
+  const openDetail = (g: GuestRow) => {
+    setDetail(g);
+    setDetailOpen(true);
+    setHistory({ id: g.id, rows: null, failed: false });
+    loadHistory(g.id)
+      .then((list) => setHistory((h) => (h && h.id === g.id ? { id: g.id, rows: list, failed: false } : h)))
+      .catch(() => setHistory((h) => (h && h.id === g.id ? { id: g.id, rows: [], failed: true } : h)));
+  };
+
   const exportCsv = () => {
     const yes = t('adminEvents.yes', 'Yes');
     const head = [
@@ -371,7 +450,8 @@ export function EventRegistrationsPanel({
     const lines = rows.map((g) => [
       g.first_name, g.last_name, g.email, g.company, g.job_title, g.phone, g.country,
       statusWord(g.status, t),
-      g.created_at ? new Date(g.created_at).toISOString().slice(0, 16).replace('T', ' ') : '',
+      // In the event's time zone, as on screen (not UTC).
+      g.created_at ? isoToWall(g.created_at, timezone).replace('T', ' ') : '',
       g.checked_in_at ? yes : '',
       g.user_id ? yes : '',
       g.consents && g.consents.marketing_at ? yes : '',
@@ -417,25 +497,44 @@ export function EventRegistrationsPanel({
   };
   const others = Math.max(0, counts.confirmed - counts.confirmedAttended);
 
+  // The tiles that can say something for this event: "To review" only when M3 accepts
+  // people (or someone waits anyway), "Waiting list" only when there is one.
+  const showReviewTile = mode !== 'instant' || counts.review > 0;
+  const showWaitlistTile = waitlist || counts.waitlisted > 0;
+  const tileCount = 2 + (showReviewTile ? 1 : 0) + (showWaitlistTile ? 1 : 0);
+
+  // The open registration's history: the person's latest answer to "Ask for more information".
+  const detailHistory = detail && history?.id === detail.id ? history : null;
+  const latestAnswer = (() => {
+    if (!detail || !detailHistory?.rows) return null;
+    const asked = detail.info_requested_at ? Date.parse(detail.info_requested_at) : null;
+    const row = detailHistory.rows.find((h) => h.action === 'info_provided');
+    if (!row) return null;
+    // An answer older than the latest question belongs to an earlier round (see the history).
+    if (asked !== null && Date.parse(row.created_at) < asked) return null;
+    const changed = Array.isArray(row.details?.changed) ? (row.details!.changed as unknown[]).map(String).filter(Boolean) : [];
+    return { note: row.note, changed, at: row.created_at };
+  })();
+
   const decisionButtons = (list: GuestRow[], after?: () => void) => (
     <>
       {canDecide('approve', list) && (
-        <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => { after?.(); openDecision('approve', list); }}>
+        <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => { after?.(); openDecision('approve', list); }}>
           <Check className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.approve', 'Confirm')}
         </Button>
       )}
       {canDecide('waitlist', list) && (
-        <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => { after?.(); openDecision('waitlist', list); }}>
+        <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => { after?.(); openDecision('waitlist', list); }}>
           <Clock className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.waitlist', 'Waiting list')}
         </Button>
       )}
       {canDecide('request_info', list) && (
-        <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => { after?.(); openDecision('request_info', list); }}>
+        <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => { after?.(); openDecision('request_info', list); }}>
           <HelpCircle className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.askMore', 'Ask for more information')}
         </Button>
       )}
       {canDecide('reject', list) && (
-        <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => { after?.(); openDecision('reject', list); }}>
+        <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => { after?.(); openDecision('reject', list); }}>
           <X className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.reject', 'Turn down')}
         </Button>
       )}
@@ -450,7 +549,7 @@ export function EventRegistrationsPanel({
         </Note>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className={cn('grid grid-cols-2 gap-3', tileCount === 3 && 'lg:grid-cols-3', tileCount === 4 && 'lg:grid-cols-4')}>
         <AdminKpiCard
           label={capacity ? t('adminEvents.regs.kpiConfirmedOf', 'Confirmed, out of {{n}}', { n: capacity }) : t('adminEvents.regs.kpiConfirmed', 'Confirmed')}
           value={counts.confirmed}
@@ -458,21 +557,25 @@ export function EventRegistrationsPanel({
           onClick={() => setView(view === 'confirmed' ? 'all' : 'confirmed')}
           selected={view === 'confirmed'}
         />
-        <AdminKpiCard
-          label={t('adminEvents.regs.kpiReview', 'To review')}
-          value={counts.review}
-          icon={HelpCircle}
-          tone={counts.review ? 'attention' : 'default'}
-          onClick={() => setView(view === 'review' ? 'all' : 'review')}
-          selected={view === 'review'}
-        />
-        <AdminKpiCard
-          label={t('adminEvents.regs.kpiWaitlist', 'Waiting list')}
-          value={counts.waitlisted}
-          icon={Clock}
-          onClick={() => setView(view === 'waitlisted' ? 'all' : 'waitlisted')}
-          selected={view === 'waitlisted'}
-        />
+        {showReviewTile && (
+          <AdminKpiCard
+            label={t('adminEvents.regs.kpiReview', 'To review')}
+            value={counts.review}
+            icon={HelpCircle}
+            tone={counts.review ? 'attention' : 'default'}
+            onClick={() => setView(view === 'review' ? 'all' : 'review')}
+            selected={view === 'review'}
+          />
+        )}
+        {showWaitlistTile && (
+          <AdminKpiCard
+            label={t('adminEvents.regs.kpiWaitlist', 'Waiting list')}
+            value={counts.waitlisted}
+            icon={Clock}
+            onClick={() => setView(view === 'waitlisted' ? 'all' : 'waitlisted')}
+            selected={view === 'waitlisted'}
+          />
+        )}
         <AdminKpiCard
           label={t('adminEvents.regs.kpiAttended', 'Attended')}
           value={counts.attended}
@@ -488,10 +591,10 @@ export function EventRegistrationsPanel({
         searchPlaceholder={t('adminEvents.regs.search', 'Search a name, e-mail or company')}
         trailing={(
           <>
-            <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={() => { setLoading(true); void load(); }} aria-label={t('adminEvents.regs.refresh', 'Refresh')}>
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={() => { setLoading(true); void load(); }} aria-label={t('adminEvents.regs.refresh', 'Refresh')}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
             </Button>
-            <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={exportCsv} disabled={!rows.length}>
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={exportCsv} disabled={!rows.length}>
               <Download className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.export', 'Export (CSV)')}
             </Button>
           </>
@@ -511,23 +614,33 @@ export function EventRegistrationsPanel({
           {attendanceRecorded ? (
             <p className="flex items-start gap-2 text-[14px] leading-5 text-navy">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
-              <span>{t('adminEvents.regs.completeState', 'Attendance is complete: {{n}} of {{total}} confirmed people attended. The others get "Sorry we missed you" with the replay.', { n: counts.confirmedAttended, total: counts.confirmed })}</span>
+              <span>
+                {hasReplay
+                  ? t('adminEvents.regs.completeStateReplay', 'Attendance is complete: {{n}} of {{total}} confirmed people attended. The others get "Sorry we missed you" with the replay link, from one hour after the end.', { n: counts.confirmedAttended, total: counts.confirmed })
+                  : t('adminEvents.regs.completeStateNoReplay', 'Attendance is complete: {{n}} of {{total}} confirmed people attended. The others get "Sorry we missed you" two days after the end (add the replay link in E-mails before then and it goes with it).', { n: counts.confirmedAttended, total: counts.confirmed })}
+              </span>
             </p>
-          ) : (
+          ) : onAttendanceRecorded ? (
             <p className="text-[14px] leading-5 text-meta">
               {t('adminEvents.regs.attendTip2', 'After the webinar, mark who attended (paste the list from Zoom or Teams). Then press "Attendance is complete": only then do the others get the "Sorry we missed you" e-mail.')}
             </p>
+          ) : (
+            <p className="text-[14px] leading-5 text-meta">
+              {attendanceUnset
+                ? t('adminEvents.regs.attendTipCanary', 'On this test event, people not marked get "Sorry we missed you" 30 minutes after the last mark.')
+                : t('adminEvents.regs.attendTipCanaryOff', 'On this test event, nobody gets "Sorry we missed you": attendance is set as not complete (change it with the runbook).')}
+            </p>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={busy} onClick={() => { setPasteText(''); setPasteResult(null); setDialogError(null); setPasteOpen(true); }}>
+            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} disabled={busy} onClick={() => { setPasteText(''); setPasteResult(null); setDialogError(null); setPasteOpen(true); }}>
               <ListChecks className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.paste', 'Mark attendance from a list')}
             </Button>
             {onAttendanceRecorded && (attendanceRecorded ? (
-              <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={busy} onClick={() => void saveComplete(false)}>
+              <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} disabled={busy} onClick={() => void saveComplete(false)}>
                 <Undo2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.reopen', 'Reopen attendance')}
               </Button>
             ) : (
-              <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={busy} onClick={() => { setCompleteError(null); setCompleteOpen(true); }}>
+              <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} disabled={busy} onClick={() => { setCompleteError(null); setCompleteOpen(true); }}>
                 <CheckCircle2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.complete', 'Attendance is complete')}
               </Button>
             ))}
@@ -540,7 +653,7 @@ export function EventRegistrationsPanel({
           <span className="mr-1 text-[14px] font-semibold text-navy">{t('adminEvents.regs.selected', '{{n}} selected', { n: chosen.length })}</span>
           {decisionButtons(chosen)}
           {canMark && (
-            <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => void markAttended(chosen)}>
+            <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => void markAttended(chosen)}>
               <UserCheck className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.markAttended', 'Mark attended')}
             </Button>
           )}
@@ -563,14 +676,16 @@ export function EventRegistrationsPanel({
           <>
             <div className="flex items-center gap-3 border-b border-rule px-4 py-2.5">
               <RowCheckbox checked={allVisibleSelected} onChange={toggleAll} label={t('adminEvents.regs.selectAll', 'Select everyone shown')} />
-              <span className="text-meta-caps">{t('adminEvents.regs.people', '{{n}} people', { n: visible.length })}</span>
+              <span className="text-meta-caps">
+                {visible.length === 1 ? t('adminEvents.regs.onePerson', '1 person') : t('adminEvents.regs.people', '{{n}} people', { n: visible.length })}
+              </span>
             </div>
             <ul className="divide-y divide-rule">
               {visible.map((g) => (
                 <li key={g.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <RowCheckbox checked={selected.has(g.id)} onChange={() => toggle(g.id)} label={t('adminEvents.regs.select', 'Select {{name}}', { name: fullName(g) })} />
-                    <button type="button" onClick={() => { setDetail(g); setDetailOpen(true); }} className="min-w-0 rounded-sm text-left focus:outline-none focus-visible:shadow-focus">
+                    <button type="button" onClick={() => openDetail(g)} className="min-h-11 min-w-0 rounded-sm py-1 text-left focus:outline-none focus-visible:shadow-focus">
                       <span className="block text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{fullName(g)}</span>
                       <span className="block text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
                         {g.email}{g.company ? ` · ${g.company}` : ''}{g.job_title ? `, ${g.job_title}` : ''}
@@ -579,12 +694,13 @@ export function EventRegistrationsPanel({
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pl-8 sm:pl-0">
                     <AdminStatusPill tone={STATUS_TONE[g.status] ?? 'neutral'}>{statusWord(g.status, t)}</AdminStatusPill>
+                    {answeredInfo(g) && <AdminStatusPill tone="info" icon={Reply}>{t('adminEvents.regs.answered', 'Answered')}</AdminStatusPill>}
                     {g.checked_in_at && <AdminStatusPill tone="success" icon={CheckCheck}>{t('adminEvents.regs.wasThere', 'Attended')}</AdminStatusPill>}
                     <span className="text-[12px] tabular-nums text-meta">
                       {new Date(g.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                     </span>
                     {decisionsAllowed && DECIDE_FROM.approve.includes(g.status) ? (
-                      <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => openDecision('approve', [g])}>
+                      <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => openDecision('approve', [g])}>
                         <Check className="mr-1 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.approve', 'Confirm')}
                       </Button>
                     ) : attendanceAllowed && g.status === 'confirmed' ? (
@@ -592,7 +708,7 @@ export function EventRegistrationsPanel({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className={ADMIN_BTN}
+                        className={EDITOR_BTN}
                         disabled={busy}
                         onClick={() => void markAttended([g], !!g.checked_in_at)}
                       >
@@ -643,6 +759,13 @@ export function EventRegistrationsPanel({
         {decision && decision.people.length > 1 && decision.people.length <= 8 && (
           <p className="text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">{decision.people.map((p) => p.name).join(', ')}</p>
         )}
+        {decision && decision.skipped > 0 && (
+          <p className="text-[14px] leading-5 text-navy">
+            {decision.skipped === 1
+              ? t('adminEvents.regs.skippedOne', 'One other person in your selection is left as is (already decided, closed or not eligible for this).')
+              : t('adminEvents.regs.skippedN', '{{n}} others in your selection are left as they are (already decided, closed or not eligible for this).', { n: decision.skipped })}
+          </p>
+        )}
       </EditDialog>
 
       {/* Over the number of places: say it, offer to go ahead. */}
@@ -664,7 +787,17 @@ export function EventRegistrationsPanel({
         open={completeOpen}
         onOpenChange={setCompleteOpen}
         title={t('adminEvents.regs.completeTitle', 'Is attendance complete?')}
-        description={t('adminEvents.regs.completeBody', '{{n}} of {{total}} confirmed people are marked as attended. The other {{others}} get the "Sorry we missed you" e-mail, from one hour after the end. It cannot be taken back once sent.', { n: counts.confirmedAttended, total: counts.confirmed, others })}
+        description={[
+          t('adminEvents.regs.completeMarked', '{{n}} of {{total}} confirmed people are marked as attended.', { n: counts.confirmedAttended, total: counts.confirmed }),
+          others === 1
+            ? (hasReplay
+              ? t('adminEvents.regs.completeOtherReplay', 'The other person gets the "Sorry we missed you" e-mail with the replay link, from one hour after the end.')
+              : t('adminEvents.regs.completeOtherNoReplay', 'The other person gets the "Sorry we missed you" e-mail two days after the end (add the replay link in E-mails before then and it goes with it).'))
+            : (hasReplay
+              ? t('adminEvents.regs.completeOthersReplay', 'The other {{others}} get the "Sorry we missed you" e-mail with the replay link, from one hour after the end.', { others })
+              : t('adminEvents.regs.completeOthersNoReplay', 'The other {{others}} get the "Sorry we missed you" e-mail two days after the end (add the replay link in E-mails before then and it goes with it).', { others })),
+          t('adminEvents.regs.completeFinal', 'It cannot be taken back once sent.'),
+        ].join(' ')}
         onSave={() => saveComplete(true)}
         saveLabel={t('adminEvents.regs.completeGo', 'Yes, attendance is complete')}
         saving={busy}
@@ -683,8 +816,12 @@ export function EventRegistrationsPanel({
         onOpenChange={setPasteOpen}
         title={t('adminEvents.regs.pasteTitle', 'Mark attendance from a list')}
         description={t('adminEvents.regs.pasteBody', 'Paste the attendee report of your webinar tool, or any text with the e-mail addresses of the people who joined.')}
-        onSave={pasteResult ? undefined : runPaste}
-        saveLabel={pasteResult ? t('adminEvents.done', 'Done') : t('adminEvents.regs.pasteGo', 'Mark them as attended')}
+        onSave={pasteResult
+          ? (pasteResult.failed.length ? () => runPaste(pasteResult.failed) : undefined)
+          : () => runPaste()}
+        saveLabel={pasteResult
+          ? (pasteResult.failed.length ? t('adminEvents.regs.pasteRetry', 'Try again for these') : t('adminEvents.done', 'Done'))
+          : t('adminEvents.regs.pasteGo', 'Mark them as attended')}
         saving={busy}
         error={dialogError}
         wide
@@ -692,6 +829,14 @@ export function EventRegistrationsPanel({
         {pasteResult ? (
           <div className="space-y-2 text-[15px] leading-6 text-navy">
             <p>{t('adminEvents.regs.pasteMarked', '{{n}} marked as attended.', { n: pasteResult.marked })}</p>
+            {pasteResult.failed.length > 0 && (
+              <Note tone="danger">
+                <span role="alert" className="[overflow-wrap:anywhere]">
+                  {pasteResult.stopped ? `${pasteResult.stopped} ` : ''}
+                  {t('adminEvents.regs.pasteFailed', 'Could not be marked (try again):')} {pasteResult.failed.join(', ')}
+                </span>
+              </Note>
+            )}
             {pasteResult.already > 0 && <p className="text-meta">{t('adminEvents.regs.pasteAlready', 'Already marked before: {{n}}.', { n: pasteResult.already })}</p>}
             {pasteResult.notConfirmed.length > 0 && (
               <p className="text-meta [overflow-wrap:anywhere]">{t('adminEvents.regs.pasteNotConfirmed', 'Not confirmed, left as is:')} {pasteResult.notConfirmed.join(', ')}</p>
@@ -699,8 +844,11 @@ export function EventRegistrationsPanel({
             {pasteResult.unknown.length > 0 && (
               <p className="text-meta [overflow-wrap:anywhere]">{t('adminEvents.regs.pasteUnknown', 'Not registered with this address:')} {pasteResult.unknown.join(', ')}</p>
             )}
-            {!attendanceRecorded && onAttendanceRecorded && (
+            {!attendanceRecorded && onAttendanceRecorded && pasteResult.failed.length === 0 && (
               <p className="text-meta">{t('adminEvents.regs.pasteNext', 'If this list has everyone who attended, press "Attendance is complete" next.')}</p>
+            )}
+            {pasteResult.failed.length > 0 && onAttendanceRecorded && (
+              <p className="text-meta">{t('adminEvents.regs.pasteFailedNext', 'Do not press "Attendance is complete" while some attendees are not marked: they would get "Sorry we missed you".')}</p>
             )}
           </div>
         ) : (
@@ -722,9 +870,41 @@ export function EventRegistrationsPanel({
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
               <AdminStatusPill tone={STATUS_TONE[detail.status] ?? 'neutral'}>{statusWord(detail.status, t)}</AdminStatusPill>
+              {answeredInfo(detail) && <AdminStatusPill tone="info" icon={Reply}>{t('adminEvents.regs.answered', 'Answered')}</AdminStatusPill>}
               {detail.checked_in_at && <AdminStatusPill tone="success" icon={CheckCheck}>{t('adminEvents.regs.wasThere', 'Attended')}</AdminStatusPill>}
               {detail.user_id && <AdminStatusPill tone="info">{t('adminEvents.regs.hasAccount', 'Has an account')}</AdminStatusPill>}
             </div>
+
+            {/* "Ask for more information": the question, then their answer (review_log). */}
+            {detail.info_request && (
+              <div className="space-y-2 rounded-card border border-rule bg-page p-4 text-[14px] leading-5">
+                <p className="font-semibold text-navy">{t('adminEvents.regs.asked2', 'Information asked')}</p>
+                <p className="text-ink [overflow-wrap:anywhere]">{detail.info_request}</p>
+                {detail.status === 'needs_info' ? (
+                  <p className="text-meta">{t('adminEvents.regs.waitingAnswer', 'Waiting for their answer.')}</p>
+                ) : latestAnswer ? (
+                  <>
+                    <p className="pt-1 font-semibold text-navy">
+                      {t('adminEvents.regs.theirAnswer', 'Their answer')}
+                      <span className="ml-1.5 font-normal text-meta">{formatInZone(latestAnswer.at, timezone)}</span>
+                    </p>
+                    <p className="whitespace-pre-line text-ink [overflow-wrap:anywhere]">
+                      {latestAnswer.note || t('adminEvents.regs.noMessage', 'No message: they confirmed their details.')}
+                    </p>
+                    {latestAnswer.changed.length > 0 && (
+                      <p className="text-meta [overflow-wrap:anywhere]">
+                        {t('adminEvents.regs.theyChanged', 'They changed: {{list}}.', { list: latestAnswer.changed.join(', ') })}
+                      </p>
+                    )}
+                  </>
+                ) : detailHistory?.rows === null ? (
+                  <p className="text-meta">{t('adminEvents.regs.answerLoading', 'Loading their answer…')}</p>
+                ) : detailHistory?.failed ? (
+                  <p className="text-meta">{t('adminEvents.regs.answerFailed', 'Their answer could not be loaded. Close and open this window again.')}</p>
+                ) : null}
+              </div>
+            )}
+
             <dl className="grid gap-x-4 gap-y-2 text-[14px] leading-5 sm:grid-cols-[10rem_minmax(0,1fr)]">
               {([
                 [t('adminEvents.reg.company', 'Company'), detail.company],
@@ -733,7 +913,6 @@ export function EventRegistrationsPanel({
                 [t('adminEvents.reg.country', 'Country'), detail.country],
                 [t('adminEvents.regs.registeredOn', 'Registered on'), formatInZone(detail.created_at, timezone)],
                 [t('adminEvents.regs.decidedOn', 'Decided on'), detail.decided_at ? formatInZone(detail.decided_at, timezone) : ''],
-                [t('adminEvents.regs.asked2', 'Information asked'), detail.info_request],
                 [t('adminEvents.regs.linkOpened', 'Opened their link'), detail.link_opened_at ? formatInZone(detail.link_opened_at, timezone) : ''],
                 [t('adminEvents.regs.news', 'News by e-mail'), detail.consents?.marketing_at ? t('adminEvents.yes', 'Yes') : ''],
                 [t('adminEvents.regs.cameFrom', 'Came from'), sourceText(detail.source_detail, t)],
@@ -746,9 +925,30 @@ export function EventRegistrationsPanel({
                 </div>
               ))}
             </dl>
+
+            {/* What happened, newest first (decisions by M3, their answers). */}
+            {!!detailHistory?.rows?.length && (
+              <div className="space-y-1.5">
+                <p className="text-meta-caps">{t('adminEvents.regs.history', 'History')}</p>
+                <ul className="space-y-1 text-[13px] leading-[18px]">
+                  {detailHistory.rows.slice(0, 6).map((h, i) => (
+                    <li key={`${h.created_at}:${i}`} className="flex flex-wrap gap-x-2 text-ink">
+                      <span className="tabular-nums text-meta">{formatInZone(h.created_at, timezone)}</span>
+                      <span className="font-semibold text-navy">{historyWord(h.action, t)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {detail.status === 'confirmed' && (
+              <p className="text-[13px] leading-[18px] text-meta">
+                {t('adminEvents.regs.removeHint', 'To take someone off the list, send them their personal link: they can cancel from their registration page.')}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2 border-t border-rule pt-4">
               {decisionButtons([detail], () => setDetailOpen(false))}
-              <Button type="button" size="sm" variant="outline" className={ADMIN_BTN} disabled={busy} onClick={() => void sendLink(detail)}>
+              <Button type="button" size="sm" variant="outline" className={EDITOR_BTN} disabled={busy} onClick={() => void sendLink(detail)}>
                 <Mail className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.regs.sendLink', 'Send their personal link again')}
               </Button>
             </div>

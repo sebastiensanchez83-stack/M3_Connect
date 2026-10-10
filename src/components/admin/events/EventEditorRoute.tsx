@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRegistrationFlags } from '@/lib/flags';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
@@ -27,7 +27,8 @@ type Target = 'core' | 'legacy' | 'error';
  *   - A NEW event opens the new editor once the registration switch of its type is on
  *     (webinar_v2 / onsite_v2), or when asked with ?editor=new (staff tests: while the
  *     switch is off the database keeps such an event unpublished). Otherwise the old
- *     editor, exactly as before.
+ *     editor, exactly as before; for a webinar, with a note above it that links to the
+ *     new editor (a webinar made in the old one can never move to the new registration).
  * Each URL gets its own instance (key), so a new event never inherits the last one's form.
  */
 export function EventEditorRoute() {
@@ -64,7 +65,29 @@ export function EventEditorRoute() {
   if (isNew) {
     if (!forced && !ready) return <AdminLoading />;
     const on = forced || (kind === 'webinar' ? flags.webinar_v2 : flags.onsite_v2);
-    return on ? <EventEditor key={`new:${kind}`} routeId="new" initialKind={kind} forced={forced} /> : legacy;
+    if (on) return <EventEditor key={`new:${kind}`} routeId="new" initialKind={kind} forced={forced} />;
+    if (kind !== 'webinar') return legacy;
+    // A webinar made in the current editor stays on the old registration for good (no
+    // conversion; a copy needs a new-system event). Point to the new editor meanwhile.
+    return (
+      <>
+        <div className="mx-auto mb-4 max-w-4xl">
+          <Note>
+            <span className="block font-semibold">{t('adminEvents.route.newSystemTitle', 'New registration system')}</span>
+            <span className="mt-1 block">
+              {t('adminEvents.route.newSystemBody', 'Prepare new webinars there: registration, questions, reminders and the list of people in one place. The webinar stays a draft until the new event pages are live. A webinar created on this page stays on the old registration.')}
+            </span>
+            <Button asChild variant="outline" size="sm" className={`${ADMIN_BTN} mt-3 h-11 sm:h-10`}>
+              <Link to="/admin/events/new?type=webinar&editor=new">
+                {t('adminEvents.route.newSystemGo', 'Create it in the new system')}
+                <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          </Note>
+        </div>
+        {legacy}
+      </>
+    );
   }
   if (target === 'pending') return <AdminLoading />;
   if (target === 'error') {

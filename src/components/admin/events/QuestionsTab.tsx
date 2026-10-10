@@ -7,11 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EditDialog } from '@/components/home/dashboard/EditKit';
 import { cn } from '@/lib/utils';
-import { ADMIN_BTN, AdminStatusPill } from '../AdminUI';
-import { Block, Field, INPUT, Note, TEXTAREA, ToggleRow } from './editorUi';
+import { AdminStatusPill } from '../AdminUI';
+import { Block, EDITOR_BTN, Field, INPUT, Note, TEXTAREA, ToggleRow } from './editorUi';
 import {
-  profileFieldWord, questionKey, questionKindWord,
-  type EventKind, type ProfileField, type QuestionKind, type QuestionOption, type QuestionRow,
+  STANDARD_FIELDS, profileFieldWord, questionKey, questionKindWord,
+  type EventKind, type FieldRule, type ProfileField, type QuestionKind, type QuestionOption, type QuestionRow,
+  type StandardField,
 } from './eventAdmin';
 import type { FormIssue, QuestionsForm } from './editorModel';
 
@@ -72,12 +73,21 @@ export function QuestionsTab({
   issues,
   kind,
   hasRegistrations,
+  savedKeys = [],
+  reservedKeys = [],
+  fields,
 }: {
   value: QuestionsForm;
   onChange: (next: QuestionsForm) => void;
   issues: FormIssue[];
   kind: EventKind;
   hasRegistrations: boolean;
+  /** Keys of the questions as saved: those may already have answers. */
+  savedKeys?: string[];
+  /** Keys a new question must not take: saved questions and every answer key ever stored. */
+  reservedKeys?: string[];
+  /** The standard fields of How to register (saved or not), for the preview. */
+  fields: Record<StandardField, FieldRule>;
 }) {
   const { t } = useTranslation();
   const list = value.list;
@@ -173,7 +183,8 @@ export function QuestionsTab({
       profile_field: d.profile_field && allowedProfile.includes(d.profile_field) ? d.profile_field : null,
     };
     if (editing.index === null) {
-      row.key = questionKey(row.label, list.map((q) => q.key));
+      // Never the internal name of a removed question: its stored answers would come back.
+      row.key = questionKey(row.label, [...list.map((q) => q.key), ...reservedKeys]);
       setList([...list, row]);
     } else {
       setList(list.map((q, i) => (i === editing.index ? row : q)));
@@ -225,7 +236,7 @@ export function QuestionsTab({
               ))}
             </ol>
           )}
-          <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={openNew}>
+          <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={openNew}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.q.add', 'Write a question')}
           </Button>
         </Block>
@@ -241,7 +252,7 @@ export function QuestionsTab({
                   key={p.key}
                   type="button"
                   onClick={() => setList([...list, { ...p.make(), display_order: list.length }])}
-                  className="inline-flex items-center gap-1.5 rounded-pill border border-rule bg-white px-3 py-2 text-left text-[14px] font-medium text-navy transition-colors hover:border-navy/40 hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-rule bg-white px-3 py-2 text-left text-[14px] font-medium text-navy transition-colors hover:border-navy/40 hover:bg-chip focus:outline-none focus-visible:shadow-focus"
                 >
                   <Plus className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" /> {p.label}
                 </button>
@@ -251,7 +262,7 @@ export function QuestionsTab({
         )}
       </div>
 
-      <FormPreview list={list} />
+      <FormPreview list={list} fields={fields} />
 
       <EditDialog
         open={dialogOpen}
@@ -264,7 +275,7 @@ export function QuestionsTab({
       >
         {editing && (
           <QuestionFields
-            answered={hasRegistrations && editing.index !== null}
+            answered={hasRegistrations && editing.index !== null && savedKeys.includes(list[editing.index]?.key)}
             draft={editing.draft}
             choices={editing.choices}
             kinds={kinds}
@@ -286,7 +297,7 @@ function IconBtn({ label, onClick, disabled, danger, children }: { label: string
       aria-label={label}
       title={label}
       className={cn(
-        'grid h-10 w-10 place-items-center rounded-pill border bg-white transition-colors focus:outline-none focus-visible:shadow-focus disabled:opacity-35',
+        'grid h-11 w-11 place-items-center rounded-pill border bg-white transition-colors focus:outline-none focus-visible:shadow-focus disabled:opacity-35',
         danger ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-rule text-navy hover:bg-chip',
       )}
     >
@@ -320,8 +331,11 @@ function QuestionFields({
       <Field label={draft.kind === 'consent' ? t('adminEvents.q.statement', 'The statement they agree to') : t('adminEvents.q.wording', 'Question')} htmlFor="q-label">
         <Textarea id="q-label" rows={2} value={draft.label} onChange={(e) => set('label', e.target.value)} className={TEXTAREA} maxLength={300} />
       </Field>
-      <Field label={t('adminEvents.q.type', 'Type of answer')}>
-        <Select value={draft.kind} onValueChange={(k) => set('kind', k as QuestionKind)}>
+      <Field
+        label={t('adminEvents.q.type', 'Type of answer')}
+        hint={answered ? t('adminEvents.q.typeLocked', 'People have answered: to ask it differently, add a new question and remove this one.') : undefined}
+      >
+        <Select value={draft.kind} onValueChange={(k) => set('kind', k as QuestionKind)} disabled={answered}>
           <SelectTrigger className={INPUT} aria-label={t('adminEvents.q.type', 'Type of answer')}><SelectValue /></SelectTrigger>
           <SelectContent>
             {kinds.map((k) => <SelectItem key={k} value={k}>{questionKindWord(k, t)}</SelectItem>)}
@@ -364,15 +378,32 @@ function QuestionFields({
   );
 }
 
-/** What a registrant sees, roughly: the questions in order, greyed out. */
-function FormPreview({ list }: { list: QuestionRow[] }) {
+/**
+ * What a registrant sees, roughly: name and e-mail, the standard fields chosen in How to
+ * register (in the form's order), then the questions, greyed out.
+ */
+function FormPreview({ list, fields }: { list: QuestionRow[]; fields: Record<StandardField, FieldRule> }) {
   const { t } = useTranslation();
+  const fieldWords: Record<StandardField, string> = {
+    company: t('adminEvents.reg.company', 'Company'),
+    job_title: t('adminEvents.reg.jobTitle', 'Job title'),
+    phone: t('adminEvents.reg.phone', 'Phone'),
+    country: t('adminEvents.reg.country', 'Country'),
+  };
+  const standard = [
+    `${t('adminEvents.q.pvFirst', 'First name')} *`,
+    `${t('adminEvents.q.pvLast', 'Last name')} *`,
+    `${t('adminEvents.q.pvEmail', 'E-mail')} *`,
+    ...STANDARD_FIELDS.filter((f) => fields[f] !== 'hidden').map((f) => (
+      fields[f] === 'required' ? `${fieldWords[f]} *` : `${fieldWords[f]} ${t('adminEvents.optional', '(optional)')}`
+    )),
+  ];
   return (
     <aside className="hidden lg:block">
       <div className="rounded-card border border-rule bg-page p-4">
         <p className="text-meta-caps">{t('adminEvents.q.preview', 'What people see')}</p>
         <div className="mt-3 space-y-3 rounded-card border border-rule bg-white p-4" aria-hidden="true">
-          {[t('adminEvents.q.pvFirst', 'First name'), t('adminEvents.q.pvLast', 'Last name'), t('adminEvents.q.pvEmail', 'E-mail')].map((l) => (
+          {standard.map((l) => (
             <div key={l}>
               <p className="text-[12px] font-semibold text-navy">{l}</p>
               <div className="mt-1 h-8 rounded-field border border-rule bg-page" />

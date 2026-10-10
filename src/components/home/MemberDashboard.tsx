@@ -12,6 +12,7 @@ import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShel
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { HelpTip } from '@/components/help/HelpTip';
+import { NeedHelpCard } from '@/components/help/NeedHelpCard';
 import {
   BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, RowSkeleton, StatusPill,
 } from '@/components/member/MemberUI';
@@ -49,7 +50,8 @@ import { useDashboardData } from './dashboard/useDashboardData';
  * right under its row. Inside, the information reads as rows with a "Change"
  * button that opens a small window with that one thing. Everything else the
  * old editors did stays behind "More settings". Last, lighter: events coming
- * up, opportunities for service providers, articles.
+ * up, opportunities for service providers, articles; then "Need help?" (three
+ * questions for the member's profile, the help centre, the team).
  *
  * One panel at a time; the open one is in the address (/?open=<tile>
  * [&section=…], replaced, never pushed), so it can be linked and survives a
@@ -690,6 +692,14 @@ export default function MemberDashboard() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* ── Need help? Three questions for this profile, the help centre, the team ── */}
+        <section aria-labelledby="dash-help-title" className="mt-12 md:mt-14">
+          <Eyebrow as="h3" className="mb-4">
+            <span id="dash-help-title">{t('dash.help.eyebrow', 'Help')}</span>
+          </Eyebrow>
+          <NeedHelpCard hasOrganization={!!organization} persona={persona} orgType={orgType} />
         </section>
       </div>
 

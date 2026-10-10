@@ -9,6 +9,7 @@ import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
+import { HelpLauncher } from '@/components/help/HelpLauncher';
 import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
@@ -245,6 +246,8 @@ function App() {
       </main>
       <Footer />
       <CookieBanner />
+      {/* The floating Help button: only on the pages where people get stuck (helpPlaces.ts). */}
+      <HelpLauncher />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, PasswordInput } from '@/components/auth/fields';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { markEmailProven } from '@/lib/emailProof';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle } from 'lucide-react';
@@ -123,6 +124,8 @@ export function ResetPasswordPage() {
     // Once the credential is spent, take it out of the address bar so a
     // copied or bookmarked URL carries nothing usable.
     const scrubUrl = () => window.history.replaceState({}, '', window.location.pathname);
+    // ready() may run twice (the recovery event and the call below): one proof call is enough.
+    let proofAsked = false;
 
     const ready = (user?: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
       if (!mounted || lost.current) return;
@@ -132,6 +135,9 @@ export function ResetPasswordPage() {
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
+      // Opened from an e-mailed link: the database records that the address is proven
+      // (registrations sent to it join the account). Never blocks the page.
+      if (fromLink && !proofAsked) { proofAsked = true; markEmailProven(); }
     };
 
     // supabase-js re-announces a session that was already here as SIGNED_IN

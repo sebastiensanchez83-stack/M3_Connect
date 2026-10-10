@@ -1558,19 +1558,10 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
     }
   }
 
-  // An account that has not PROVED its address must not take over a cancelled or declined
-  // registration of that address made by someone else (signed out, or another account):
-  // gl_register_v2 would link it. Noted here, undone right after (DB lane: link on
-  // reactivation only when proven).
-  let foreignRow: Json | null = null;
-  if (caller && !caller.proven) {
-    const { data: own } = await db.from("gl_guest").select("id").eq("event_id", ctx.ev.id).eq("user_id", caller.id).limit(1);
-    if (!((own as Json[] | null) || []).length) {
-      const { data: same } = await db.from("gl_guest").select("id, user_id, status").eq("event_id", ctx.ev.id)
-        .ilike("email", likeExact(caller.email)).limit(5);
-      foreignRow = ((same as Json[] | null) || []).find((x) => ["cancelled", "declined"].includes(String(x.status))) || null;
-    }
-  }
+  // A cancelled or declined registration of this address brought back by an account that
+  // has not PROVED the address stays unlinked: gl_register_v2 links on reactivation only
+  // when proven (one statement, nothing to undo here). The answer below is then the
+  // public one, and the person manages it from the personal link sent to that address.
 
   const payload: Json = {
     gl_event_id: ctx.ev.id,
@@ -1599,14 +1590,7 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
   }
   await rateRecord(scope, ipHash, emailHash);
 
-  let g = await loadGuest(String(r.guest_id));
-  // Undo the link gl_register_v2 made to an unproven account on someone else's row.
-  if (g && caller && foreignRow && r.reactivated === true && g.id === foreignRow.id && foreignRow.user_id !== caller.id && g.user_id === caller.id) {
-    const { data: undone, error: undoErr } = await db.from("gl_guest").update({ user_id: null })
-      .eq("id", g.id).eq("user_id", caller.id).select("*").maybeSingle();
-    if (undoErr) console.error("registration: unlink after reactivation failed", undoErr.message);
-    else if (undone) g = undone as Json;
-  }
+  const g = await loadGuest(String(r.guest_id));
 
   // E-mails after the answer: the timing must not tell a new registration from a repeat.
   const row = g;
@@ -1848,6 +1832,9 @@ async function statusView(t: Target): Promise<Json> {
     can_edit: canEdit,
     can_edit_names: canEdit && NAME_EDIT_STATUSES.has(status),
     can_cancel: canCancel,
+    // needs_info: the answer to M3 is taken from the page until the event ends, even once the
+    // details are locked (can_edit false): then only the answer, not the details.
+    can_answer_info: !t.readOnly && status === "needs_info" && !ended(ctx),
     edit_locks_at: ev.edit_locks_at || null,
     reminders_on: !reminders.off,
     meeting_url: confirmed && ev.kind === "webinar" && !ended(ctx) ? joinUrlOf(ctx) : null,
@@ -1873,11 +1860,16 @@ async function actionUpdate(req: Request, body: Json, caller: Caller | null, fla
   const ev = ctx.ev;
   const status = String(g.status);
   const lock = tryDate(ev.edit_locks_at);
-  if (!ACTIVE_STATUSES.has(status) || started(ctx) || (lock && Date.now() >= lock.getTime())) throw new HttpError(409, "locked");
+  const editsLocked = !ACTIVE_STATUSES.has(status) || started(ctx) || (!!lock && Date.now() >= lock.getTime());
+  // M3 asked for information: the person can always answer from the link, whatever the
+  // edit lock, until the event is over. Only the answer goes through then: their other
+  // details stay as they are (the edit lock still holds for them).
+  const answerOnly = editsLocked && status === "needs_info" && !ended(ctx);
+  if (editsLocked && !answerOnly) throw new HttpError(409, "locked");
 
   const patch: Json = {};
   const missing: string[] = [];
-  if (NAME_EDIT_STATUSES.has(status)) {
+  if (!answerOnly && NAME_EDIT_STATUSES.has(status)) {
     for (const f of ["first_name", "last_name"]) {
       if (typeof body[f] === "string") {
         const v = clean(body[f], 80);
@@ -1888,14 +1880,14 @@ async function actionUpdate(req: Request, body: Json, caller: Caller | null, fla
   }
   const fields = fieldsOf(ev);
   for (const f of STD_FIELDS) {
-    if (fields[f] === "hidden" || typeof body[f] !== "string") continue;
+    if (answerOnly || fields[f] === "hidden" || typeof body[f] !== "string") continue;
     const v = clean(body[f], STD_MAX[f]);
     if (!v && fields[f] === "required") missing.push(f);
     else patch[f] = v || null;
   }
   if (missing.length) return json(req, { error: "missing_fields", fields: missing }, 400);
 
-  const incoming = obj(body.answers);
+  const incoming = answerOnly ? {} : obj(body.answers);
   if (Object.keys(incoming).length) {
     const questions = (await questionsOf(ev.id)).filter((q) => appliesTo(q, g.ticket_key || null) && q.editable_after_submit !== false);
     const answers = { ...obj(g.answers) };
@@ -2108,12 +2100,21 @@ async function actionAttach(req: Request, body: Json, caller: Caller | null, fla
 }
 
 // ─── Staff ───────────────────────────────────────────────────────────────────
-async function actionDecide(req: Request, body: Json, caller: Caller | null): Promise<Response> {
+async function actionDecide(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
   const staff = requireStaff(caller);
   if (!isUuid(body.gl_event_id)) return json(req, { error: "bad_input" }, 400);
   const ids = (Array.isArray(body.guest_ids) ? body.guest_ids : []).filter(isUuid).slice(0, MAX_DECIDE_IDS);
   if (!ids.length) return json(req, { error: "bad_input" }, 400);
   const decision = clean(body.decision, 20);
+  // No confirmation (and so no door pass) on a real on-site event before the redesign is
+  // live on the main site: the pass and status links of a non-hidden event point at
+  // SITE_URL (main), whose door page only knows gl_guest.token and refuses every core_v2
+  // checkin_token. Hidden (test) events use REGISTRATION_SITE_URL and stay open.
+  if (decision === "approve" && flags.onsite_v2 !== true) {
+    const { data: evRow } = await db.from("gl_event").select("kind, hidden").eq("id", body.gl_event_id).maybeSingle();
+    const e = evRow as Json | null;
+    if (e && e.kind === "onsite" && e.hidden !== true) return json(req, { error: "onsite_not_live" }, 409);
+  }
   const orgAction = body.org_action && typeof body.org_action === "object" && !Array.isArray(body.org_action) ? body.org_action : { mode: "none" };
   const { data, error } = await db.rpc("gl_decide_v2", {
     p_gl_event_id: body.gl_event_id,
@@ -2217,7 +2218,7 @@ const ACTIONS: Record<string, Handler> = {
   reminders: actionReminders,
   resend_links: actionResendLinks,
   attach: actionAttach,
-  decide: (req, body, caller) => actionDecide(req, body, caller),
+  decide: (req, body, caller, flags) => actionDecide(req, body, caller, flags),
   send_status_link: (req, body, caller) => actionSendStatusLink(req, body, caller),
   resend: (req, body, caller) => actionResend(req, body, caller),
 };

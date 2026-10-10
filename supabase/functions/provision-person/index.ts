@@ -28,13 +28,15 @@
 //   2. The row is already linked to an account (signed-in registration, attach):
 //        PROVEN     -> 'linked'; verify a pending person if validate_person; org_action.
 //        not proven -> 'pending_link': nothing applied (review_log says what was not);
-//                      a staff run of the job once the address is proven applies it.
+//                      the proof re-queues the job (on_email_proven), or a staff run
+//                      of it once the address is proven applies it.
 //   3. An account has the address (lower(auth.users.email); profiles.email is only used
 //      to find candidates, each checked against auth):
 //        PROVEN  -> link the row ('linked'), verify a pending person if validate_person;
 //                   persona and companies untouched (never promoted or demoted), except
 //                   org_action for a person who has no company at all;
-//        not proven -> 'pending_link', no write (attach_my_records links it after proof).
+//        not proven -> 'pending_link', no write (after the proof, on_email_proven re-queues
+//                      the job and attach_my_records links the row).
 //   4. No account -> auth.admin.createUser (unconfirmed, no e-mail sent, metadata
 //      pw_pending and the job id), then the profile: verified (if validate_person),
 //      onboarding completed, persona individual (or the company's type), signup_source
@@ -740,8 +742,8 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
         // Linked by a signed-in registration, but the account has not proved its address
         // (Confirm email is off): M3's choices (validate the person, company action) are
         // NOT applied. 'pending_link' + review_log say so in the queue; a staff run of the
-        // job after the proof applies them ({action:"run", job_ids}; nothing re-runs it
-        // by itself: on_email_proven only attaches records).
+        // job after the proof applies them ({action:"run", job_ids}); the proof itself also
+        // re-queues it (on_email_proven puts the person's pending_link jobs back to queued).
         await setGuestAction(j, "pending_link");
         await finish(j, { email_due_at: null });
         await logReview(j, by, {

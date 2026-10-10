@@ -91,7 +91,7 @@ Status view (`status`, `update`):
                   company, job_title, phone, country, ticket_key, ticket_label, answers, info_request,
                   created_at, linked, linked_to_me },
   timeline: [{ step: received|needs_info|confirmed|not_accepted|waitlisted|cancelled|checked_in, at }],
-  fields, questions: [{ ..., editable }], can_edit, can_edit_names, can_cancel, edit_locks_at,
+  fields, questions: [{ ..., editable }], can_edit, can_edit_names, can_cancel, can_answer_info, edit_locks_at,
   reminders_on, meeting_url, replay_url, pass: { qr_text } | null, calendar: { title, starts_at, ends_at, location, url } | null }
 ```
 - `linked`: the registration is linked to an account; `linked_to_me`: to the account that is
@@ -107,7 +107,9 @@ Status view (`status`, `update`):
   the question, `info_answer` and the list of changed details; the answer is also kept in
   `review_log`, action `info_provided`, as `note`). Show a "Your answer" text box and send it
   as `info_answer`; saving without any change and without an answer still counts as "my
-  details are correct".
+  details are correct". `can_answer_info`: the answer is taken until the event ends, even
+  once the details are locked (`can_edit` false, edit lock or event started): `update` then
+  takes `info_answer` only and ignores the other fields.
 - `pass.qr_text` (confirmed on-site): draw it as a QR code, full screen, with a brightness
   hint. Given to a status link, or to a signed-in owner whose e-mail is proven.
 - `status_display` words: contract §5 REG.
@@ -133,7 +135,7 @@ not be able to send a new request from this page") while `wys_form_v2` is off.
 
 | action | body | answer |
 |---|---|---|
-| `decide` | `gl_event_id, guest_ids (<= 200), decision (approve|reject|waitlist|request_info), info_request, note, force, org_action, validate_person, notify` | `gl_decide_v2`'s answer + `{ sent, failed }`; 409 `capacity` / `ticket_capacity` (+ held, capacity, adding) |
+| `decide` | `gl_event_id, guest_ids (<= 200), decision (approve|reject|waitlist|request_info), info_request, note, force, org_action, validate_person, notify` | `gl_decide_v2`'s answer + `{ sent, failed }`; 409 `capacity` / `ticket_capacity` (+ held, capacity, adding); 409 `onsite_not_live`: `approve` on a non-hidden on-site event while flag `onsite_v2` is off (its pass would point at the main site, whose door refuses a core_v2 code) |
 | `send_status_link` | `guest_id` | `{ ok }`: e-mails the registration link (core_v2: a fresh status link; wys26: the personal link; the fallback when `wys_form_v2` is off) |
 | `resend` | `guest_id` | `{ ok }`: e-mails the current status again (core_v2) |
 
@@ -190,8 +192,9 @@ Event settings read (`gl_event.settings`): `timezone` (IANA, default Europe/Mona
   not PROVED it: M3's choices (validate the person, company action) are NOT applied;
   `review_log` (action `provisioned`) says `proven: false` and what was not applied. Once the
   person proved the address, a staff `run` of that job applies them (a `done` job whose row
-  is still `pending_link` is queued again). Nothing re-runs it by itself (see the integrator
-  notes: the DB lane's proof hook could re-queue it).
+  is still `pending_link` is queued again). The proof re-queues it by itself: `on_email_proven`
+  (auth trigger, or `mark_email_proven` called by /welcome and /reset-password) puts the
+  person's `pending_link` jobs back to `queued`, and the next provisioning run applies them.
 - Retries: a job is tried at most 5 times by the cron (a run that crashed counts); then it
   is `failed` and only a staff `run` retries it. An account e-mail that failed 5 times is
   given up (`email_due_at` cleared, `last_error` "e-mail: gave up ..."); staff "Send account

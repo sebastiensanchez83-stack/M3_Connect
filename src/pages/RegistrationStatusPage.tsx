@@ -116,6 +116,40 @@ function FindMyLinks({ invalid = false }: { invalid?: boolean }) {
   );
 }
 
+/**
+ * A signed-in owner opened ?id=… (My events, a to-do) and the registration is not
+ * found for this account: cancelled and gone, moved, or opened from another account.
+ * Not a broken e-mail link, so not the "this link cannot be opened" words.
+ */
+function NotInAccount() {
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-screen bg-page">
+      <Seo title={withSiteSuffix(t('reg.status.seoTitle', 'Your registration'))} noindex />
+      {NO_REFERRER}
+      <EventBand eyebrow={t('reg.status.eyebrow', 'Your registration')} title={t('reg.status.notInAccountTitle', 'This registration is no longer in your account')} webinar={false} seed="registration" />
+      <div className="relative z-10 mx-auto -mt-10 w-full max-w-xl space-y-6 px-4 pb-14 sm:px-6">
+        <CardShell className="p-6 sm:p-8">
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-page text-meta"><Link2Off className="h-5 w-5" /></span>
+            <p className="text-[15px] leading-6 text-ink">
+              {t('reg.status.notInAccountBody', 'We could not find this registration in your account. It may have been cancelled, or it was made with another e-mail address. Your registrations are listed in My events.')}
+            </p>
+          </div>
+          <Button asChild variant="cta" className="mt-6">
+            <Link to={accountHref('registrations')}>{t('reg.status.openMyEvents', 'Open My events')}</Link>
+          </Button>
+          <p className="mt-6 border-t border-rule pt-5 text-sm leading-6 text-meta">
+            {t('reg.status.notInAccountLinks', 'Registered with another address? Ask for your personal links: they arrive by e-mail in a minute.')}
+          </p>
+          <div className="mt-3"><ResendLinksForm compact idPrefix="notmine-resend" /></div>
+        </CardShell>
+        <ContactCard line={t('reg.status.contact', 'A question about your registration? Write to the M3 team.')} />
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ signed-in owner */
 
 function OwnerStatus({ id }: { id: string }) {
@@ -221,7 +255,10 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
 
   if (!view) {
     const err = failure?.error ?? '';
-    if (!failure || ['not_found', 'wrong_engine', 'bad_input', 'forbidden'].includes(err)) return <FindMyLinks invalid />;
+    if (!failure || ['not_found', 'wrong_engine', 'bad_input', 'forbidden'].includes(err)) {
+      // Opened from My events or a to-do (signed in, ?id=): not a broken e-mail link.
+      return 'registration_id' in target ? <NotInAccount /> : <FindMyLinks invalid />;
+    }
     if (err === 'sign_in_required' || err === 'session_expired') return <SignInPrompt />;
     return (
       <div className="min-h-[60vh] bg-page px-4 py-16">
@@ -311,6 +348,9 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   ].filter((r) => r.value);
 
   const canEdit = view.can_edit && !readOnly;
+  // M3's question can be answered from here until the event ends, even once the details are
+  // locked (then the answer only). An older answer of the function has no can_answer_info.
+  const canAnswer = needsInfo && (view.can_answer_info ?? canEdit);
   const display = displayOf(reg.status_display ?? reg.status);
 
   return (
@@ -383,8 +423,8 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
                   <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />{t('reg.block.infoAsked', 'The M3 team needs one more detail before deciding:')}
                 </p>
                 {reg.info_request && <blockquote className="rounded-field bg-white px-4 py-3 text-[15px] leading-6 text-navy [overflow-wrap:anywhere]">{reg.info_request}</blockquote>}
-                {canEdit ? (
-                  <EditDetails view={view} busy={busy} reply onSave={save} onDetailsToggle={setReplyDetailsOpen} />
+                {canAnswer ? (
+                  <EditDetails view={view} busy={busy} reply answerOnly={!canEdit} onSave={save} onDetailsToggle={setReplyDetailsOpen} />
                 ) : (
                   <p className="text-sm leading-6 text-ink">{t('reg.status.infoByEmail', 'Please reply to the M3 team by e-mail.')}</p>
                 )}
@@ -614,6 +654,7 @@ function EditDetails({
   view,
   busy,
   reply = false,
+  answerOnly = false,
   onCancel,
   onSave,
   onDetailsToggle,
@@ -622,6 +663,8 @@ function EditDetails({
   busy: boolean;
   /** Answering an information request: always open, one "Send my answer" button. */
   reply?: boolean;
+  /** Reply only: the details are locked (edit lock, event started), so only the answer is sent. */
+  answerOnly?: boolean;
   onCancel?: () => void;
   onSave: (changes: RegChanges) => void;
   /** Reply only: the details under the answer were opened or closed. */
@@ -663,7 +706,7 @@ function EditDetails({
   };
 
   const shownStd = STD.some((k) => ruleOf(std, k) !== 'hidden');
-  const hasDetails = names || shownStd || editableQs.length > 0;
+  const hasDetails = !answerOnly && (names || shownStd || editableQs.length > 0);
 
   const save = () => {
     const changes: RegChanges = {};

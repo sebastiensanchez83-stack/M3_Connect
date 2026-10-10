@@ -78,7 +78,9 @@
 --  9. Helpers (service role): gl_try_ts, gl_event_window, gl_seats_held,
 --     gl_registration_state, gl_register_v2 (atomic core_v2 registration:
 --     capacity, duplicates, tickets, answers, standard fields; refuses an
---     unpublished catalogue event), gl_decide_v2 (atomic staff decision: event
+--     unpublished catalogue event; a cancelled or declined row brought back
+--     is linked to the signed-in account only when that account PROVED the
+--     row's address), gl_decide_v2 (atomic staff decision: event
 --     row locked for capacity, statuses, the provisioning job's choices and
 --     review_log in one transaction), gl_issue_access_token,
 --     gl_resolve_access_token. Public: public_registration_events().
@@ -108,7 +110,15 @@
 --     postgres may CREATE OR REPLACE them (TRIGGER privilege) but not DROP them
 --     (auth.users belongs to supabase_auth_admin): the undo turns their
 --     functions into no-ops.
---     DROP TRIGGER trg_link_guest_registrations (its function is kept, unused).
+--     on_email_proven also re-queues the person's provisioning jobs left
+--     'pending_link' (the account existed but had not proved the address), so
+--     M3's choices are applied once the proof arrives (/welcome and
+--     /reset-password call mark_email_proven as soon as they open).
+--     trg_link_guest_registrations is KEPT (integration review, 10 Oct 2026):
+--     it is the only auto-link the live main site has (legacy webinar guest
+--     rows -> a new account typed with the same address), and with Confirm
+--     email off most new accounts never prove their address. It goes when the
+--     AUTH lane makes proof the normal path (Phase 2).
 -- 12. Read model: my_participations(); get_my_event_access() re-created
 --     (DROP + CREATE in this transaction, same arguments, same ACL) with one more
 --     column replay_url and a gl_guest branch; its legacy branch keeps its
@@ -132,6 +142,9 @@
 --     is work: a queued job, a failed one to retry, or an account e-mail due in
 --     the last 7 days and not sent), so nothing is called before the EDGE lane
 --     deploys the function and the coordinator flips a flag.
+--     Flags: a switch is on only when its value is the JSON boolean true (the
+--     text "true" counts as off), in SQL (admin_save_event, events_publish_guard,
+--     invoke_registration_cron) exactly as in the site and the edge functions.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- WYS (wys26, guest_list_v1) keeps working exactly
@@ -155,10 +168,9 @@
 -- columns (its profile writes are first/last name, job title, onboarding status
 -- and an insert of user_id/persona/statuses/job title), reads
 -- get_my_event_access by column name, and does not call the new functions.
--- Only effect: a new account no longer auto-links a legacy webinar guest row
--- typed with the same, unproven address (trg_link_guest_registrations dropped;
--- the proof-based attach replaces it). The two guards of 14b act only on
--- core_v2 events, which main never creates.
+-- trg_link_guest_registrations is kept, so a new account still finds the
+-- webinar it registered for as a guest (My events, join link), as today. The
+-- two guards of 14b act only on core_v2 events, which main never creates.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- Checks after applying (read-only)
@@ -210,7 +222,7 @@ begin
               where t.tgrelid = 'public.profiles'::regclass
                 and t.tgname = 'trg_link_guest_registrations'
                 and t.tgfoid <> 'public.link_guest_registrations_on_profile_insert()'::regprocedure) then
-    raise exception 'registration_core: trg_link_guest_registrations now calls another function; review it before dropping';
+    raise exception 'registration_core: trg_link_guest_registrations now calls another function; review it (this migration keeps it)';
   end if;
 
   if exists (select 1 from public.gl_guest
@@ -801,6 +813,8 @@ declare
   v_org_name text;
   v_consents jsonb;
   v_source_detail jsonb;
+  v_proven boolean := false;
+  v_link boolean;
 begin
   if p is null or jsonb_typeof(p) <> 'object' then
     return jsonb_build_object('ok', false, 'error', 'bad_input');
@@ -846,13 +860,17 @@ begin
     if v_email is null then
       return jsonb_build_object('ok', false, 'error', 'unknown_user');
     end if;
+    -- v_proven: the account PROVED its current address (§12: email_proven_at set
+    -- and profiles.email = the auth e-mail).
     select left(btrim(coalesce(pr.first_name, '')), 80), left(btrim(coalesce(pr.last_name, '')), 80),
            nullif(left(btrim(coalesce(pr.job_title, '')), 160), ''),
            nullif(left(btrim(coalesce(pr.phone, '')), 40), ''),
            nullif(left(btrim(coalesce(pr.country, '')), 80), ''),
-           pr.access_status::text
-      into v_pf_first, v_pf_last, v_pf_job, v_pf_phone, v_pf_country, v_pf_status
+           pr.access_status::text,
+           coalesce(pr.email_proven_at is not null and lower(pr.email) = v_email, false)
+      into v_pf_first, v_pf_last, v_pf_job, v_pf_phone, v_pf_country, v_pf_status, v_proven
       from public.profiles pr where pr.user_id = v_user;
+    v_proven := coalesce(v_proven, false);
     -- A suspended account has no capability (spec 9), registration included.
     if v_pf_status = 'suspended' then
       return jsonb_build_object('ok', false, 'error', 'account_suspended');
@@ -1011,10 +1029,18 @@ begin
 
   if v_existing.id is not null then
     -- A cancelled or declined registration comes back to life (same row, same tokens).
+    -- It joins the signed-in account only when that account PROVED the row's
+    -- address: the row may have been made signed out by the owner of the mailbox,
+    -- and with Confirm email off an account alone proves nothing about its
+    -- address. Otherwise the row stays unlinked (or linked as before) and the
+    -- person manages it from the personal link e-mailed to that address.
+    v_link := coalesce(v_user is not null
+                       and (v_existing.user_id = v_user
+                            or (v_existing.user_id is null and v_proven and lower(v_existing.email) = v_email)), false);
     update public.gl_guest g
        set status = v_status,
-           user_id = coalesce(g.user_id, v_user),
-           organization_id = coalesce(v_org, g.organization_id),
+           user_id = case when v_link then v_user else g.user_id end,
+           organization_id = case when v_link then coalesce(v_org, g.organization_id) else g.organization_id end,
            first_name = v_first, last_name = v_last,
            company = v_company, job_title = v_job, phone = v_phone, country = v_country,
            ticket_key = v_ticket_key, answers = v_answers,
@@ -1544,8 +1570,9 @@ as $function$
 $function$;
 
 -- The person proved they read the current address: stamp (and bring
--- profiles.email in line with it), then attach and finish sign-up. The stamp is
--- kept even when attach or complete_signup fails (each runs in its own block).
+-- profiles.email in line with it), re-queue their provisioning jobs left
+-- 'pending_link', then attach and finish sign-up. The stamp is kept even when
+-- one of the later steps fails (each runs in its own block).
 create or replace function public.on_email_proven(p_user_id uuid)
 returns jsonb
 language plpgsql
@@ -1555,6 +1582,7 @@ set search_path = ''
 as $function$
 declare
   v_attached integer := 0;
+  v_requeued integer := 0;
   v_signup jsonb;
 begin
   update public.profiles pr
@@ -1565,6 +1593,27 @@ begin
      and u.id = pr.user_id
      and u.email is not null
      and (pr.email_proven_at is null or lower(coalesce(pr.email, '')) <> lower(u.email));
+  -- A confirmed on-site registration whose account existed but had not proved
+  -- this address was left 'pending_link' by provision-person (nothing linked,
+  -- M3's choices not applied). Now that the proof is here, its job goes back to
+  -- the queue: the next provisioning run links the row and applies the choices.
+  -- Before the attach below, which turns 'pending_link' into 'linked'.
+  begin
+    update public.account_provision_job j
+       set status = 'queued', done_at = null, last_error = null, attempts = 0
+      from public.gl_guest g
+     where j.source_kind = 'gl_guest'
+       and j.source_id = g.id
+       and j.status = 'done'
+       and g.status = 'confirmed'
+       and g.account_action = 'pending_link'
+       and (g.user_id = p_user_id
+            or (g.user_id is null
+                and lower(g.email) = (select lower(u.email) from auth.users u where u.id = p_user_id)));
+    get diagnostics v_requeued = row_count;
+  exception when others then
+    raise warning 'on_email_proven(%): re-queue failed: % (%)', p_user_id, sqlerrm, sqlstate;
+  end;
   begin
     v_attached := public.attach_my_records_for(p_user_id);
   exception when others then
@@ -1576,7 +1625,7 @@ begin
     raise warning 'on_email_proven(%): complete_signup failed: % (%)', p_user_id, sqlerrm, sqlstate;
     v_signup := jsonb_build_object('done', false, 'reason', 'error');
   end;
-  return jsonb_build_object('proven', true, 'attached', v_attached, 'signup', v_signup);
+  return jsonb_build_object('proven', true, 'attached', v_attached, 'requeued', v_requeued, 'signup', v_signup);
 end
 $function$;
 
@@ -1643,7 +1692,7 @@ begin
   end if;
 
   v_out := public.on_email_proven(v_uid);
-  return jsonb_build_object('proven', true, 'stamped', true, 'attached', v_out -> 'attached');
+  return jsonb_build_object('proven', true, 'stamped', true, 'attached', v_out -> 'attached', 'requeued', v_out -> 'requeued');
 end
 $function$;
 
@@ -1720,8 +1769,12 @@ create or replace trigger on_auth_user_email_changed
   when (old.email is distinct from new.email)
   execute function public.on_auth_email_changed();
 
--- Unproven auto-link at sign-up: replaced by the proof-based attach above.
-drop trigger if exists trg_link_guest_registrations on public.profiles;
+-- trg_link_guest_registrations (AFTER INSERT ON profiles, unproven auto-link of
+-- legacy webinar guest rows) is deliberately KEPT, unchanged: it is the only
+-- auto-link of the live main site, and with Confirm email off most new accounts
+-- never prove their address, so the proof-based attach above cannot replace it
+-- yet. It only touches event_registrations (never gl_guest, never sm_*). Phase 2
+-- (AUTH lane: proof on every sign-up) drops it.
 
 -- ═════════════════════════════════════════════════════════════════════════════
 -- 12. Read model
@@ -2134,14 +2187,15 @@ begin
   -- Publishing waits for the new registration front: while flag webinar_v2
   -- (webinars) / onsite_v2 (on-site) is off, the old main site is live and sends
   -- visitors of an event with a gl_event slug to /{slug}, a page it does not
-  -- have. Same rule for direct writes: events_publish_guard.
+  -- have. Same rule for direct writes: events_publish_guard. Only a JSON true
+  -- turns a flag on (the text "true" is off), as in the site and the edge functions.
   v_publish := case when v_hidden then false
                     when v_ev ? 'published' then coalesce((v_ev ->> 'published')::boolean, false)
                     when v_event_id is null then false
                     else v_published end;
   if coalesce(v_publish, false) and not coalesce(v_published, false) then
     v_flag := case when v_kind = 'webinar' then 'webinar_v2' else 'onsite_v2' end;
-    if not coalesce((select (ps.value ->> v_flag) = 'true' from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+    if not coalesce((select (ps.value -> v_flag) = 'true'::jsonb from public.platform_settings ps where ps.key = 'registration_flags'), false) then
       raise exception using errcode = '22023', message = 'publish_needs_flag',
         detail = format('Publishing waits for the new registration pages (flag %s).', v_flag);
     end if;
@@ -2423,7 +2477,7 @@ begin
     return new;
   end if;
   v_flag := case when v_kind = 'webinar' then 'webinar_v2' else 'onsite_v2' end;
-  if not coalesce((select (ps.value ->> v_flag) = 'true' from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+  if not coalesce((select (ps.value -> v_flag) = 'true'::jsonb from public.platform_settings ps where ps.key = 'registration_flags'), false) then
     raise exception using errcode = '22023', message = 'publish_needs_flag',
       detail = format('Publishing waits for the new registration pages (flag %s).', v_flag);
   end if;
@@ -2458,12 +2512,14 @@ begin
   end if;
 
   -- Dormant until the flag is on (and, for provisioning, until there is work):
-  -- nothing is called before the registration-cron function is deployed.
+  -- nothing is called before the registration-cron function is deployed. Only a
+  -- JSON true turns a flag on, as in registration-cron itself (never a cast that
+  -- could fail on a mistyped value).
   select ps.value into v_flags from public.platform_settings ps where ps.key = 'registration_flags';
   v_flags := coalesce(v_flags, '{}'::jsonb);
   v_go := case p_job
     when 'provision' then
-      coalesce((v_flags ->> 'provisioning')::boolean, false)
+      coalesce((v_flags -> 'provisioning') = 'true'::jsonb, false)
       and exists (select 1 from public.account_provision_job j
                    where j.status = 'queued'
                       or (j.status = 'failed' and j.attempts < 5)
@@ -2474,9 +2530,9 @@ begin
                       or (j.status = 'done' and j.email_sent_at is null
                           and j.email_due_at <= now() and j.email_due_at > now() - interval '7 days'))
     when 'reminders' then
-      coalesce((v_flags ->> 'webinar_v2')::boolean, false) or coalesce((v_flags ->> 'onsite_v2')::boolean, false)
+      coalesce((v_flags -> 'webinar_v2') = 'true'::jsonb, false) or coalesce((v_flags -> 'onsite_v2') = 'true'::jsonb, false)
     when 'digest' then
-      coalesce((v_flags ->> 'review_queue')::boolean, false)
+      coalesce((v_flags -> 'review_queue') = 'true'::jsonb, false)
       and extract(hour from (now() at time zone 'Europe/Monaco')) = 8
   end;
   if not coalesce(v_go, false) then

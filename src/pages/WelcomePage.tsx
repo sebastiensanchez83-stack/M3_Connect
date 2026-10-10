@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { markEmailProven } from '@/lib/emailProof';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { toast } from '@/hooks/use-toast';
@@ -181,6 +182,9 @@ export function WelcomePage() {
         setRedeemFailed(true);
       } else {
         setRedeemedType(type);
+        // The link was opened from the mailbox: the database records that the address is
+        // proven (registrations sent to it join the account). Never blocks the page.
+        markEmailProven();
         // A sign-up link confirms an account whose password was chosen by
         // whoever filled in the sign-up form — not necessarily the owner of
         // this mailbox. Record that the password step is still owed, so a

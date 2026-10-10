@@ -210,6 +210,11 @@ export interface RegStatusView {
   can_edit: boolean;
   can_edit_names: boolean;
   can_cancel: boolean;
+  /**
+   * needs_info: the answer to M3 can still be sent from the page (until the event ends),
+   * even when the details are locked (can_edit false): then the answer only.
+   */
+  can_answer_info?: boolean;
   edit_locks_at?: string | null;
   reminders_on: boolean;
   meeting_url?: string | null;
@@ -682,7 +687,15 @@ export function sourceFromUrl(search: string, fallback: SourceDetail['entry']): 
   return out;
 }
 
-/** Guest-list (guest_list_v1) events that have a public page of their own. */
+/**
+ * Guest-list (guest_list_v1) events that have a public page of their own.
+ *
+ * A NEW guest-list event (wys27, for example) needs THREE things, or its event
+ * page shows the plain "invitation only" card instead of its own page: its two
+ * public routes in App.tsx (/<slug> and /<slug>/guest), and an entry here. The
+ * slug alone is not enough: gl_event_slug_for answers for core_v2 events and for
+ * the hidden test canaries too, which have no page at /<slug>.
+ */
 export const GUEST_LIST_PAGES: Record<string, string> = { wys26: '/wys26' };
 
 /** The page of one registration for its signed-in owner (core_v2 rows of My events have no link of their own). */

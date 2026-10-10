@@ -339,6 +339,8 @@ export function staffErrorText(code: string | undefined, t: TFunction): string {
       return t('adminEvents.staffErr.notFound', 'This event or registration no longer exists. Reload the page.');
     case 'wrong_engine':
       return t('adminEvents.staffErr.engine', 'This event runs on the guest list. Use its guest-list page.');
+    case 'onsite_not_live':
+      return t('adminEvents.staffErr.onsiteNotLive', 'On-site registrations can be confirmed once the new event pages are live on the main site. Until then, use a hidden test event.');
     case 'info_request_required':
       return t('adminEvents.staffErr.info', 'Write what you need to know before sending.');
     case 'bad_decision':

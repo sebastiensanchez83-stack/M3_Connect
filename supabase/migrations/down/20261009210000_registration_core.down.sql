@@ -67,7 +67,8 @@ begin
 end
 $d$;
 
--- the old unproven auto-link at sign-up comes back
+-- trg_link_guest_registrations: the migration keeps it; re-created here (same
+-- definition) so it is in place whatever happened to it since.
 drop trigger if exists trg_link_guest_registrations on public.profiles;
 create trigger trg_link_guest_registrations
   after insert on public.profiles

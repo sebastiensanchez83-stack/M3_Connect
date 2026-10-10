@@ -3,12 +3,12 @@ import type { TFunction } from 'i18next';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Check, Clock, FileText, Flag, ImageIcon, Inbox, MessageSquare, Paperclip, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Clock, FileText, Flag, ImageIcon, Inbox, Loader2, MessageSquare, Paperclip, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CardShell } from '@/components/brand/CardShell';
 import { LogoTile } from '@/components/brand/OrgCard';
 import { MemberEmpty, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
-import { useMediaQuery } from '@/components/motion/useReducedMotion';
+import { useMediaQuery, useReducedMotion } from '@/components/motion/useReducedMotion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInboxCount } from '@/hooks/useInboxCount';
 import { requireFreshSession } from '@/lib/session';
@@ -17,7 +17,9 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { answerConnectionRequest, type OrgRef } from '@/components/inbox/inboxActions';
 import { ReportDialog, ThreadView } from './ThreadView';
-import { setConversationScreenOpen, useLiveChannel, useLiveEvents, useRealtimeStatus } from './messageEvents';
+import {
+  setConversationScreenOpen, useLiveChannel, useLiveEvents, useOnLiveAgain, useOpenThreadRequests, useRealtimeStatus,
+} from './messageEvents';
 import {
   loadConversations, loadRequests, markThreadRead, shortWhen,
   type Conversation, type ConnectionRequest,
@@ -59,6 +61,10 @@ const BTN44 = 'h-11 rounded-pill px-4';
 const BTN44_OUTLINE = 'h-11 rounded-pill border-navy/25 bg-white px-4 text-navy hover:border-navy hover:bg-chip hover:text-navy';
 const ROW = 'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_#0b2653]';
 const LIST_POLL_MS = 30_000;
+/** While live, the list is still read every 2 minutes: a safety net for anything missed. */
+const LIST_POLL_LIVE_MS = 120_000;
+/** The site's sticky header: a card brought into view must not slide under it. */
+const HEADER_ROOM = 88;
 
 function orgName(org: OrgRef | null | undefined): string {
   return org ? displayCase(org.name) || org.name : '';
@@ -73,7 +79,7 @@ export function MessagesView() {
   const { user, profile, organization } = useAuth();
   const inbox = useInboxCount(true);
   const refreshCount = inbox.refresh;
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
   const wide = useMediaQuery('(min-width: 1024px)');
@@ -98,18 +104,30 @@ export function MessagesView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [confirmDecline, setConfirmDecline] = useState<string | null>(null);
+  /** Opened to answer (Accept and reply, an alert's Reply): the cursor goes to its text box. */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  /** Opened before the list knew it (a conversation accepted a moment ago): read again, no "not available" meanwhile. */
+  const [lookingFor, setLookingFor] = useState<string | null>(null);
   const lastLoad = useRef(0);
+  const loadSeq = useRef(0);
   const autoOpened = useRef(false);
   // A history entry was added for the phone's conversation screen: Back closes it.
   const pushed = useRef(false);
+  // The address is being tidied (the ?thread= dropped) before the screen's entry is added.
+  const settling = useRef(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotion();
 
   const load = useCallback(async () => {
     if (!uid) return;
     lastLoad.current = Date.now();
+    const seq = ++loadSeq.current;
     const [conv, reqs] = await Promise.all([
       loadConversations(),
       loadRequests(uid, orgId).catch(() => null),
     ]);
+    // Reads can overlap (a live event, the timer, the focus): only the latest one counts.
+    if (seq !== loadSeq.current) return;
     setConversations(conv.items);
     setConversationsOk(conv.ok);
     if (reqs) {
@@ -135,31 +153,111 @@ export function MessagesView() {
   useLiveEvents(() => soon());
 
   // Back on the tab: read the list again (at most every 15 s). Without the live
-  // channel, every 30 s while the page is in sight.
+  // channel, every 30 s while the page is in sight; with it, every 2 minutes as a
+  // safety net, and at once when it comes back after a break.
   useEffect(() => {
     const onFocus = () => { if (Date.now() - lastLoad.current > 15_000) void load(); };
     window.addEventListener('focus', onFocus);
-    const iv = live ? null : window.setInterval(() => {
-      if (document.visibilityState === 'visible' && Date.now() - lastLoad.current > LIST_POLL_MS - 1000) void load();
-    }, LIST_POLL_MS);
+    const every = live ? LIST_POLL_LIVE_MS : LIST_POLL_MS;
+    const iv = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && Date.now() - lastLoad.current > every - 1000) void load();
+    }, every);
     return () => {
       window.removeEventListener('focus', onFocus);
-      if (iv) window.clearInterval(iv);
+      window.clearInterval(iv);
     };
   }, [load, live]);
+  useOnLiveAgain(() => { soon(); refreshCount(); });
 
-  // /?open=inbox&thread=<id>: open that one, then drop the parameter.
+  const selectedConversation = conversations?.find((c) => c.id === selectedId) ?? null;
+  const selectedRequest = selectedConversation ? null
+    : received.find((r) => r.data.id === selectedId) ?? sent.find((r) => r.data.id === selectedId) ?? null;
+  const selectedMissing = loaded && !!selectedId && !selectedConversation && !selectedRequest && lookingFor !== selectedId;
+
+  // Wide screens: bring the whole two-pane card into sight (under the site's header)
+  // when a conversation is opened on purpose, so its newest messages and the text box
+  // are on screen, not below the fold of a page with a large title.
+  // (Asked for at once, done once the list is loaded: a ?thread= address is read
+  // before the card is drawn.)
+  const [viewAsked, setViewAsked] = useState(0);
+  const bringIntoView = useCallback(() => setViewAsked((n) => n + 1), []);
+  useEffect(() => {
+    if (!viewAsked || !loaded || !wide) return;
+    const frame = requestAnimationFrame(() => {
+      const el = cardRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = r.bottom - (window.innerHeight - 12);
+      const above = r.top - HEADER_ROOM;
+      // Down until its bottom shows, never so far that its top hides under the header.
+      const by = below > 0 ? Math.min(below, Math.max(above, 0)) : above < 0 ? above : 0;
+      if (Math.abs(by) > 4) window.scrollBy({ top: by, behavior: reduced ? 'auto' : 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewAsked, loaded, wide, reduced]);
+
+  /**
+   * Shows one conversation (or first message). On a phone it fills the screen and gets
+   * its own history entry, so the phone's Back button closes it; a conversation
+   * already on screen is swapped for this one in the same entry.
+   */
+  const show = (id: string, opts: { answer?: boolean } = {}) => {
+    setConfirmDecline(null);
+    setSelectedId(id);
+    setFocusId(opts.answer ? id : null);
+    const known = conversations?.some((c) => c.id === id) || received.some((r) => r.data.id === id) || sent.some((r) => r.data.id === id);
+    if (!known && loaded) {
+      setLookingFor(id);
+      void load().finally(() => setLookingFor((cur) => (cur === id ? null : cur)));
+    }
+    if (wide) {
+      bringIntoView();
+      return;
+    }
+    const state = (location.state && typeof location.state === 'object') ? location.state as Record<string, unknown> : {};
+    const here = `${location.pathname}${location.search}`;
+    if (pushed.current) navigate(here, { replace: true, state: { ...state, msgScreen: id } });
+    else {
+      pushed.current = true;
+      navigate(here, { state: { ...state, msgScreen: id } });
+    }
+  };
+  const open = (id: string) => show(id);
+
+  // An alert's "Reply" while Messages is on screen: open it here, in place.
+  useOpenThreadRequests((id) => show(id, { answer: true }));
+
+  // /?open=inbox&thread=<id> (a company page, an alert from another page): open that
+  // one and drop the parameter. On a phone the address is tidied first, then the
+  // screen gets its own entry: Back returns to the list, as for a conversation tapped.
   const wantedThread = searchParams.get('thread');
   useEffect(() => {
     if (!wantedThread) return;
     autoOpened.current = true;
+    const next = new URLSearchParams(searchParams);
+    next.delete('thread');
+    const rest = next.toString();
+    const clean = `${location.pathname}${rest ? `?${rest}` : ''}`;
+    setConfirmDecline(null);
     setSelectedId(wantedThread);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete('thread');
-      return next;
-    }, { replace: true });
-  }, [wantedThread, setSearchParams]);
+    setFocusId(wantedThread);
+    if (wide) {
+      navigate(clean, { replace: true, state: location.state });
+      bringIntoView();
+      return;
+    }
+    const state = (location.state && typeof location.state === 'object') ? location.state as Record<string, unknown> : {};
+    if (pushed.current) {
+      navigate(clean, { replace: true, state: { ...state, msgScreen: wantedThread } });
+    } else {
+      settling.current = true;
+      navigate(clean, { replace: true, state });
+      pushed.current = true;
+      navigate(clean, { state: { ...state, msgScreen: wantedThread } });
+    }
+    // Only the parameter matters here: the rest is read as it is now.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedThread]);
 
   // Wide screens: a first message waiting for an answer opens by itself.
   useEffect(() => {
@@ -168,29 +266,18 @@ export function MessagesView() {
     if (received.length > 0) setSelectedId(received[0].data.id);
   }, [loaded, wide, received, selectedId]);
 
-  // The phone's Back button closes the conversation screen.
+  // The phone's Back button closes the conversation screen. (Not while the address is
+  // being tidied, nor for an address that opens a conversation itself.)
   useEffect(() => {
     const state = location.state as { msgScreen?: string } | null;
-    if (pushed.current && !state?.msgScreen) {
-      pushed.current = false;
-      setSelectedId(null);
+    if (state?.msgScreen) {
+      settling.current = false;
+      return;
     }
+    if (!pushed.current || settling.current || new URLSearchParams(location.search).get('thread')) return;
+    pushed.current = false;
+    setSelectedId(null);
   }, [location]);
-
-  const selectedConversation = conversations?.find((c) => c.id === selectedId) ?? null;
-  const selectedRequest = selectedConversation ? null
-    : received.find((r) => r.data.id === selectedId) ?? sent.find((r) => r.data.id === selectedId) ?? null;
-  const selectedMissing = loaded && !!selectedId && !selectedConversation && !selectedRequest;
-
-  const open = (id: string) => {
-    setConfirmDecline(null);
-    setSelectedId(id);
-    if (!wide && !pushed.current) {
-      pushed.current = true;
-      const state = (location.state && typeof location.state === 'object') ? location.state as Record<string, unknown> : {};
-      navigate(`${location.pathname}${location.search}`, { state: { ...state, msgScreen: id } });
-    }
-  };
 
   const close = () => {
     setConfirmDecline(null);
@@ -235,6 +322,9 @@ export function MessagesView() {
       return;
     }
     const rest = received.filter((r) => r.data.id !== item.data.id);
+    // Accepted: the same screen goes on with the conversation (read again meanwhile:
+    // never "not available" in between), the cursor in its text box.
+    if (status === 'accepted') setLookingFor(item.data.id);
     setReceived(rest);
     refreshCount();
     if (status === 'accepted') {
@@ -242,10 +332,11 @@ export function MessagesView() {
         title: t('messages.acceptedTitle', 'You are connected'),
         description: t('messages.acceptedBody', 'You can now write to {{name}} here. M3 also introduced you both by e-mail.', { name: company }),
       });
+      setFocusId(item.data.id);
       await markThreadRead(item.data.id).catch(() => {});
       await load();
-      // The same screen goes on with the conversation.
       setSelectedId(item.data.id);
+      setLookingFor((cur) => (cur === item.data.id ? null : cur));
     } else {
       toast({ title: t('messages.declinedTitle', 'Declined'), description: t('messages.declinedBody', '{{name}} is not told by e-mail.', { name: company }) });
       if (wide && rest.length > 0) setSelectedId(rest[0].data.id);
@@ -355,7 +446,7 @@ export function MessagesView() {
 
   const showBack = !wide;
   const pane: ReactNode = selectedConversation ? (
-    <ThreadView key={selectedConversation.id} conversation={selectedConversation} onBack={close} onRead={onRead} showBack={showBack} />
+    <ThreadView key={selectedConversation.id} conversation={selectedConversation} onBack={close} onRead={onRead} showBack={showBack} focusComposer={focusId === selectedConversation.id} />
   ) : selectedRequest ? (
     <RequestView
       key={selectedRequest.data.id}
@@ -370,6 +461,13 @@ export function MessagesView() {
       onCancelDecline={() => setConfirmDecline(null)}
       onReport={() => setReporting(selectedRequest)}
     />
+  ) : selectedId && lookingFor === selectedId ? (
+    <PaneMessage showBack={showBack} onBack={close}>
+      <p className="flex items-center gap-2 text-[15px] text-meta" role="status">
+        <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        {t('messages.opening', 'Opening the conversation…')}
+      </p>
+    </PaneMessage>
   ) : selectedMissing ? (
     <PaneMessage showBack={showBack} onBack={close}>
       <MemberEmpty
@@ -399,10 +497,10 @@ export function MessagesView() {
   // width (an auto grid column), and a long company name would otherwise widen it past
   // a phone's screen; this block now always takes the panel's width.
   return (
-    <div className="min-w-0 [contain:inline-size]">
+    <div ref={cardRef} className="min-w-0 [contain:inline-size]">
       <CardShell
         as="div"
-        className="min-w-0 lg:grid lg:h-[min(78vh,760px)] lg:min-h-[560px] lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"
+        className="min-w-0 lg:grid lg:h-[min(78vh,760px,calc(100dvh-104px))] lg:min-h-[560px] lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"
       >
         <div className="flex min-h-0 min-w-0 flex-col lg:border-r lg:border-rule">{list}</div>
         {wide && <div className="flex min-h-0 min-w-0 flex-col">{pane}</div>}

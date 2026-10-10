@@ -15,8 +15,13 @@ import { attachmentType, downloadAttachment, formatBytes, isImageAttachment, typ
 
 /** Downloads a file, telling the member in plain words when it did not work. */
 export async function downloadOrTell(a: Attachment, t: (k: string, d: string) => string) {
-  const ok = await downloadAttachment(a).catch(() => false);
-  if (!ok) {
+  const result = await downloadAttachment(a).catch(() => 'failed' as const);
+  if (result === 'gone') {
+    toast({
+      title: t('messages.files.goneTitle', 'File not available'),
+      description: t('messages.files.gone', 'This file is no longer available. It may have been removed by the M3 team.'),
+    });
+  } else if (result === 'failed') {
     toast({
       title: t('messages.files.downloadFailedTitle', 'Download failed'),
       description: t('messages.files.downloadFailed', 'The file could not be downloaded. Please check your connection and try again.'),
@@ -24,6 +29,9 @@ export async function downloadOrTell(a: Attachment, t: (k: string, d: string) =>
     });
   }
 }
+
+/** The colours of a bubble: mine (navy), a colleague's (light, on my side), the other company's (white). */
+export type BubbleTone = 'me' | 'team' | 'them';
 
 function DownloadButton({ attachment, tone, label }: { attachment: Attachment; tone: 'mine' | 'theirs' | 'plain'; label?: string }) {
   const { t } = useTranslation();
@@ -78,13 +86,17 @@ export function MessageAttachments({
   urls,
   pending = false,
   onOpenImage,
+  onImageError,
 }: {
   attachments: Attachment[];
+  /** On a navy bubble (white text). */
   mine: boolean;
   /** Signed links of the photos, by path. */
   urls: Record<string, string>;
   pending?: boolean;
   onOpenImage: (a: Attachment) => void;
+  /** A photo did not load (its link ran out): ask for a new one. */
+  onImageError?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const images = attachments.filter(isImageAttachment);
@@ -112,6 +124,7 @@ export function MessageAttachments({
                     src={src}
                     alt=""
                     loading="lazy"
+                    onError={() => { if (!a.localUrl && a.path) onImageError?.(a.path); }}
                     className={cn('block h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100', images.length > 1 ? '' : 'max-h-72')}
                   />
                 ) : (
@@ -134,10 +147,12 @@ export function ImageLightbox({
   attachment,
   url,
   onClose,
+  onImageError,
 }: {
   attachment: Attachment | null;
   url: string | null;
   onClose: () => void;
+  onImageError?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -162,7 +177,12 @@ export function ImageLightbox({
             </div>
             <div className="grid min-h-[200px] place-items-center overflow-hidden rounded-field bg-black/30">
               {url ? (
-                <img src={url} alt={attachment.name} className="max-h-[calc(92dvh-110px)] w-auto max-w-full object-contain" />
+                <img
+                  src={url}
+                  alt={attachment.name}
+                  onError={() => { if (!attachment.localUrl && attachment.path) onImageError?.(attachment.path); }}
+                  className="max-h-[calc(92dvh-110px)] w-auto max-w-full object-contain"
+                />
               ) : (
                 <Loader2 className="h-6 w-6 animate-spin text-white/70 motion-reduce:animate-none" aria-hidden="true" />
               )}

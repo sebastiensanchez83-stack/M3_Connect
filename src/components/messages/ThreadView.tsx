@@ -15,12 +15,12 @@ import { requireFreshSession } from '@/lib/session';
 import { displayCase } from '@/lib/displayCase';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { AttachmentChip, ImageLightbox, MessageAttachments } from './Attachments';
-import { setActiveThread, useLiveEvents, useRealtimeStatus } from './messageEvents';
+import { AttachmentChip, ImageLightbox, MessageAttachments, type BubbleTone } from './Attachments';
+import { setActiveThread, useLiveEvents, useOnLiveAgain, useRealtimeStatus } from './messageEvents';
 import {
   ATTACHMENT_ACCEPT, ATTACHMENT_MAX_FILES, THREAD_MESSAGE_MAX,
-  attachmentType, checkAttachment, checkAttachments, dayLabel, isImageAttachment, loadSeen, loadThread, markThreadRead,
-  reportConversation, sameDay, sendThreadMessage, signAttachmentViews, timeOf,
+  attachmentType, checkAttachment, checkAttachments, dayLabel, forgetAttachmentView, isImageAttachment, loadSeen, loadThread,
+  markThreadRead, prepareAttachments, reportConversation, sameDay, sendThreadMessage, signAttachmentViews, timeOf,
   type Attachment, type Conversation, type SeenInfo, type ThreadMessage,
 } from './messagesApi';
 
@@ -28,14 +28,18 @@ import {
  * One conversation between two companies, in the look of WhatsApp or LinkedIn
  * (Victor, 10 Oct 2026):
  *   - my messages on the right, in navy, without a name; my colleagues' on the right
- *     too, under their name (it is our company's side); the other company's on the
+ *     too (it is our company's side) but light, under their name and with their
+ *     initials, so nobody takes them for their own; the other company's on the
  *     left, with the person's photo (or initials), name and company above the first
  *     message of each run (Victor, 9 Oct: every message says who wrote it);
  *   - a day separator ("Today", "Yesterday", "Mon 6 Oct") and the time on each message;
  *   - under my side's last message: "Sent", or "Seen" once someone of the other
  *     company has opened the conversation since (tap or hover: "Seen by Jordan");
- *   - photos and PDFs: the paperclip, a drop on the conversation, or a paste; each
- *     file shows as a chip (name, size, remove) until it is sent.
+ *   - photos and PDFs: the paperclip, a drop (anywhere on the page while a
+ *     conversation is open: a file dropped a little off never makes the browser leave
+ *     the site), or a paste of a copied image (a paste that carries text, from Excel
+ *     or Word, stays text); each file shows as a chip (name, size, remove) until it
+ *     is sent. A photo over 10 MB is made smaller first.
  *
  * The thread fills the height it is given (the two-pane card on wide screens, the
  * whole screen on phones): the messages scroll inside, the composer stays at the
@@ -77,6 +81,7 @@ interface Run {
   day: string | null;
   mine: boolean;
   me: boolean;
+  tone: BubbleTone;
   name: string;
   company: string;
   avatar: string | null;
@@ -88,6 +93,7 @@ export function ThreadView({
   onBack,
   onRead,
   showBack = false,
+  focusComposer = false,
 }: {
   conversation: Conversation;
   /** Back to the list (the phone's full-screen conversation). */
@@ -96,10 +102,14 @@ export function ThreadView({
   onRead: () => void;
   /** Show the back arrow (phones). */
   showBack?: boolean;
+  /** Opened to answer ("Accept and reply", an alert's "Reply"): the cursor goes to the text box (keyboard and mouse only). */
+  focusComposer?: boolean;
 }) {
   const { t } = useTranslation();
   const { user, profile, organization } = useAuth();
   const uid = user?.id ?? null;
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
   const id = conversation.id;
   const live = useRealtimeStatus() === 'live';
   const [messages, setMessages] = useState<ThreadMessage[] | null>(null);
@@ -109,6 +119,9 @@ export function ThreadView({
   const [lightbox, setLightbox] = useState<Attachment | null>(null);
   const [draft, setDraft] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const [preparing, setPreparing] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -151,13 +164,26 @@ export function ThreadView({
 
   // Read the thread; mark it read when something new from the other side arrived
   // (only while it is on screen: a hidden tab marks it when it comes back).
+  // Reads can overlap (a live message, the timer, the focus, the read after sending):
+  // only the latest one asked for is shown, so an older answer never wipes a newer one.
+  const loadSeq = useRef(0);
   const load = useCallback(async (first: boolean) => {
+    const seq = ++loadSeq.current;
     try {
       const rows = await loadThread(id);
+      if (seq !== loadSeq.current) return;
       setFailed(false);
       setMessages((prev) => {
-        // Keep a message still being sent at the bottom until the server has it.
-        const pending = (prev ?? []).filter((m) => m.pending);
+        // A message still being sent stays at the bottom until the server has it: then
+        // the server's copy replaces it (matched one for one, by text and number of files).
+        const known = new Set((prev ?? []).filter((m) => !m.pending).map((m) => m.id));
+        const fresh = rows.filter((r) => !known.has(r.id) && !!r.authorUserId && r.authorUserId === uidRef.current);
+        const pending: ThreadMessage[] = [];
+        for (const m of (prev ?? []).filter((x) => x.pending)) {
+          const i = fresh.findIndex((r) => (r.body ?? '') === (m.body ?? '') && r.attachments.length === m.attachments.length);
+          if (i >= 0) fresh.splice(i, 1);
+          else pending.push(m);
+        }
         return pending.length ? [...rows, ...pending] : rows;
       });
       const newest = rows.length ? rows[rows.length - 1] : null;
@@ -171,9 +197,9 @@ export function ThreadView({
         onReadRef.current();
       }
       const s = await loadSeen(id).catch(() => null);
-      setSeen(s);
+      if (seq === loadSeq.current) setSeen(s);
     } catch {
-      if (first) setFailed(true);
+      if (first && seq === loadSeq.current) setFailed(true);
     }
   }, [id]);
 
@@ -203,6 +229,12 @@ export function ThreadView({
     if (e.kind !== 'message' || e.row.partner_request_id !== id) return;
     if (document.visibilityState !== 'visible') { stale.current = true; return; }
     soon();
+  });
+
+  // Live again after a break: what was sent meanwhile shows at once.
+  useOnLiveAgain(() => {
+    if (document.visibilityState === 'visible') soon();
+    else stale.current = true;
   });
 
   useEffect(() => {
@@ -248,7 +280,7 @@ export function ThreadView({
 
   useEffect(() => {
     if (!messages) return;
-    const paths = messages.flatMap((m) => (m.pending ? [] : m.attachments.filter(isImageAttachment).map((a) => a.path))).filter((p) => p && !urls[p]);
+    const paths = messages.flatMap((m) => (m.pending ? [] : m.attachments.filter(isImageAttachment).map((a) => a.path))).filter((p) => p && !(p in urls));
     if (paths.length === 0) return;
     let alive = true;
     void signAttachmentViews(paths).then((got) => {
@@ -256,6 +288,20 @@ export function ThreadView({
     }).catch(() => {});
     return () => { alive = false; };
   }, [messages, urls]);
+
+  // A photo that does not load: its link ran out (the conversation stayed open more than
+  // 15 minutes) or the file was removed. Ask for a new link, at most once a minute per
+  // photo; none (removed): the grey photo tile stays.
+  const retried = useRef(new Map<string, number>());
+  const onImageError = useCallback((path: string) => {
+    const last = retried.current.get(path) ?? 0;
+    if (Date.now() - last < 60_000) return;
+    retried.current.set(path, Date.now());
+    forgetAttachmentView(path);
+    void signAttachmentViews([path]).then((got) => {
+      setUrls((prev) => ({ ...prev, [path]: got[path] ?? '' }));
+    }).catch(() => {});
+  }, []);
 
   /* ---------------------------------------------------------- scrolling */
 
@@ -272,17 +318,22 @@ export function ThreadView({
     lastHeight.current = el.scrollHeight;
   }, [messages]);
 
-  // Photos that finish loading, "Seen" appearing: the reader at the bottom stays there.
+  // Photos that finish loading, "Seen" appearing (the list grows), the phone's keyboard
+  // opening, a file chip or an error above the text box, the text box growing (the
+  // messages' area gets shorter): the reader at the bottom stays there, so the newest
+  // message stays in sight.
   const listShown = messages !== null && !failed;
   useEffect(() => {
     const list = listRef.current;
-    if (!listShown || !list || typeof ResizeObserver === 'undefined') return;
+    const box = logRef.current;
+    if (!listShown || !list || !box || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       const el = logRef.current;
       if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
       if (el) lastHeight.current = el.scrollHeight;
     });
     ro.observe(list);
+    ro.observe(box);
     return () => ro.disconnect();
   }, [listShown]);
 
@@ -322,12 +373,16 @@ export function ThreadView({
     el.style.height = `${Math.min(el.scrollHeight + (el.offsetHeight - el.clientHeight), 160)}px`;
   }, [draft]);
 
-  const addFiles = (list: File[]) => {
-    if (list.length === 0) return;
+  const addFiles = async (chosen: File[]) => {
+    if (chosen.length === 0) return;
+    // A photo over 10 MB is made smaller first (a moment for a big one).
+    setPreparing(true);
+    const list = await prepareAttachments(chosen).catch(() => chosen);
+    setPreparing(false);
     // The files refused (type, size): one sentence each, the rule said once.
     const refused = list.filter((f) => checkAttachment(f) !== null);
     const errors: string[] = refused.length ? [checkAttachments(refused) ?? ''] : [];
-    const next = [...files];
+    const next = [...filesRef.current];
     for (const f of list) {
       if (refused.includes(f)) continue;
       if (next.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) continue;
@@ -337,9 +392,48 @@ export function ThreadView({
       }
       next.push(f);
     }
+    filesRef.current = next;
     setFiles(next);
     setFileError(errors.length ? errors.join(' ') : null);
   };
+  const addFilesRef = useRef(addFiles);
+  addFilesRef.current = addFiles;
+
+  // Opened to answer: the cursor goes to the text box once the messages are there
+  // (keyboard and mouse only: on a phone the keyboard would jump up uninvited).
+  const hasMessages = messages !== null;
+  useEffect(() => {
+    if (!focusComposer || !hasMessages || touchKeyboard) return;
+    textRef.current?.focus({ preventScroll: true });
+  }, [focusComposer, hasMessages, touchKeyboard]);
+
+  // While a conversation is open, a file dropped anywhere on the page comes here: the
+  // browser never opens it in place of the site (and a draft is never lost to it).
+  useEffect(() => {
+    const carriesFiles = (e: globalThis.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    const onOver = (e: globalThis.DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDrop = (e: globalThis.DragEvent) => {
+      if (!carriesFiles(e)) return;
+      // Already taken by a drop zone (this conversation's, or another one on the page).
+      const taken = e.defaultPrevented;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      if (taken) return;
+      void addFilesRef.current(Array.from(e.dataTransfer?.files ?? []));
+      textRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -394,7 +488,9 @@ export function ThreadView({
       toast({ title: t('messages.sendFailed', 'Not sent'), description: result.message, variant: 'destructive' });
       return;
     }
-    setMessages((prev) => (prev ?? []).filter((m) => m.id !== temp.id).concat({ ...temp, pending: false }));
+    // Sent: it shows its time at once and stays until the server's copy replaces it
+    // (load), never twice (a live read may have brought that copy already).
+    setMessages((prev) => (prev ?? []).map((m) => (m.id === temp.id ? { ...m, sent: true } : m)));
     await load(false);
     window.setTimeout(() => localUrls.forEach((u) => { if (u) URL.revokeObjectURL(u); }), 30_000);
   };
@@ -406,15 +502,19 @@ export function ThreadView({
     }
   };
 
+  // A copied photo or screenshot becomes a file. Cells copied from Excel (or text from
+  // Word, Outlook) also carry a picture of themselves: there the text is what was meant.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = Array.from(e.clipboardData?.files ?? []);
-    if (pasted.length) {
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (pasted.length && !text.trim()) {
       e.preventDefault();
-      addFiles(pasted);
+      void addFiles(pasted);
     }
   };
 
-  // Drag and drop anywhere on the conversation (the counter ignores the children's enter/leave).
+  // Drag and drop on the conversation shows where it goes (the counter ignores the
+  // children's enter/leave); the drop itself is taken here, or by the page (above).
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   const dropHandlers = {
     onDragEnter: (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current += 1; setDragging(true); },
@@ -425,7 +525,7 @@ export function ThreadView({
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      addFiles(Array.from(e.dataTransfer.files ?? []));
+      void addFiles(Array.from(e.dataTransfer.files ?? []));
       textRef.current?.focus();
     },
   };
@@ -454,6 +554,7 @@ export function ThreadView({
         day: newDay ? dayLabel(m.createdAt) : null,
         mine: m.fromMySide,
         me,
+        tone: !m.fromMySide ? 'them' : me ? 'me' : 'team',
         name,
         company: m.authorOrgName ? displayCase(m.authorOrgName) || m.authorOrgName : '',
         avatar: m.authorAvatarUrl,
@@ -467,7 +568,7 @@ export function ThreadView({
     ? t('messages.thread.autoConnected', 'Connected automatically: your activities match.')
     : t('messages.thread.connectedOn', { date: new Date(conversation.connectedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), defaultValue: 'Connected on {{date}}.' });
 
-  const canSend = (!!draft.trim() || files.length > 0) && !sending;
+  const canSend = (!!draft.trim() || files.length > 0) && !sending && !preparing;
 
   return (
     <section
@@ -561,6 +662,7 @@ export function ThreadView({
                     seen={seen}
                     lastMineSeen={lastMineSeen}
                     onOpenImage={setLightbox}
+                    onImageError={onImageError}
                   />
                 </Fragment>
               ))}
@@ -601,17 +703,19 @@ export function ThreadView({
             className="sr-only"
             tabIndex={-1}
             aria-hidden="true"
-            onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+            onChange={(e) => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
           />
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={sending}
+            disabled={sending || preparing}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-pill text-navy transition-colors hover:bg-chip focus:outline-none focus-visible:shadow-focus disabled:opacity-50"
-            aria-label={t('messages.files.attach', 'Attach a photo or a PDF')}
+            aria-label={preparing ? t('messages.files.preparing', 'Preparing your photo…') : t('messages.files.attach', 'Attach a photo or a PDF')}
             title={t('messages.files.attachTitle', { rule: t('messages.files.rule', 'PDF, JPG, PNG or WebP, up to 10 MB.'), defaultValue: 'Attach a photo or a PDF ({{rule}})' })}
           >
-            <Paperclip className="h-5 w-5" aria-hidden="true" />
+            {preparing
+              ? <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              : <Paperclip className="h-5 w-5" aria-hidden="true" />}
           </button>
           <label htmlFor={composerId} className="sr-only">{t('messages.composer.label', 'Write a message')}</label>
           <textarea
@@ -658,15 +762,20 @@ export function ThreadView({
         </div>
       )}
 
-      <ImageLightbox attachment={lightbox} url={lightbox ? lightbox.localUrl ?? urls[lightbox.path] ?? null : null} onClose={() => setLightbox(null)} />
+      <ImageLightbox attachment={lightbox} url={lightbox ? lightbox.localUrl ?? (urls[lightbox.path] || null) : null} onClose={() => setLightbox(null)} onImageError={onImageError} />
       <ReportDialog open={reportOpen} onOpenChange={setReportOpen} requestId={id} otherName={otherName} />
     </section>
   );
 }
 
-/** A run of messages by one person: their name above (not for my own), then the bubbles. */
+/**
+ * A run of messages by one person: their name above (not for my own), then the
+ * bubbles. Mine: navy, on the right, no name. A colleague's: on the right too (our
+ * company's side) but light, with their name and initials. The other company's: on
+ * the left, white, with their photo or initials.
+ */
 function MessageRun({
-  run, urls, lastMineId, seen, lastMineSeen, onOpenImage,
+  run, urls, lastMineId, seen, lastMineSeen, onOpenImage, onImageError,
 }: {
   run: Run;
   urls: Record<string, string>;
@@ -674,6 +783,7 @@ function MessageRun({
   seen: SeenInfo | null;
   lastMineSeen: boolean;
   onOpenImage: (a: Attachment) => void;
+  onImageError: (path: string) => void;
 }) {
   const header: ReactNode = run.me ? null : (
     <p className={cn('mb-1 max-w-[85%] text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]', run.mine && 'text-right')}>
@@ -685,18 +795,29 @@ function MessageRun({
     <Bubble
       key={m.id}
       message={m}
-      mine={run.mine}
+      tone={run.tone}
       first={i === 0}
       urls={urls}
       onOpenImage={onOpenImage}
+      onImageError={onImageError}
       footer={m.id === lastMineId && seen ? <SeenMark seen={seen} isSeen={lastMineSeen} /> : null}
     />
   ));
-  if (run.mine) {
+  if (run.me) {
     return (
       <li className="flex flex-col items-end">
-        {header}
         <div className="flex w-full flex-col items-end gap-1">{bubbles}</div>
+      </li>
+    );
+  }
+  if (run.mine) {
+    return (
+      <li className="flex items-start justify-end gap-2">
+        <div className="flex min-w-0 flex-1 flex-col items-end">
+          {header}
+          <div className="flex w-full flex-col items-end gap-1">{bubbles}</div>
+        </div>
+        <span className="mt-[22px]"><Avatar name={run.name} src={null} size={28} /></span>
       </li>
     );
   }
@@ -712,40 +833,46 @@ function MessageRun({
 }
 
 function Bubble({
-  message: m, mine, first, urls, onOpenImage, footer,
+  message: m, tone, first, urls, onOpenImage, onImageError, footer,
 }: {
   message: ThreadMessage;
-  mine: boolean;
+  tone: BubbleTone;
   first: boolean;
   urls: Record<string, string>;
   onOpenImage: (a: Attachment) => void;
+  onImageError: (path: string) => void;
   footer: ReactNode;
 }) {
   const { t } = useTranslation();
   const removed = m.isDeleted || m.body === null;
   const hasText = !removed && !!m.body;
   const hasFiles = !removed && m.attachments.length > 0;
+  const right = tone !== 'them';
+  const dark = tone === 'me';
+  const sending = m.pending && !m.sent;
   return (
-    <div className={cn('flex max-w-[85%] flex-col sm:max-w-[75%]', mine ? 'items-end' : 'items-start')}>
+    <div className={cn('flex max-w-[85%] flex-col sm:max-w-[75%]', right ? 'items-end' : 'items-start')}>
       <div
         className={cn(
           'min-w-[84px] max-w-full rounded-[18px] px-3 py-2 text-[15px] leading-6',
-          mine ? 'bg-navy text-white' : 'border border-rule bg-white text-ink',
-          first && (mine ? 'rounded-tr-[6px]' : 'rounded-tl-[6px]'),
-          m.pending && 'opacity-75',
+          tone === 'me' && 'bg-navy text-white',
+          tone === 'team' && 'border border-navy/15 bg-foam text-navy',
+          tone === 'them' && 'border border-rule bg-white text-ink',
+          first && (right ? 'rounded-tr-[6px]' : 'rounded-tl-[6px]'),
+          sending && 'opacity-75',
           removed && 'italic',
         )}
       >
         {hasFiles && (
           <div className={cn(hasText && 'mb-1.5')}>
-            <MessageAttachments attachments={m.attachments} mine={mine} urls={urls} pending={m.pending} onOpenImage={onOpenImage} />
+            <MessageAttachments attachments={m.attachments} mine={dark} urls={urls} pending={m.pending} onOpenImage={onOpenImage} onImageError={onImageError} />
           </div>
         )}
         {removed
           ? <p>{t('messages.removed', 'This message was removed.')}</p>
           : hasText && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.body}</p>}
-        <p className={cn('mt-0.5 text-right text-[11px] leading-4 tabular-nums', mine ? 'text-white/70' : 'text-meta')}>
-          <time dateTime={m.createdAt}>{m.pending ? t('messages.sending', 'Sending…') : timeOf(m.createdAt)}</time>
+        <p className={cn('mt-0.5 text-right text-[11px] leading-4 tabular-nums', dark ? 'text-white/70' : 'text-meta')}>
+          <time dateTime={m.createdAt}>{sending ? t('messages.sending', 'Sending…') : timeOf(m.createdAt)}</time>
         </p>
       </div>
       {m.isFirst && (

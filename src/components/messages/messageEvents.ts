@@ -156,6 +156,21 @@ export function useRealtimeStatus(): RealtimeStatus {
   return useSyncExternalStore(subscribeStatus, () => status, () => status);
 }
 
+/**
+ * Calls `handler` when the channel is live again after a break (Wi-Fi lost, a laptop
+ * asleep): what arrived meanwhile was not delivered live, so the screen reads again.
+ */
+export function useOnLiveAgain(handler: () => void) {
+  const now = useRealtimeStatus();
+  const last = useRef(now);
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => {
+    if (now === 'live' && last.current === 'down') ref.current();
+    last.current = now;
+  }, [now]);
+}
+
 /* ------------------------------------------------------------------ the conversation on screen */
 
 let activeThread: string | null = null;
@@ -167,6 +182,38 @@ export function setActiveThread(id: string | null) {
 
 export function getActiveThread(): string | null {
   return activeThread;
+}
+
+/* ------------------------------------------------------------------ "open this conversation" */
+
+/*
+ * When Messages is already on screen, an alert's "Reply" opens the conversation in it
+ * directly, without going through the address bar (on a phone, a new address would
+ * close the conversation screen that is open and leave the wanted one shut).
+ */
+type OpenHandler = (id: string) => void;
+const openHandlers: OpenHandler[] = [];
+
+/** Messages registers here while it is mounted (the latest one wins). */
+export function useOpenThreadRequests(handler: OpenHandler) {
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => {
+    const h: OpenHandler = (id) => ref.current(id);
+    openHandlers.push(h);
+    return () => {
+      const i = openHandlers.indexOf(h);
+      if (i >= 0) openHandlers.splice(i, 1);
+    };
+  }, []);
+}
+
+/** Opens a conversation in the Messages on screen. False when none is mounted (then go to it by address). */
+export function requestOpenThread(id: string): boolean {
+  const h = openHandlers[openHandlers.length - 1];
+  if (!h) return false;
+  h(id);
+  return true;
 }
 
 /* ------------------------------------------------------------------ the phone conversation screen */

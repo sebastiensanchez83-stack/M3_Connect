@@ -22,9 +22,11 @@ import { ATTACHMENT_BUCKET, formatBytes, type Attachment } from './messagesApi';
  * its conversation (deleted with an account): it then has no request, but keeps
  * its excerpt.
  *
- * Files (messaging v2, 10 Oct 2026): the excerpt names them ("[files: a.pdf]"), and
- * "See the files" lists the photos and PDFs of a REPORTED conversation to download
- * (the storage policy lets verified moderators open those, and only those).
+ * Files (messaging v2, 10 Oct 2026): the excerpt names them ("[files: a.pdf]"), and,
+ * while the report is OPEN, "See the files" lists the photos and PDFs the report
+ * covers (sent up to the time of the report) to download. The storage policy lets
+ * verified moderators open those and only those: the folder listing below is
+ * filtered by it, so a file sent after the report, or never sent, does not show.
  */
 
 interface OrgName { name: string | null }
@@ -159,7 +161,7 @@ export function ConversationReportsPanel() {
                     <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-field bg-page p-3 font-sans text-[13px] leading-5 text-ink [overflow-wrap:anywhere]">{r.excerpt}</pre>
                   </details>
                 )}
-                {r.partner_request_id && r.excerpt?.includes('[files: ') && <ReportFiles requestId={r.partner_request_id} />}
+                {r.partner_request_id && r.status === 'open' && r.excerpt?.includes('[files: ') && <ReportFiles requestId={r.partner_request_id} />}
                 {r.partner_request_id && (
                   <p className="mt-2 text-[13px]">
                     <Link to={`/admin/partner-requests/${r.partner_request_id}`} className="text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
@@ -209,13 +211,13 @@ function ReportFiles({ requestId }: { requestId: string }) {
           className="inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold disabled:opacity-60"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileText className="h-4 w-4" aria-hidden="true" />}
-          {t('adminReports.files', 'See the files of this conversation')}
+          {t('adminReports.filesCovered', 'See the files of this report')}
         </button>
       </p>
     );
   }
   if (files.length === 0) {
-    return <p className="mt-2 text-[13px] text-meta">{t('adminReports.noFiles', 'No file could be found (it may have been removed).')}</p>;
+    return <p className="mt-2 text-[13px] text-meta">{t('adminReports.noFilesCovered', 'No file to show: the files of this report may have been removed.')}</p>;
   }
   return (
     <ul className="mt-2 space-y-1.5">

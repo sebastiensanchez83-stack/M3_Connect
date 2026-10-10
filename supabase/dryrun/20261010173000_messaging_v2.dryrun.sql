@@ -22,11 +22,12 @@
 --   C. temp helper (pg_temp.dr: formats one report line);
 --   D. one DO block:
 --        S01-S10  structure (column, rules, bucket, storage policies, publication,
---                 result types, privileges, nothing else changed);
---        scenario F (files, "Seen", reports, realtime reads) in a sub-transaction:
---                 a conversation between two validated companies is made for the
---                 test (as postgres), then uploads, messages, reads and reports are
---                 done as the members themselves;
+--                 result types, privileges, nothing else changed, path rule, the
+--                 names people see);
+--        scenario F (files, "Seen", reports, realtime reads, quotas) in a
+--                 sub-transaction: a conversation between two validated companies is
+--                 made for the test (as postgres), then uploads, messages, reads and
+--                 reports are done as the members themselves;
 --        scenario Z  the down script, run whole (EXECUTE), then its result checked.
 --      Callers are simulated with set local role authenticated / anon +
 --      request.jwt.claims {sub, role}.
@@ -34,18 +35,20 @@
 -- Callers: looked up AT RUN TIME (read-only, as postgres), so no account id is
 -- written in this public repository:
 --   S   a verified member (not admin/moderator) of a validated company OS, in no other company
---   C   another verified member of OS, if there is one (else INFO lines)
+--   C   another verified member of OS, if there is one (else those lines are skipped)
 --   R   a verified member (not admin/moderator) of another validated company OM
 --   X   a verified outsider (not admin/moderator), in neither OS nor OM
 --   M   a verified admin who is in neither OS nor OM (M3 staff)
 --
--- Expected: "N PASS, 0 FAIL".
-
+-- Expected: "36 PASS, 0 FAIL".
+--
 -- ─── 0. Locks ────────────────────────────────────────────────────────────────
--- The new policies lock storage.objects and the new rules lock conversation_messages
--- until the whole run rolls back (file reads and uploads wait meanwhile). Give up
--- rather than queue behind a busy table. Run it at a quiet hour; if it stops on
--- "lock timeout", run it again.
+-- The new policies take an ACCESS EXCLUSIVE lock on storage.objects, and the new
+-- rules one on conversation_messages, until the whole run rolls back: every storage
+-- request of the site (logos, photos, site media) waits meanwhile. The run is short
+-- (no batch over all members: the digest check reads one person's unread items), but
+-- run it at a quiet hour; it gives up rather than queue behind a busy table. If it
+-- stops on "lock timeout", run it again.
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
@@ -95,28 +98,45 @@ create temp table _dr_before on commit drop as
 --     The first message (partner_requests.message) stays text only.
 --  2. A PRIVATE storage bucket "message-attachments": 10 MB per file, JPEG, PNG,
 --     WebP and PDF only. A file lives at <partner_request_id>/<uuid>/<safe name>
---     (the safe name: letters, digits, dot, dash, underscore, at most 120).
+--     (the safe name: letters, digits, dot, dash, underscore, at most 120, and it
+--     ENDS with .pdf, .jpg, .jpeg, .png or .webp: never .exe, .html, "a.pdf.exe").
 --     storage.objects policies for that bucket (authenticated only):
---       message_attachments_insert        upload into a conversation the caller may
---                                         write in now (msg_can_write for their side:
---                                         verified, accepted, on one of its sides,
---                                         company not suspended); path well formed;
---       message_attachments_select        read (and sign download links for) a file of
---                                         a conversation the caller may read
---                                         (msg_can_access); verified moderators too,
---                                         ONLY for a conversation that was reported to
---                                         M3 (they see its last messages in the report);
---       message_attachments_delete_staff  verified moderators remove a file of a
---                                         reported conversation.
---     No UPDATE policy (nobody replaces a file) and no DELETE for members: what was
---     sent stays, like the messages. The bucket is not public: every read goes
---     through a signed link the client asks for (short expiry).
+--       message_attachments_insert        upload, as oneself, into a conversation the
+--                                         caller may write in now (msg_can_write for
+--                                         their side: verified, accepted, on one of its
+--                                         sides, company not suspended); path well
+--                                         formed; at most 100 files an hour and 300 a
+--                                         day per person (the 60-messages-an-hour rule
+--                                         counts messages, not uploads);
+--       message_attachments_select        the uploader reads their own files; the two
+--                                         companies read a file only once a message
+--                                         that is still shown carries it (a file chosen
+--                                         and never sent, or the file of a message M3
+--                                         removed, is not theirs to open); verified
+--                                         moderators read the files of the messages an
+--                                         OPEN report covers (sent up to the report's
+--                                         time), nothing else;
+--       message_attachments_delete_own    the uploader removes their own file as long
+--                                         as no message carries it (the client tidies
+--                                         up after a send that failed half way);
+--       message_attachments_delete_staff  verified moderators remove a file an open
+--                                         report covers.
+--     No UPDATE policy (nobody replaces a file); a file that was sent stays, like the
+--     messages. The bucket is not public: every read goes through a signed link the
+--     client asks for (short expiry).
 --  3. The BEFORE INSERT trigger of conversation_messages checks the files of a
 --     member's message: each path must be in THIS conversation's folder, exist in
---     the bucket, have been uploaded by the author, be of an allowed type and size;
---     size and type are copied from storage (never what the client says), the name
---     shown is cleaned (no control characters or slashes, 120 characters). At most 5
---     files, no file twice. Everything else of the trigger is unchanged.
+--     the bucket, have been uploaded by the author, be of an allowed type and size,
+--     and its extension must be the type's (a ".png" stored as a PDF is refused);
+--     size and type are copied from storage (never what the client says). The name
+--     shown is cleaned (msg_attachment_display_name: no invisible direction or
+--     zero-width characters, no control characters or slashes, 120 characters, and
+--     it ends with the type's extension: "Invoice.pdf.exe" sent as a PDF shows and
+--     downloads as "Invoice.pdf.exe.pdf"). At most 5 files, no file twice. Everything
+--     else of the trigger is unchanged.
+--     What stays possible: storage keeps the type the uploader declared, and the
+--     bytes themselves are not inspected. A file declared as a PDF opens as a PDF
+--     (or fails to), never as a program.
 --  4. RPCs:
 --       msg_thread(request)        + attachments (null for a removed message)
 --       msg_conversations()        + last_attachment_count, last_attachment_name,
@@ -159,7 +179,8 @@ create temp table _dr_before on commit drop as
 --   select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'message-attachments';
 --     -> f, 10485760, {image/jpeg,image/png,image/webp,application/pdf}
 --   select policyname, cmd from pg_policies where schemaname = 'storage' and policyname like 'message_attachments%' order by 1;
---     -> message_attachments_delete_staff DELETE, message_attachments_insert INSERT, message_attachments_select SELECT
+--     -> message_attachments_delete_own DELETE, message_attachments_delete_staff DELETE,
+--        message_attachments_insert INSERT, message_attachments_select SELECT
 --   select pg_get_function_result('public.msg_thread(uuid)'::regprocedure);   -> ... is_deleted boolean, attachments jsonb)
 --   select has_function_privilege('anon', 'public.msg_thread_seen(uuid)', 'execute');   -> false
 --
@@ -191,7 +212,7 @@ ALTER TABLE public.conversation_messages
 -- ─── 2. Helpers for the files ──────────────────────────────────────────────
 
 -- The conversation a file path belongs to, or null when the path is not
--- <request uuid>/<uuid>/<safe name>. Pure.
+-- <request uuid>/<uuid>/<safe name>.<pdf|jpg|jpeg|png|webp>. Pure.
 CREATE OR REPLACE FUNCTION public.msg_attachment_request(p_name text)
  RETURNS uuid
  LANGUAGE sql
@@ -199,7 +220,7 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_request(p_name text)
  SET search_path TO ''
 AS $function$
   select case
-           when p_name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9][A-Za-z0-9._-]{0,119}$'
+           when p_name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9][A-Za-z0-9._-]{0,114}\.(pdf|jpg|jpeg|png|webp)$'
              then split_part(p_name, '/', 1)::uuid
          end;
 $function$;
@@ -214,8 +235,61 @@ AS $function$
   select coalesce(p_mime in ('image/jpeg', 'image/png', 'image/webp', 'application/pdf'), false);
 $function$;
 
+-- A name (or path) ends with the extension of this type: .pdf for a PDF, .jpg or
+-- .jpeg for a JPEG, .png, .webp. Pure.
+CREATE OR REPLACE FUNCTION public.msg_attachment_ext_matches(p_name text, p_mime text)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+  select coalesce(case lower(p_mime)
+           when 'application/pdf' then lower(p_name) ~ '\.pdf$'
+           when 'image/jpeg' then lower(p_name) ~ '\.jpe?g$'
+           when 'image/png' then lower(p_name) ~ '\.png$'
+           when 'image/webp' then lower(p_name) ~ '\.webp$'
+         end, false);
+$function$;
+
+-- The name people see (and the one a download is saved under): invisible format
+-- characters removed (right-to-left overrides that would show "fdp.exe" as
+-- "exe.pdf", zero-width spaces), control characters and slashes made spaces, 120
+-- characters at most, the stored name when nothing is left, and the extension of the
+-- file's type added when the name does not end with it. Pure. (The characters are
+-- built with chr(): no backslash escape to get mangled on the way.)
+CREATE OR REPLACE FUNCTION public.msg_attachment_display_name(p_name text, p_path text, p_mime text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+  with a as (
+    select left(btrim(regexp_replace(
+             regexp_replace(coalesce(p_name, ''),
+               '[' || chr(173) || chr(1564) || chr(6158)
+                   || chr(8203) || '-' || chr(8207)      -- zero-width space .. right-to-left mark
+                   || chr(8232) || '-' || chr(8238)      -- line separator .. right-to-left override
+                   || chr(8288) || '-' || chr(8303)      -- word joiner .. isolates
+                   || chr(65279) || chr(65529) || '-' || chr(65531) || ']+', '', 'g'),
+             '[[:cntrl:]/\\]+', ' ', 'g')), 120) as n
+  ),
+  b as (
+    select case when a.n = '' then split_part(coalesce(p_path, ''), '/', 3) else a.n end as n from a
+  )
+  select case
+           when public.msg_attachment_ext_matches(b.n, p_mime) then b.n
+           else rtrim(left(b.n, 114), '. ') || '.'
+                || case lower(coalesce(p_mime, ''))
+                     when 'application/pdf' then 'pdf' when 'image/jpeg' then 'jpg'
+                     when 'image/png' then 'png' when 'image/webp' then 'webp' else 'file'
+                   end
+         end
+    from b;
+$function$;
+
 -- The signed-in account may upload this file: a well-formed path in a conversation
--- it may write in now, for its own side.
+-- it may write in now, for its own side; fewer than 100 files in the last hour and
+-- 300 in the last day (the uploads it made into this bucket).
 CREATE OR REPLACE FUNCTION public.msg_attachment_can_upload(p_name text)
  RETURNS boolean
  LANGUAGE sql
@@ -225,29 +299,20 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_can_upload(p_name text)
 AS $function$
   select coalesce((
     select public.msg_can_write(x.r, public.msg_my_side_org(x.r))
+       and (select count(*) filter (where o.created_at > now() - interval '1 hour') < 100 and count(*) < 300
+              from storage.objects o
+             where o.bucket_id = 'message-attachments'
+               and coalesce(o.owner_id, o.owner::text) = auth.uid()::text
+               and o.created_at > now() - interval '24 hours')
       from (select public.msg_attachment_request(p_name) as r) x
      where x.r is not null), false);
 $function$;
 
--- The signed-in account may open this file: it may read the conversation, or it is
--- a verified moderator and the conversation was reported to M3.
-CREATE OR REPLACE FUNCTION public.msg_attachment_can_read(p_name text)
- RETURNS boolean
- LANGUAGE sql
- STABLE
- SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-  select coalesce((
-    select public.msg_can_access(x.r)
-        or (public.is_moderator()
-            and exists (select 1 from public.conversation_reports c where c.partner_request_id = x.r))
-      from (select public.msg_attachment_request(p_name) as r) x
-     where x.r is not null), false);
-$function$;
-
--- A verified moderator may remove a file of a conversation reported to M3.
-CREATE OR REPLACE FUNCTION public.msg_attachment_staff_can_delete(p_name text)
+-- A verified moderator may open (and remove) this file: an OPEN report covers it, i.e.
+-- a message of the reported conversation sent up to the report's time carries it
+-- (what M3 sees in the report's excerpt). Nothing before a report, nothing after it
+-- is closed, never a file that was not sent.
+CREATE OR REPLACE FUNCTION public.msg_attachment_staff_access(p_name text)
  RETURNS boolean
  LANGUAGE sql
  STABLE
@@ -256,7 +321,50 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_staff_can_delete(p_name text)
 AS $function$
   select coalesce((
     select public.is_moderator()
-       and exists (select 1 from public.conversation_reports c where c.partner_request_id = x.r)
+       and exists (select 1
+                     from public.conversation_reports c
+                     join public.conversation_messages m on m.partner_request_id = c.partner_request_id
+                    where c.partner_request_id = x.r
+                      and c.status = 'open'
+                      and m.created_at <= c.created_at
+                      and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name)))
+      from (select public.msg_attachment_request(p_name) as r) x
+     where x.r is not null), false);
+$function$;
+
+-- The signed-in account may open this file as one of the two companies: it may read
+-- the conversation (msg_can_access), and a message that is still shown carries the
+-- file. Or M3 staff, as above. (The uploader's own files: the policy itself.)
+CREATE OR REPLACE FUNCTION public.msg_attachment_can_read(p_name text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select coalesce((
+    select (public.msg_can_access(x.r)
+            and exists (select 1 from public.conversation_messages m
+                         where m.partner_request_id = x.r
+                           and m.deleted_at is null
+                           and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name))))
+        or public.msg_attachment_staff_access(p_name)
+      from (select public.msg_attachment_request(p_name) as r) x
+     where x.r is not null), false);
+$function$;
+
+-- No message carries this file (removed ones included): its uploader may delete it.
+CREATE OR REPLACE FUNCTION public.msg_attachment_unsent(p_name text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select coalesce((
+    select not exists (select 1 from public.conversation_messages m
+                        where m.partner_request_id = x.r
+                          and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name)))
       from (select public.msg_attachment_request(p_name) as r) x
      where x.r is not null), false);
 $function$;
@@ -271,20 +379,34 @@ ON CONFLICT (id) DO UPDATE
       allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- ─── 4. storage.objects policies (this bucket only) ────────────────────────
+-- The storage service writes owner_id (and owner) from the caller's token. The
+-- uploader's own files stay readable to them: the service reads the row back when it
+-- uploads (INSERT ... RETURNING) and when it removes one.
 DROP POLICY IF EXISTS message_attachments_insert ON storage.objects;
 CREATE POLICY message_attachments_insert ON storage.objects
   FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'message-attachments' AND public.msg_attachment_can_upload(name));
+  WITH CHECK (bucket_id = 'message-attachments'
+              AND coalesce(owner_id, owner::text) = (select auth.uid())::text
+              AND public.msg_attachment_can_upload(name));
 
 DROP POLICY IF EXISTS message_attachments_select ON storage.objects;
 CREATE POLICY message_attachments_select ON storage.objects
   FOR SELECT TO authenticated
-  USING (bucket_id = 'message-attachments' AND public.msg_attachment_can_read(name));
+  USING (bucket_id = 'message-attachments'
+         AND (coalesce(owner_id, owner::text) = (select auth.uid())::text
+              OR public.msg_attachment_can_read(name)));
+
+DROP POLICY IF EXISTS message_attachments_delete_own ON storage.objects;
+CREATE POLICY message_attachments_delete_own ON storage.objects
+  FOR DELETE TO authenticated
+  USING (bucket_id = 'message-attachments'
+         AND coalesce(owner_id, owner::text) = (select auth.uid())::text
+         AND public.msg_attachment_unsent(name));
 
 DROP POLICY IF EXISTS message_attachments_delete_staff ON storage.objects;
 CREATE POLICY message_attachments_delete_staff ON storage.objects
   FOR DELETE TO authenticated
-  USING (bucket_id = 'message-attachments' AND public.msg_attachment_staff_can_delete(name));
+  USING (bucket_id = 'message-attachments' AND public.msg_attachment_staff_access(name));
 
 -- ─── 5. The message trigger: files checked ─────────────────────────────────
 -- As in 20261009190000 (author, company, time, trimmed text, 60 an hour), plus the
@@ -357,7 +479,9 @@ begin
         end if;
         v_mime := lower(coalesce(v_meta ->> 'mimetype', ''));
         v_size := case when coalesce(v_meta ->> 'size', '') ~ '^[0-9]{1,15}$' then (v_meta ->> 'size')::bigint end;
-        if not public.msg_attachment_mime_ok(v_mime) then
+        -- The type stored, and the path's extension must be that type's (a ".png"
+        -- stored as a PDF is not a photo).
+        if not public.msg_attachment_mime_ok(v_mime) or not public.msg_attachment_ext_matches(v_path, v_mime) then
           raise exception 'Only PDF, JPG, PNG or WebP files can be sent'
             using errcode = '22023', hint = 'attachment_type';
         end if;
@@ -365,10 +489,7 @@ begin
           raise exception 'A file can be up to 10 MB'
             using errcode = '22023', hint = 'attachment_size';
         end if;
-        v_name := left(btrim(regexp_replace(coalesce(v_item ->> 'name', ''), '[[:cntrl:]/\\]+', ' ', 'g')), 120);
-        if v_name = '' then
-          v_name := split_part(v_path, '/', 3);
-        end if;
+        v_name := public.msg_attachment_display_name(case when jsonb_typeof(v_item -> 'name') = 'string' then v_item ->> 'name' end, v_path, v_mime);
         v_clean := v_clean || jsonb_build_array(jsonb_build_object('path', v_path, 'name', v_name, 'size', v_size, 'mime', v_mime));
       end loop;
       new.attachments := v_clean;
@@ -641,17 +762,23 @@ $function$;
 -- client: signed-in members. Each one checks the caller itself.
 REVOKE ALL ON FUNCTION public.msg_attachment_request(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_mime_ok(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_ext_matches(text, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_display_name(text, text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_can_upload(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_staff_access(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_can_read(text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.msg_attachment_staff_can_delete(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_unsent(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_thread(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_conversations() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_thread_seen(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_request(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_mime_ok(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_ext_matches(text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_display_name(text, text, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_can_upload(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_staff_access(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_can_read(text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.msg_attachment_staff_can_delete(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_unsent(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_thread(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_conversations() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_thread_seen(uuid) TO authenticated, service_role;
@@ -691,13 +818,14 @@ declare
   v_err text; v_state text; v_hint text;
   v_s uuid; v_c uuid; v_os uuid; v_r uuid; v_om uuid; v_x uuid; v_m uuid;
   v_r_first text; v_s_first text;
-  v_req uuid; v_pend uuid; v_msg1 uuid; v_msg2 uuid; v_msg3 uuid; v_msg4 uuid;
-  v_pdf text; v_png text; v_html text; v_big text; v_rfile text; v_path text;
+  v_req uuid; v_pend uuid; v_msg1 uuid; v_msg2 uuid; v_msg3 uuid; v_msg4 uuid; v_rep uuid;
+  v_pdf text; v_png text; v_html text; v_fake text; v_big text; v_left text; v_rfile text; v_late text;
   v_i integer; v_j integer; v_k integer; v_l integer; v_n integer;
   v_t text; v_t2 text; v_t3 text; v_b boolean; v_b2 boolean;
   v_ts timestamptz;
   v_json jsonb;
   v_rec record;
+  c_labels constant text[] := array['big', 'fake', 'html', 'left', 'pdf', 'png', 'rfile'];
   c_first constant text := 'Dry run first message: hello from our team.';
   c_text constant text := 'Dry run reply with a photo of the pontoon.';
   c_down constant text := $down$
@@ -731,9 +859,12 @@ $do$;
 -- Storage policies, then their helpers
 DROP POLICY IF EXISTS message_attachments_insert ON storage.objects;
 DROP POLICY IF EXISTS message_attachments_select ON storage.objects;
+DROP POLICY IF EXISTS message_attachments_delete_own ON storage.objects;
 DROP POLICY IF EXISTS message_attachments_delete_staff ON storage.objects;
-DROP FUNCTION IF EXISTS public.msg_attachment_staff_can_delete(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_can_read(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_staff_access(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_staff_can_delete(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_unsent(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_can_upload(text);
 
 -- The bucket: only when it is empty (see the header).
@@ -985,6 +1116,8 @@ ALTER TABLE public.conversation_messages
 ALTER TABLE public.conversation_messages DROP CONSTRAINT IF EXISTS conversation_messages_attachments_shape;
 ALTER TABLE public.conversation_messages DROP COLUMN IF EXISTS attachments;
 
+DROP FUNCTION IF EXISTS public.msg_attachment_display_name(text, text, text);
+DROP FUNCTION IF EXISTS public.msg_attachment_ext_matches(text, text);
 DROP FUNCTION IF EXISTS public.msg_attachment_mime_ok(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_request(text);
 $down$;
@@ -1028,7 +1161,7 @@ begin
   results := results || pg_temp.dr('S03', v_ok, format('bucket message-attachments (existed before: %s): %s', v_t2, coalesce(v_t, 'missing')));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-  -- S04: storage and messaging policies: exactly the three new ones added, none changed or removed.
+  -- S04: storage and messaging policies: exactly the four new ones added, none changed or removed.
   select count(*) filter (where b.k is null), count(*) filter (where a.k is null), count(*) filter (where a.v <> b.v),
          string_agg(coalesce(a.k, b.k), ', ' order by coalesce(a.k, b.k)) filter (where a.k is null or b.k is null or a.v <> b.v)
     into v_i, v_j, v_k, v_t
@@ -1040,9 +1173,9 @@ begin
     full join (select k, v from _dr_before where k like 'policy %') b on a.k = b.k;
   select string_agg(policyname || ':' || cmd || ':' || permissive || ':' || roles::text, ',' order by policyname) into v_t2
     from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'message\_attachments%';
-  v_ok := v_i = 3 and v_j = 0 and v_k = 0
-          and v_t = 'policy storage.objects.message_attachments_delete_staff, policy storage.objects.message_attachments_insert, policy storage.objects.message_attachments_select'
-          and v_t2 = 'message_attachments_delete_staff:DELETE:PERMISSIVE:{authenticated},message_attachments_insert:INSERT:PERMISSIVE:{authenticated},message_attachments_select:SELECT:PERMISSIVE:{authenticated}';
+  v_ok := v_i = 4 and v_j = 0 and v_k = 0
+          and v_t = 'policy storage.objects.message_attachments_delete_own, policy storage.objects.message_attachments_delete_staff, policy storage.objects.message_attachments_insert, policy storage.objects.message_attachments_select'
+          and v_t2 = 'message_attachments_delete_own:DELETE:PERMISSIVE:{authenticated},message_attachments_delete_staff:DELETE:PERMISSIVE:{authenticated},message_attachments_insert:INSERT:PERMISSIVE:{authenticated},message_attachments_select:SELECT:PERMISSIVE:{authenticated}';
   results := results || pg_temp.dr('S04', v_ok, format('policies: %s added, %s removed, %s changed (%s); new: %s', v_i, v_j, v_k, v_t, v_t2));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
@@ -1074,12 +1207,17 @@ begin
       and not has_function_privilege('anon', 'public.msg_conversations()', 'execute')
       and not has_function_privilege('anon', 'public.msg_attachment_can_read(text)', 'execute')
       and not has_function_privilege('anon', 'public.msg_attachment_can_upload(text)', 'execute')
-      and not has_function_privilege('anon', 'public.msg_attachment_staff_can_delete(text)', 'execute')
+      and not has_function_privilege('anon', 'public.msg_attachment_staff_access(text)', 'execute')
+      and not has_function_privilege('anon', 'public.msg_attachment_unsent(text)', 'execute')
+      and not has_function_privilege('anon', 'public.msg_attachment_display_name(text, text, text)', 'execute')
+      and not has_function_privilege('anon', 'public.msg_attachment_ext_matches(text, text)', 'execute')
       and has_function_privilege('authenticated', 'public.msg_thread_seen(uuid)', 'execute')
       and has_function_privilege('authenticated', 'public.msg_thread(uuid)', 'execute')
       and has_function_privilege('authenticated', 'public.msg_conversations()', 'execute')
       and has_function_privilege('authenticated', 'public.msg_attachment_can_read(text)', 'execute')
       and has_function_privilege('authenticated', 'public.msg_attachment_can_upload(text)', 'execute')
+      and has_function_privilege('authenticated', 'public.msg_attachment_staff_access(text)', 'execute')
+      and has_function_privilege('authenticated', 'public.msg_attachment_unsent(text)', 'execute')
       and not has_function_privilege('authenticated', 'public.msg_report_excerpt(uuid)', 'execute')
       and has_function_privilege('service_role', 'public.msg_thread_seen(uuid)', 'execute');
   results := results || pg_temp.dr('S07', v_ok, 'anon runs none of the new or replaced functions; members run them; msg_report_excerpt stays service-only');
@@ -1099,16 +1237,37 @@ begin
   results := results || pg_temp.dr('S08', v_ok, format('partner_requests columns and the triggers: %s added, %s removed, %s changed', v_i, v_j, v_k));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-  -- S09: the path rule.
+  -- S09: the path rule: <request>/<uuid>/<safe name> ending with .pdf .jpg .jpeg .png .webp only.
   v_ok := public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/Brochure_2026-v2.pdf') = '7d4f2a8e-1111-4222-8333-444455556666'::uuid
+      and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/IMG_0042.jpeg') = '7d4f2a8e-1111-4222-8333-444455556666'::uuid
       and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/Brochure.pdf') is null
       and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/../x.pdf') is null
       and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/a/b.pdf') is null
       and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/my file.pdf') is null
+      and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/setup.exe') is null
+      and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/Invoice.pdf.exe') is null
+      and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/page.html') is null
+      and public.msg_attachment_request('7d4f2a8e-1111-4222-8333-444455556666/0b9a3c1d-aaaa-4bbb-8ccc-ddddeeeeffff/noextension') is null
       and public.msg_attachment_request(null) is null
       and public.msg_attachment_mime_ok('application/pdf') and not public.msg_attachment_mime_ok('text/html')
       and not public.msg_attachment_mime_ok(null);
-  results := results || pg_temp.dr('S09', v_ok, 'paths: <request>/<uuid>/<safe name> only (no "..", no sub-folder, no space); types: JPEG, PNG, WebP, PDF');
+  results := results || pg_temp.dr('S09', v_ok, 'paths: <request>/<uuid>/<safe name>.pdf|jpg|jpeg|png|webp only (no "..", sub-folder, space, .exe, "a.pdf.exe", .html); types: JPEG, PNG, WebP, PDF');
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  -- S10: the names people see: invisible characters out, the type's extension last.
+  v_t := concat_ws(' | ',
+    public.msg_attachment_display_name('Invoice.pdf.exe', null, 'application/pdf'),
+    public.msg_attachment_display_name('Invoice' || chr(8238) || 'fdp.exe', null, 'application/pdf'),
+    public.msg_attachment_display_name('Photo.JPG', null, 'image/jpeg'),
+    public.msg_attachment_display_name('  ' || chr(8203) || ' ', 'r/u/scan-2.pdf', 'application/pdf'),
+    public.msg_attachment_display_name('a/b' || chr(10) || 'c.png', null, 'image/png'),
+    public.msg_attachment_display_name('report.', null, 'application/pdf'),
+    public.msg_attachment_display_name(repeat('x', 200) || '.pdf', null, 'application/pdf'));
+  v_ok := v_t = 'Invoice.pdf.exe.pdf | Invoicefdp.exe.pdf | Photo.JPG | scan-2.pdf | a b c.png | report.pdf | ' || repeat('x', 114) || '.pdf'
+      and public.msg_attachment_ext_matches('x.jpeg', 'image/jpeg') and public.msg_attachment_ext_matches('X.PDF', 'application/pdf')
+      and not public.msg_attachment_ext_matches('x.png', 'application/pdf') and not public.msg_attachment_ext_matches(null, 'application/pdf')
+      and not public.msg_attachment_ext_matches('x.pdf', 'text/html');
+  results := results || pg_temp.dr('S10', v_ok, 'display names: ' || left(coalesce(v_t, 'null'), 160));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
   /* ═══════════════════════ callers (read-only) ═══════════════════════ */
@@ -1177,13 +1336,16 @@ begin
     update public.partner_requests set created_at = now() - interval '10 minutes' where id = v_req;
     v_pdf   := v_req::text || '/' || gen_random_uuid()::text || '/Brochure-2026.pdf';
     v_png   := v_req::text || '/' || gen_random_uuid()::text || '/harbour.png';
-    v_html  := v_req::text || '/' || gen_random_uuid()::text || '/page.html';
-    v_big   := v_req::text || '/' || gen_random_uuid()::text || '/plans.pdf';
-    v_rfile := v_req::text || '/' || gen_random_uuid()::text || '/offer.pdf';
+    v_html  := v_req::text || '/' || gen_random_uuid()::text || '/page.pdf';    -- an HTML page under a .pdf name
+    v_fake  := v_req::text || '/' || gen_random_uuid()::text || '/photo.png';   -- a PDF under a .png name
+    v_big   := v_req::text || '/' || gen_random_uuid()::text || '/plans.pdf';   -- 20 MB
+    v_left  := v_req::text || '/' || gen_random_uuid()::text || '/draft.pdf';   -- chosen, never sent
+    v_rfile := v_req::text || '/' || gen_random_uuid()::text || '/offer.pdf';   -- R's, never sent
 
-    -- F01: S uploads a PDF and a photo into the conversation (storage rows only), plus two
-    -- odd files the storage service would refuse (an HTML page, 20 MB): the database policy
-    -- checks who and where; type and size are the bucket's and the message trigger's job.
+    -- F01: S uploads 6 files into the conversation (storage rows only), 3 of them odd
+    -- ones the storage service would refuse (declared HTML, 20 MB) or that lie about
+    -- their type: the database policy checks who, where and how many; type and size
+    -- are the bucket's and the message trigger's job.
     v_err := null; v_state := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
@@ -1192,14 +1354,16 @@ begin
         ('message-attachments', v_pdf, v_s, v_s::text, jsonb_build_object('size', 52000, 'mimetype', 'application/pdf')),
         ('message-attachments', v_png, v_s, v_s::text, jsonb_build_object('size', 230000, 'mimetype', 'image/png')),
         ('message-attachments', v_html, v_s, v_s::text, jsonb_build_object('size', 1000, 'mimetype', 'text/html')),
-        ('message-attachments', v_big, v_s, v_s::text, jsonb_build_object('size', 20000000, 'mimetype', 'application/pdf'));
+        ('message-attachments', v_fake, v_s, v_s::text, jsonb_build_object('size', 1000, 'mimetype', 'application/pdf')),
+        ('message-attachments', v_big, v_s, v_s::text, jsonb_build_object('size', 20000000, 'mimetype', 'application/pdf')),
+        ('message-attachments', v_left, v_s, v_s::text, jsonb_build_object('size', 3000, 'mimetype', 'application/pdf'));
       reset role;
     exception when others then
       get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
     end;
     perform set_config('request.jwt.claims', '', true);
     v_ok := v_err is null;
-    results := results || pg_temp.dr('F01', v_ok, 'S uploads 4 files into the conversation''s folder. ' || coalesce(v_state || ' ' || v_err, 'ok'));
+    results := results || pg_temp.dr('F01', v_ok, 'S uploads 6 files into the conversation''s folder. ' || coalesce(v_state || ' ' || v_err, 'ok'));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     -- F02: R (the other company) uploads too.
@@ -1218,16 +1382,20 @@ begin
     results := results || pg_temp.dr('F02', v_ok, 'R (the receiving company) uploads into the same conversation. ' || coalesce(v_state || ' ' || v_err, 'ok'));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F03: refused uploads: X (outsider), S with a bad path, S into a request still pending, anon.
+    -- F03: refused uploads.
     v_i := 0; v_t := '';
     for v_rec in
       select * from (values
-        ('X outsider', v_x, v_req::text || '/' || gen_random_uuid()::text || '/x.pdf'),
-        ('S bad path', v_s, v_req::text || '/Brochure.pdf'),
-        ('S pending request', v_s, v_pend::text || '/' || gen_random_uuid()::text || '/p.pdf'),
-        ('S other bucket path', v_s, gen_random_uuid()::text || '/' || gen_random_uuid()::text || '/q.pdf'),
-        ('anon', null::uuid, v_req::text || '/' || gen_random_uuid()::text || '/a.pdf')
-      ) as t(who, uid, path)
+        ('X outsider', v_x, v_x, v_req::text || '/' || gen_random_uuid()::text || '/x.pdf'),
+        ('M3 staff', v_m, v_m, v_req::text || '/' || gen_random_uuid()::text || '/m.pdf'),
+        ('S bad path', v_s, v_s, v_req::text || '/Brochure.pdf'),
+        ('S .exe', v_s, v_s, v_req::text || '/' || gen_random_uuid()::text || '/setup.exe'),
+        ('S a.pdf.exe', v_s, v_s, v_req::text || '/' || gen_random_uuid()::text || '/Invoice.pdf.exe'),
+        ('S as R (owner)', v_s, v_r, v_req::text || '/' || gen_random_uuid()::text || '/as-r.pdf'),
+        ('S pending request', v_s, v_s, v_pend::text || '/' || gen_random_uuid()::text || '/p.pdf'),
+        ('S unknown conversation', v_s, v_s, gen_random_uuid()::text || '/' || gen_random_uuid()::text || '/q.pdf'),
+        ('anon', null::uuid, null::uuid, v_req::text || '/' || gen_random_uuid()::text || '/a.pdf')
+      ) as t(who, uid, owner_uid, path)
     loop
       v_err := null; v_state := null;
       begin
@@ -1239,7 +1407,7 @@ begin
           set local role authenticated;
         end if;
         insert into storage.objects (bucket_id, name, owner, owner_id, metadata) values
-          ('message-attachments', v_rec.path, v_rec.uid, v_rec.uid::text, jsonb_build_object('size', 1000, 'mimetype', 'application/pdf'));
+          ('message-attachments', v_rec.path, v_rec.owner_uid, v_rec.owner_uid::text, jsonb_build_object('size', 1000, 'mimetype', 'application/pdf'));
         reset role;
       exception when others then
         get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
@@ -1247,17 +1415,18 @@ begin
       perform set_config('request.jwt.claims', '', true);
       if v_state = '42501' then v_i := v_i + 1; else v_t := v_t || format('%s: %s %s; ', v_rec.who, coalesce(v_state, 'ACCEPTED'), coalesce(v_err, '')); end if;
     end loop;
-    v_ok := v_i = 5;
-    results := results || pg_temp.dr('F03', v_ok, format('uploads refused (RLS) for an outsider, a bad path, a pending request, an unknown conversation, anon: %s of 5. %s', v_i, v_t));
+    v_ok := v_i = 9;
+    results := results || pg_temp.dr('F03', v_ok, format('uploads refused (RLS) for an outsider, M3 staff, a bad path, .exe, a.pdf.exe, someone else as owner, a pending request, an unknown conversation, anon: %s of 9. %s', v_i, v_t));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F04: who sees the files (storage.objects SELECT: what sign download links rely on).
-    v_t := '';
+    -- F04: who sees which file BEFORE anything is sent (storage.objects SELECT: what
+    -- signed links rely on): each uploader their own files, nobody else anything.
+    v_i := 0; v_t := '';
     for v_rec in
-      select * from (values ('S', v_s, 5), ('R', v_r, 5), ('C', v_c, 5), ('X', v_x, 0), ('M', v_m, 0), ('anon', null::uuid, 0)) as t(who, uid, expected)
+      select * from (values ('S', v_s, 'big,fake,html,left,pdf,png'), ('R', v_r, 'rfile'), ('C', v_c, ''), ('X', v_x, ''), ('M', v_m, ''), ('anon', null::uuid, '')) as t(who, uid, expected)
     loop
       continue when v_rec.who = 'C' and v_rec.uid is null;
-      v_err := null; v_n := null;
+      v_err := null; v_t2 := null;
       begin
         if v_rec.uid is null then
           perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
@@ -1266,54 +1435,30 @@ begin
           perform set_config('request.jwt.claims', json_build_object('sub', v_rec.uid, 'role', 'authenticated')::text, true);
           set local role authenticated;
         end if;
-        select count(*) into v_n from storage.objects where bucket_id = 'message-attachments' and name like v_req::text || '/%';
+        select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t2
+          from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+         where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
         reset role;
       exception when others then
         get stacked diagnostics v_err = message_text;
       end;
       perform set_config('request.jwt.claims', '', true);
-      v_t := v_t || format('%s=%s/%s ', v_rec.who, coalesce(v_n::text, 'error ' || v_err), v_rec.expected);
+      if v_err is not null or v_t2 is distinct from v_rec.expected then v_i := v_i + 1; end if;
+      v_t := v_t || format('%s=[%s] ', v_rec.who, coalesce(v_t2, 'error ' || v_err));
     end loop;
-    v_ok := v_t !~ 'error' and v_t ~ 'S=5/5' and v_t ~ 'R=5/5' and v_t ~ 'X=0/0' and v_t ~ 'M=0/0' and v_t ~ 'anon=0/0'
-            and (v_c is null or v_t ~ 'C=5/5');
-    results := results || pg_temp.dr('F04', v_ok, 'files visible to both companies only (M3 staff not before a report): ' || v_t);
+    v_ok := v_i = 0;
+    results := results || pg_temp.dr('F04', v_ok, 'before sending: each uploader sees only their own files, the other company and M3 nothing: ' || v_t);
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F05: members cannot replace or delete a file (theirs included), even through the
-    -- storage service's delete switch.
-    v_t := '';
-    for v_rec in select * from (values ('S', v_s), ('R', v_r)) as t(who, uid)
-    loop
-      v_err := null; v_i := null; v_j := null;
-      begin
-        perform set_config('request.jwt.claims', json_build_object('sub', v_rec.uid, 'role', 'authenticated')::text, true);
-        perform set_config('storage.allow_delete_query', 'true', true);
-        set local role authenticated;
-        update storage.objects set metadata = metadata || '{"touched": true}'::jsonb where bucket_id = 'message-attachments' and name = v_pdf;
-        get diagnostics v_i = row_count;
-        delete from storage.objects where bucket_id = 'message-attachments' and name in (v_pdf, v_rfile);
-        get diagnostics v_j = row_count;
-        reset role;
-      exception when others then
-        get stacked diagnostics v_err = message_text;
-      end;
-      perform set_config('request.jwt.claims', '', true);
-      perform set_config('storage.allow_delete_query', 'false', true);
-      v_t := v_t || format('%s updated %s deleted %s %s; ', v_rec.who, coalesce(v_i::text, '?'), coalesce(v_j::text, '?'), coalesce(v_err, ''));
-    end loop;
-    select count(*) into v_n from storage.objects where bucket_id = 'message-attachments' and name in (v_pdf, v_rfile) and not (metadata ? 'touched');
-    v_ok := v_n = 2 and v_t = 'S updated 0 deleted 0 ; R updated 0 deleted 0 ; ';
-    results := results || pg_temp.dr('F05', v_ok, format('no UPDATE or DELETE for members: %s files intact %s/2', v_t, v_n));
-    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
-
-    -- F06: S sends a file with no text, lying about its name, size and type: kept, with
-    -- the size and type of storage and a clean name.
+    -- F05: S sends a file with no text, lying about its name (control character, slash,
+    -- a right-to-left override), size and type: kept, with the size and type of
+    -- storage and a clean name.
     v_err := null; v_state := null; v_t := null; v_json := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
       set local role authenticated;
       insert into public.conversation_messages (partner_request_id, body, attachments)
-      values (v_req, '   ', jsonb_build_array(jsonb_build_object('path', v_pdf, 'name', E'Brochure\n2026/v2.pdf', 'size', 1, 'mime', 'text/html')))
+      values (v_req, '   ', jsonb_build_array(jsonb_build_object('path', v_pdf, 'name', 'Brochure' || chr(10) || '2026/v2' || chr(8238) || '.pdf', 'size', 1, 'mime', 'text/html')))
       returning id, body, attachments into v_msg1, v_t, v_json;
       reset role;
     exception when others then
@@ -1325,11 +1470,11 @@ begin
                      and v_json -> 0 ->> 'path' = v_pdf and v_json -> 0 ->> 'name' = 'Brochure 2026 v2.pdf'
                      and v_json -> 0 ->> 'size' = '52000' and v_json -> 0 ->> 'mime' = 'application/pdf'
                      and (select count(*) from jsonb_object_keys(v_json -> 0)) = 4 and v_b, false);
-    results := results || pg_temp.dr('F06', v_ok, 'a file without text is sent; size, type from storage; name cleaned; author and company set. '
+    results := results || pg_temp.dr('F05', v_ok, 'a file without text is sent; size, type from storage; name cleaned; author and company set. '
       || coalesce(v_state || ' ' || v_err, format('body=%L files=%s author ok=%s', v_t, v_json, v_b)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F07: S sends a text with a photo.
+    -- F06: S sends a text with a photo.
     v_err := null; v_state := null; v_json := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
@@ -1344,10 +1489,10 @@ begin
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_json -> 0 ->> 'mime' = 'image/png' and v_json -> 0 ->> 'size' = '230000'
                      and v_json -> 0 ->> 'name' = 'harbour.png', false);
-    results := results || pg_temp.dr('F07', v_ok, 'a text with a photo is sent. ' || coalesce(v_state || ' ' || v_err, coalesce(v_json::text, 'no files')));
+    results := results || pg_temp.dr('F06', v_ok, 'a text with a photo is sent. ' || coalesce(v_state || ' ' || v_err, coalesce(v_json::text, 'no files')));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F08: refused messages (each with the reason the client turns into plain words).
+    -- F07: refused messages (each with the reason the client turns into plain words).
     v_i := 0; v_t := '';
     for v_rec in
       select * from (values
@@ -1355,9 +1500,11 @@ begin
         ('the other company''s file', '', jsonb_build_array(jsonb_build_object('path', v_rfile)), 'attachment_missing'),
         ('a file of another conversation', '', jsonb_build_array(jsonb_build_object('path', v_pend::text || '/' || gen_random_uuid()::text || '/x.pdf')), 'attachment_invalid'),
         ('a file never uploaded', '', jsonb_build_array(jsonb_build_object('path', v_req::text || '/' || gen_random_uuid()::text || '/ghost.pdf')), 'attachment_missing'),
+        ('an .exe path', '', jsonb_build_array(jsonb_build_object('path', v_req::text || '/' || gen_random_uuid()::text || '/setup.exe')), 'attachment_invalid'),
         ('6 files', '', (select jsonb_agg(jsonb_build_object('path', v_pdf)) from generate_series(1, 6)), 'too_many_files'),
         ('the same file twice', 'two', jsonb_build_array(jsonb_build_object('path', v_png), jsonb_build_object('path', v_png)), 'attachment_invalid'),
-        ('an HTML page', '', jsonb_build_array(jsonb_build_object('path', v_html)), 'attachment_type'),
+        ('an HTML page named .pdf', '', jsonb_build_array(jsonb_build_object('path', v_html)), 'attachment_type'),
+        ('a PDF named .png', '', jsonb_build_array(jsonb_build_object('path', v_fake)), 'attachment_type'),
         ('a 20 MB file', '', jsonb_build_array(jsonb_build_object('path', v_big)), 'attachment_size'),
         ('files not in a list', '', jsonb_build_object('path', v_pdf), 'attachment_invalid'),
         ('a file that is not an object', '', '["x"]'::jsonb, 'attachment_invalid'),
@@ -1377,11 +1524,11 @@ begin
       if v_rec.expected in (v_state, v_hint) then v_i := v_i + 1;
       else v_t := v_t || format('%s: got %s/%s %s; ', v_rec.label, coalesce(v_state, 'ACCEPTED'), coalesce(v_hint, ''), coalesce(v_err, '')); end if;
     end loop;
-    v_ok := v_i = 11;
-    results := results || pg_temp.dr('F08', v_ok, format('refused with the right reason: %s of 11. %s', v_i, v_t));
+    v_ok := v_i = 13;
+    results := results || pg_temp.dr('F07', v_ok, format('refused with the right reason: %s of 13. %s', v_i, v_t));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F09: still accepted: an empty file list (stored as none), and the 9 Oct client's
+    -- F08: still accepted: an empty file list (stored as none), and the 9 Oct client's
     -- text-only message.
     v_err := null; v_state := null; v_json := '{}'::jsonb; v_t2 := null;
     begin
@@ -1397,7 +1544,7 @@ begin
     end;
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_json is null and v_t2 = 'Text only, as the 9 Oct client sends it.', false);
-    results := results || pg_temp.dr('F09', v_ok, 'an empty list is stored as no file; a text-only message is unchanged. ' || coalesce(v_state || ' ' || v_err, 'ok'));
+    results := results || pg_temp.dr('F08', v_ok, 'an empty list is stored as no file; a text-only message is unchanged. ' || coalesce(v_state || ' ' || v_err, 'ok'));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     -- The run is one transaction (now() never moves): spread the messages in time.
@@ -1406,7 +1553,71 @@ begin
     update public.conversation_messages set created_at = now() - interval '2 minutes' where id = v_msg2;
     update public.conversation_messages set created_at = now() - interval '1 minute' where id = v_msg1;
 
-    -- F10: the thread, for R, S and X.
+    -- F09: who sees which file once sent: the other company and S's colleague see the
+    -- PDF and the photo, never what was chosen and not sent (page, fake, big, left);
+    -- each uploader still their own; M3 nothing (no report).
+    v_i := 0; v_t := '';
+    for v_rec in
+      select * from (values ('S', v_s, 'big,fake,html,left,pdf,png'), ('R', v_r, 'pdf,png,rfile'), ('C', v_c, 'pdf,png'), ('X', v_x, ''), ('M', v_m, ''), ('anon', null::uuid, '')) as t(who, uid, expected)
+    loop
+      continue when v_rec.who = 'C' and v_rec.uid is null;
+      v_err := null; v_t2 := null;
+      begin
+        if v_rec.uid is null then
+          perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+          set local role anon;
+        else
+          perform set_config('request.jwt.claims', json_build_object('sub', v_rec.uid, 'role', 'authenticated')::text, true);
+          set local role authenticated;
+        end if;
+        select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t2
+          from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+         where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
+        reset role;
+      exception when others then
+        get stacked diagnostics v_err = message_text;
+      end;
+      perform set_config('request.jwt.claims', '', true);
+      if v_err is not null or v_t2 is distinct from v_rec.expected then v_i := v_i + 1; end if;
+      v_t := v_t || format('%s=[%s] ', v_rec.who, coalesce(v_t2, 'error ' || v_err));
+    end loop;
+    v_ok := v_i = 0;
+    results := results || pg_temp.dr('F09', v_ok, 'after sending: both companies see the sent files only, M3 nothing: ' || v_t);
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- F10: nobody replaces a file; a member removes only their own file that was never
+    -- sent (the client's tidy-up), not a sent one, not the other company's.
+    v_t := '';
+    for v_rec in
+      select * from (values ('S', v_s, v_pdf, v_pdf), ('S', v_s, v_png, v_rfile), ('R', v_r, v_rfile, v_pdf), ('R', v_r, v_rfile, v_left), ('S', v_s, v_left, v_left)) as t(who, uid, upd, del)
+    loop
+      v_err := null; v_i := null; v_j := null;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_rec.uid, 'role', 'authenticated')::text, true);
+        perform set_config('storage.allow_delete_query', 'true', true);
+        set local role authenticated;
+        update storage.objects set metadata = metadata || '{"touched": true}'::jsonb where bucket_id = 'message-attachments' and name = v_rec.upd;
+        get diagnostics v_i = row_count;
+        delete from storage.objects where bucket_id = 'message-attachments' and name = v_rec.del;
+        get diagnostics v_j = row_count;
+        reset role;
+      exception when others then
+        get stacked diagnostics v_err = message_text;
+      end;
+      perform set_config('request.jwt.claims', '', true);
+      perform set_config('storage.allow_delete_query', 'false', true);
+      v_t := v_t || format('%s %s/%s:%s%s; ', v_rec.who, coalesce(v_i::text, '?'), coalesce(v_j::text, '?'),
+        case v_rec.del when v_pdf then 'sent' when v_rfile then 'other' when v_left then 'unsent' else '?' end, coalesce(' ' || v_err, ''));
+    end loop;
+    select count(*) into v_n from storage.objects
+     where bucket_id = 'message-attachments' and name in (v_pdf, v_png, v_rfile) and not (metadata ? 'touched');
+    select count(*) into v_k from storage.objects where bucket_id = 'message-attachments' and name = v_left;
+    v_ok := v_n = 3 and v_k = 0
+            and v_t = 'S 0/0:sent; S 0/0:other; R 0/0:sent; R 0/0:unsent; S 0/1:unsent; ';
+    results := results || pg_temp.dr('F10', v_ok, format('updated/deleted per try: %s sent files intact %s/3, unsent own file gone %s', v_t, v_n, v_k = 0));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- F11: the thread, for R, S and X.
     v_err := null; v_t := null; v_t2 := null; v_b := null; v_b2 := null; v_n := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
@@ -1433,11 +1644,11 @@ begin
     end;
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_t = 'first,hello,text,photo,file' and v_b and v_b2 and v_n = 0, false);
-    results := results || pg_temp.dr('F10', v_ok, 'msg_thread: files on their messages, oldest first, mine for S, nothing for X. '
+    results := results || pg_temp.dr('F11', v_ok, 'msg_thread: files on their messages, oldest first, mine for S, nothing for X. '
       || coalesce(v_err, format('order=%s files ok=%s S mine=%s X rows=%s', v_t, v_b, v_b2, v_n)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F11: R's list: the last message is a file without text; 4 unread.
+    -- F12: R's list: the last message is a file without text; 4 unread.
     v_err := null; v_n := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
@@ -1454,23 +1665,23 @@ begin
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_rec.preview = '' and v_rec.files = 1 and v_rec.fname = 'Brochure 2026 v2.pdf'
                      and v_rec.fmime = 'application/pdf' and v_rec.unread = 4 and not v_rec.mine and v_n >= 4, false);
-    results := results || pg_temp.dr('F11', v_ok, 'msg_conversations for R: last message = a file (count, name, type), 4 unread; msg_unread_count counts them. '
+    results := results || pg_temp.dr('F12', v_ok, 'msg_conversations for R: last message = a file (count, name, type), 4 unread; msg_unread_count counts them. '
       || coalesce(v_err, format('%s unread_total=%s', v_rec, v_n)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F12: the Friday digest's preview of a file without text is empty (messages-digest
-    -- writes "Sent a file").
-    v_json := null;
-    select d.previews into v_json from public.msg_digest_batch() d where d.user_id = v_r;
-    if v_json is null then
-      results := results || E'\nINFO F12 R gets no digest this week (e-mails off, or already sent): the empty preview is checked by scripts/email-previews.mjs';
-    else
-      v_ok := exists (select 1 from jsonb_array_elements(v_json) e where e ->> 'text' = '');
-      results := results || pg_temp.dr('F12', v_ok, 'digest previews of R include the file without text as an empty text: ' || left(v_json::text, 300));
-      n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
-    end if;
+    -- F13: the Friday digest: msg_digest_batch (unchanged) builds each preview's text
+    -- from msg_unread_items' body; R's unread items carry the file-only message with
+    -- an empty body, so its preview text is empty and messages-digest writes "Sent a
+    -- file". (One person's items, not the whole batch: it keeps the run short.)
+    select count(*) filter (where x.message_id = v_msg1 and left(regexp_replace(btrim(x.body), '\s+', ' ', 'g'), 140) = '')
+      into v_n from public.msg_unread_items(v_r, null) x;
+    v_b := strpos((select prosrc from pg_proc where oid = 'public.msg_digest_batch(date, integer)'::regprocedure),
+                  $q$'text', left(regexp_replace(btrim(m.body), '\s+', ' ', 'g'), 140)$q$) > 0;
+    v_ok := coalesce(v_n = 1 and v_b, false);
+    results := results || pg_temp.dr('F13', v_ok, format('digest preview of the file-only message is empty (%s), digest text rule unchanged (%s)', v_n, v_b));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F13: "Seen": nobody of OM has opened it yet.
+    -- F14: "Seen": nobody of OM has opened it yet.
     v_err := null; v_n := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
@@ -1482,10 +1693,10 @@ begin
     end;
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_n = 0, false);
-    results := results || pg_temp.dr('F13', v_ok, 'before R opens it, S sees no "Seen" from OM. ' || coalesce(v_err, format('rows=%s', v_n)));
+    results := results || pg_temp.dr('F14', v_ok, 'before R opens it, S sees no "Seen" from OM. ' || coalesce(v_err, format('rows=%s', v_n)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F14: R opens it: S sees "Seen by <R's first name>"; R sees it as their side; X and anon nothing.
+    -- F15: R opens it: S sees "Seen by <R's first name>"; R sees it as their side; X and anon nothing.
     v_err := null; v_b := null; v_n := null; v_state := null; v_t := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
@@ -1517,11 +1728,11 @@ begin
     select created_at into v_ts from public.conversation_messages where id = v_msg1;
     v_ok := coalesce(v_err is null and v_b and not v_rec.is_my_side and v_rec.last_read_at >= v_ts
                      and v_rec.reader_first_name is not distinct from v_r_first and v_n = 0 and v_state = '42501', false);
-    results := results || pg_temp.dr('F14', v_ok, 'after R opens it: S sees it seen by R''s first name, R sees their own side, X nothing, anon refused. '
+    results := results || pg_temp.dr('F15', v_ok, 'after R opens it: S sees it seen by R''s first name, R sees their own side, X nothing, anon refused. '
       || coalesce(v_err, format('S sees %s; R own side=%s; X rows=%s; anon=%s', v_rec, v_b, v_n, coalesce(v_state, 'ALLOWED'))));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F15: S opens it too: both sides show, each from the right point of view.
+    -- F16: S opens it too: both sides show, each from the right point of view.
     v_err := null; v_t := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
@@ -1538,16 +1749,16 @@ begin
     end;
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_t = 'marina:t:t,partner:f:t', false);
-    results := results || pg_temp.dr('F15', v_ok, 'both sides read: R sees partner (S) as the other side. ' || coalesce(v_err, coalesce(v_t, 'no rows')));
+    results := results || pg_temp.dr('F16', v_ok, 'both sides read: R sees partner (S) as the other side. ' || coalesce(v_err, coalesce(v_t, 'no rows')));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F16: R reports the conversation: M3's excerpt names the files.
+    -- F17: R reports the conversation: M3's excerpt names the files.
     v_err := null; v_t := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
       set local role authenticated;
       insert into public.conversation_reports (partner_request_id, reason) values (v_req, 'Dry run report: a file I did not expect.')
-      returning excerpt into v_t;
+      returning id, excerpt into v_rep, v_t;
       reset role;
     exception when others then
       get stacked diagnostics v_err = message_text;
@@ -1555,39 +1766,75 @@ begin
     perform set_config('request.jwt.claims', '', true);
     v_ok := coalesce(v_err is null and v_t like '%): [files: Brochure 2026 v2.pdf]%' and v_t like '%' || c_text || ' [files: harbour.png]%'
                      and v_t like '%' || c_first || '%', false);
-    results := results || pg_temp.dr('F16', v_ok, 'the report''s excerpt lists the files of each message. ' || coalesce(v_err, right(coalesce(v_t, 'no excerpt'), 300)));
+    results := results || pg_temp.dr('F17', v_ok, 'the report''s excerpt lists the files of each message. ' || coalesce(v_err, right(coalesce(v_t, 'no excerpt'), 300)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F17: reported: M3 staff now see the files (X still not), remove one; S still cannot.
-    v_err := null; v_i := null; v_j := null; v_k := null; v_l := null;
+    -- F18: M3 staff and an OPEN report: they see the files the report covers (sent up
+    -- to its time), not a file sent after it, not unsent ones, nothing once it is
+    -- closed; they remove a covered file, not an unsent one; S cannot remove a sent
+    -- file; X still sees nothing.
+    v_err := null; v_t := null; v_t2 := null; v_t3 := null; v_j := null; v_k := null; v_l := null; v_n := null;
     begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_m, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t
+        from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+       where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
+      reset role;
+      -- A file sent AFTER the report, then the report closed (both rolled back).
+      begin
+        v_late := v_req::text || '/' || gen_random_uuid()::text || '/late.pdf';
+        perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into storage.objects (bucket_id, name, owner, owner_id, metadata) values
+          ('message-attachments', v_late, v_s, v_s::text, jsonb_build_object('size', 900, 'mimetype', 'application/pdf'));
+        insert into public.conversation_messages (partner_request_id, body, attachments)
+        values (v_req, 'after the report', jsonb_build_array(jsonb_build_object('path', v_late, 'name', 'late.pdf')));
+        reset role;
+        update public.conversation_messages set created_at = now() + interval '1 minute' where partner_request_id = v_req and body = 'after the report';
+        perform set_config('request.jwt.claims', json_build_object('sub', v_m, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select count(*) into v_n from storage.objects where bucket_id = 'message-attachments' and name = v_late;
+        update public.conversation_reports set status = 'closed' where id = v_rep;
+        select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t2
+          from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+         where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
+        reset role;
+        raise exception using errcode = 'DRY04', message = 'late file and closing rolled back';
+      exception
+        when sqlstate 'DRY04' then null;
+      end;
       perform set_config('request.jwt.claims', json_build_object('sub', v_m, 'role', 'authenticated')::text, true);
       perform set_config('storage.allow_delete_query', 'true', true);
       set local role authenticated;
-      select count(*) into v_i from storage.objects where bucket_id = 'message-attachments' and name like v_req::text || '/%';
-      delete from storage.objects where bucket_id = 'message-attachments' and name = v_html;
+      delete from storage.objects where bucket_id = 'message-attachments' and name = v_png;
       get diagnostics v_j = row_count;
+      delete from storage.objects where bucket_id = 'message-attachments' and name = v_html;
+      get diagnostics v_k = row_count;
       reset role;
       perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
       set local role authenticated;
-      delete from storage.objects where bucket_id = 'message-attachments' and name = v_big;
-      get diagnostics v_k = row_count;
+      delete from storage.objects where bucket_id = 'message-attachments' and name = v_pdf;
+      get diagnostics v_l = row_count;
       reset role;
       perform set_config('request.jwt.claims', json_build_object('sub', v_x, 'role', 'authenticated')::text, true);
       set local role authenticated;
-      select count(*) into v_l from storage.objects where bucket_id = 'message-attachments' and name like v_req::text || '/%';
+      select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t3
+        from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+       where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
       reset role;
     exception when others then
       get stacked diagnostics v_err = message_text;
     end;
     perform set_config('request.jwt.claims', '', true);
     perform set_config('storage.allow_delete_query', 'false', true);
-    v_ok := coalesce(v_err is null and v_i = 5 and v_j = 1 and v_k = 0 and v_l = 0, false);
-    results := results || pg_temp.dr('F17', v_ok, 'after a report: M3 staff see the 5 files and remove one; S removes none; X sees none. '
-      || coalesce(v_err, format('M sees %s, M removed %s, S removed %s, X sees %s', v_i, v_j, v_k, v_l)));
+    v_ok := coalesce(v_err is null and v_t = 'pdf,png' and v_n = 0 and v_t2 = '' and v_j = 1 and v_k = 0 and v_l = 0 and v_t3 = '', false);
+    results := results || pg_temp.dr('F18', v_ok, 'M3 staff with an open report: the covered files only. '
+      || coalesce(v_err, format('M sees [%s]; a file sent after the report seen %s; after closing M sees [%s]; M removed covered %s, unsent %s; S removed sent %s; X sees [%s]',
+                                v_t, v_n, v_t2, v_j, v_k, v_l, v_t3)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F18: what Realtime may send to whom: it checks each subscriber's SELECT under RLS.
+    -- F19: what Realtime may send to whom: it checks each subscriber's SELECT under RLS.
     v_t := '';
     for v_rec in
       select * from (values ('S', v_s, 4, 1), ('R', v_r, 4, 1), ('C', v_c, 4, 1), ('X', v_x, 0, 0), ('M', v_m, 0, 1), ('anon', null::uuid, -1, 0)) as t(who, uid, msgs, reqs)
@@ -1614,29 +1861,43 @@ begin
     end loop;
     v_ok := v_t !~ 'error' and v_t ~ 'S msgs=4/4 req=1/1' and v_t ~ 'R msgs=4/4 req=1/1' and v_t ~ 'X msgs=0/0 req=0/0'
             and v_t ~ 'M msgs=0/0 req=1/1' and v_t ~ 'anon msgs=-1/-1 req=0/0' and (v_c is null or v_t ~ 'C msgs=4/4 req=1/1');
-    results := results || pg_temp.dr('F18', v_ok, 'rows Realtime may deliver: messages to both companies only (staff: the request, not the messages; anon: nothing): ' || v_t);
+    results := results || pg_temp.dr('F19', v_ok, 'rows Realtime may deliver: messages to both companies only (staff: the request, not the messages; anon: nothing): ' || v_t);
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F19: M3 removes the file-only message: no text, no file in the thread; the list moves
-    -- to the photo message.
+    -- F20: M3 removes the file-only message: no text, no file in the thread; the list moves
+    -- to the photo message; the other company (and S's colleague) can no longer open its
+    -- file; S, who uploaded it, still can.
     update public.conversation_messages set deleted_at = now() where id = v_msg1;
-    v_err := null; v_t := null;
+    v_err := null; v_t := null; v_t2 := '';
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
       set local role authenticated;
       select format('%s|%s|%s', t.body is null, t.attachments is null, t.is_deleted) into v_t from public.msg_thread(v_req) t where t.id = v_msg1;
       select c.last_message_preview as preview, c.last_attachment_count as files, c.last_attachment_mime as fmime
         into v_rec from public.msg_conversations() c where c.partner_request_id = v_req;
+      select v_t2 || 'R=' || count(*) into v_t2 from storage.objects where bucket_id = 'message-attachments' and name = v_pdf;
+      reset role;
+      if v_c is not null then
+        perform set_config('request.jwt.claims', json_build_object('sub', v_c, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select v_t2 || ' C=' || count(*) into v_t2 from storage.objects where bucket_id = 'message-attachments' and name = v_pdf;
+        reset role;
+      end if;
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      select v_t2 || ' S=' || count(*) into v_t2 from storage.objects where bucket_id = 'message-attachments' and name = v_pdf;
       reset role;
     exception when others then
       get stacked diagnostics v_err = message_text;
     end;
     perform set_config('request.jwt.claims', '', true);
-    v_ok := coalesce(v_err is null and v_t = 't|t|t' and v_rec.preview = c_text and v_rec.files = 1 and v_rec.fmime = 'image/png', false);
-    results := results || pg_temp.dr('F19', v_ok, 'a removed message shows neither its text nor its files. ' || coalesce(v_err, format('%s %s', v_t, v_rec)));
+    v_ok := coalesce(v_err is null and v_t = 't|t|t' and v_rec.preview = c_text and v_rec.files = 1 and v_rec.fmime = 'image/png'
+                     and v_t2 = 'R=0' || case when v_c is not null then ' C=0' else '' end || ' S=1', false);
+    results := results || pg_temp.dr('F20', v_ok, 'a removed message shows neither its text nor its files, and its file is closed to the companies. '
+      || coalesce(v_err, format('%s %s files: %s', v_t, v_rec, v_t2)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- F20: OS suspended by M3: S can no longer upload or send a file; R still can upload.
+    -- F21: OS suspended by M3: S can no longer upload or send a file; R still can upload.
     v_t := null;
     begin
       update public.organizations set access_status = 'suspended' where id = v_os;
@@ -1681,7 +1942,100 @@ begin
       when sqlstate 'DRY02' then null;
     end;
     v_ok := v_t = 'S upload 42501, S message 42501, R upload ACCEPTED';
-    results := results || pg_temp.dr('F20', v_ok, 'a suspended company sends no file; the other company still can: ' || coalesce(v_t, 'crashed'));
+    results := results || pg_temp.dr('F21', v_ok, 'a suspended company sends no file; the other company still can: ' || coalesce(v_t, 'crashed'));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- F22: upload quotas: 100 files an hour, 300 a day per person (test rows rolled back).
+    v_t := '';
+    begin
+      insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
+      select 'message-attachments', v_req::text || '/' || gen_random_uuid()::text || '/q' || g || '.pdf', v_r, v_r::text,
+             jsonb_build_object('size', 100, 'mimetype', 'application/pdf')
+        from generate_series(1, 98) g;   -- R already uploaded 1 (F02): 99 this hour
+      for v_i in 1 .. 2 loop
+        v_state := null;
+        begin
+          perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+          set local role authenticated;
+          insert into storage.objects (bucket_id, name, owner, owner_id, metadata) values
+            ('message-attachments', v_req::text || '/' || gen_random_uuid()::text || '/hour' || v_i || '.pdf', v_r, v_r::text, jsonb_build_object('size', 100, 'mimetype', 'application/pdf'));
+          reset role;
+        exception when others then
+          get stacked diagnostics v_state = returned_sqlstate;
+        end;
+        perform set_config('request.jwt.claims', '', true);
+        v_t := v_t || format('hour #%s %s; ', 99 + v_i, coalesce(v_state, 'ACCEPTED'));
+      end loop;
+      raise exception using errcode = 'DRY05', message = 'hour quota rolled back';
+    exception
+      when sqlstate 'DRY05' then null;
+    end;
+    begin
+      insert into storage.objects (bucket_id, name, owner, owner_id, metadata, created_at)
+      select 'message-attachments', v_req::text || '/' || gen_random_uuid()::text || '/d' || g || '.pdf', v_r, v_r::text,
+             jsonb_build_object('size', 100, 'mimetype', 'application/pdf'), now() - interval '5 hours'
+        from generate_series(1, 299) g;  -- + F02's = 300 today, 1 this hour
+      v_state := null;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into storage.objects (bucket_id, name, owner, owner_id, metadata) values
+          ('message-attachments', v_req::text || '/' || gen_random_uuid()::text || '/day.pdf', v_r, v_r::text, jsonb_build_object('size', 100, 'mimetype', 'application/pdf'));
+        reset role;
+      exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+      end;
+      perform set_config('request.jwt.claims', '', true);
+      v_t := v_t || format('day #301 %s', coalesce(v_state, 'ACCEPTED'));
+      raise exception using errcode = 'DRY06', message = 'day quota rolled back';
+    exception
+      when sqlstate 'DRY06' then null;
+    end;
+    v_ok := v_t = 'hour #100 ACCEPTED; hour #101 42501; day #301 42501';
+    results := results || pg_temp.dr('F22', v_ok, 'upload quotas: ' || v_t);
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- F23: a member of OM whose account is not verified (R set back to pending, rolled
+    -- back): no upload, no message, and only their own file in sight.
+    v_t := null;
+    begin
+      update public.profiles set access_status = 'pending' where user_id = v_r;
+      v_state := null; v_t2 := null; v_hint := null;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into storage.objects (bucket_id, name, owner, owner_id, metadata) values
+          ('message-attachments', v_req::text || '/' || gen_random_uuid()::text || '/u.pdf', v_r, v_r::text, jsonb_build_object('size', 100, 'mimetype', 'application/pdf'));
+        reset role;
+      exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+      end;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into public.conversation_messages (partner_request_id, body) values (v_req, 'unverified');
+        reset role;
+      exception when others then
+        get stacked diagnostics v_hint = returned_sqlstate;
+      end;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select coalesce(string_agg(k.label, ',' order by k.label), '') into v_t2
+          from unnest(c_labels, array[v_big, v_fake, v_html, v_left, v_pdf, v_png, v_rfile]) as k(label, path)
+         where exists (select 1 from storage.objects o where o.bucket_id = 'message-attachments' and o.name = k.path);
+        reset role;
+      exception when others then
+        v_t2 := 'error';
+      end;
+      perform set_config('request.jwt.claims', '', true);
+      v_t := format('upload %s, message %s, sees [%s]', coalesce(v_state, 'ACCEPTED'), coalesce(v_hint, 'ACCEPTED'), v_t2);
+      raise exception using errcode = 'DRY07', message = 'unverified rolled back';
+    exception
+      when sqlstate 'DRY07' then null;
+    end;
+    v_ok := v_t = 'upload 42501, message 42501, sees [rfile]';
+    results := results || pg_temp.dr('F23', v_ok, 'an unverified member: ' || coalesce(v_t, 'crashed'));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     raise exception using errcode = 'DRY01', message = 'scenario F finished';
@@ -1744,8 +2098,9 @@ begin
     select count(*) into v_k from storage.buckets where id = 'message-attachments';
     select count(*) into v_l from pg_proc
      where pronamespace = 'public'::regnamespace
-       and proname in ('msg_thread_seen', 'msg_attachment_request', 'msg_attachment_mime_ok', 'msg_attachment_can_upload',
-                       'msg_attachment_can_read', 'msg_attachment_staff_can_delete');
+       and proname in ('msg_thread_seen', 'msg_attachment_request', 'msg_attachment_mime_ok', 'msg_attachment_ext_matches',
+                       'msg_attachment_display_name', 'msg_attachment_can_upload', 'msg_attachment_can_read',
+                       'msg_attachment_staff_access', 'msg_attachment_staff_can_delete', 'msg_attachment_unsent');
     v_ok := coalesce(v_i = 0 and v_j = 0 and v_k = 0 and v_l = 0
       and pg_get_function_result('public.msg_thread(uuid)'::regprocedure) = (select v from _dr_before where k = 'fnresult msg_thread')
       and pg_get_function_result('public.msg_conversations()'::regprocedure) = (select v from _dr_before where k = 'fnresult msg_conversations')

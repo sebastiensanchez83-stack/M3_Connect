@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { fetchPeople } from '@/components/inbox/inboxActions';
 import { myOrganizationIds } from '@/components/inbox/inboxCounts';
 import {
-  getActiveThread, useConversationScreenOpen, useLiveChannel, useLiveEvents,
+  getActiveThread, requestOpenThread, useConversationScreenOpen, useLiveChannel, useLiveEvents, useOnLiveAgain,
   type LiveMessageRow, type LiveRequestRow,
 } from './messageEvents';
 import { loadConversations } from './messagesApi';
@@ -80,6 +80,10 @@ export function MessageAlerts() {
   const onAdmin = location.pathname.startsWith('/admin');
 
   useLiveChannel(uid);
+
+  // The live channel came back after a break (Wi-Fi, a laptop asleep): what arrived
+  // meanwhile was not seen live; the counts are read again at once.
+  useOnLiveAgain(refreshInboxCount);
 
   // The companies I speak for: what is "mine" and what is "theirs".
   const [orgIds, setOrgIds] = useState<string[]>([]);
@@ -242,6 +246,9 @@ export function MessageAlerts() {
   const onInboxPage = location.pathname === '/inbox';
   const openThread = (id: string) => {
     clear();
+    // Messages already on screen opens it in place (a phone's open conversation is
+    // swapped for this one); otherwise go to Messages with it.
+    if (requestOpenThread(id)) return;
     navigate(onInboxPage ? `/inbox?thread=${id}` : `/?open=inbox&thread=${id}`);
   };
   const openInbox = () => {
@@ -315,7 +322,8 @@ export function MessageAlerts() {
       aria-live="polite"
       className={cn(
         'pointer-events-none fixed inset-x-3 z-[60] flex sm:inset-x-auto sm:left-6',
-        screenOpen ? 'top-3' : 'bottom-3 sm:bottom-6',
+        // Under the conversation's header (its back arrow and Report stay free), clear of the composer.
+        screenOpen ? 'top-[calc(env(safe-area-inset-top,0px)+68px)]' : 'bottom-3 sm:bottom-6',
       )}
     >
       {body}

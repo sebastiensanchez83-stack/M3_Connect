@@ -28,9 +28,12 @@ $do$;
 -- Storage policies, then their helpers
 DROP POLICY IF EXISTS message_attachments_insert ON storage.objects;
 DROP POLICY IF EXISTS message_attachments_select ON storage.objects;
+DROP POLICY IF EXISTS message_attachments_delete_own ON storage.objects;
 DROP POLICY IF EXISTS message_attachments_delete_staff ON storage.objects;
-DROP FUNCTION IF EXISTS public.msg_attachment_staff_can_delete(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_can_read(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_staff_access(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_staff_can_delete(text);
+DROP FUNCTION IF EXISTS public.msg_attachment_unsent(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_can_upload(text);
 
 -- The bucket: only when it is empty (see the header).
@@ -282,5 +285,7 @@ ALTER TABLE public.conversation_messages
 ALTER TABLE public.conversation_messages DROP CONSTRAINT IF EXISTS conversation_messages_attachments_shape;
 ALTER TABLE public.conversation_messages DROP COLUMN IF EXISTS attachments;
 
+DROP FUNCTION IF EXISTS public.msg_attachment_display_name(text, text, text);
+DROP FUNCTION IF EXISTS public.msg_attachment_ext_matches(text, text);
 DROP FUNCTION IF EXISTS public.msg_attachment_mime_ok(text);
 DROP FUNCTION IF EXISTS public.msg_attachment_request(text);

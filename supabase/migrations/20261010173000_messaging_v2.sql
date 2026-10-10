@@ -13,28 +13,45 @@
 --     The first message (partner_requests.message) stays text only.
 --  2. A PRIVATE storage bucket "message-attachments": 10 MB per file, JPEG, PNG,
 --     WebP and PDF only. A file lives at <partner_request_id>/<uuid>/<safe name>
---     (the safe name: letters, digits, dot, dash, underscore, at most 120).
+--     (the safe name: letters, digits, dot, dash, underscore, at most 120, and it
+--     ENDS with .pdf, .jpg, .jpeg, .png or .webp: never .exe, .html, "a.pdf.exe").
 --     storage.objects policies for that bucket (authenticated only):
---       message_attachments_insert        upload into a conversation the caller may
---                                         write in now (msg_can_write for their side:
---                                         verified, accepted, on one of its sides,
---                                         company not suspended); path well formed;
---       message_attachments_select        read (and sign download links for) a file of
---                                         a conversation the caller may read
---                                         (msg_can_access); verified moderators too,
---                                         ONLY for a conversation that was reported to
---                                         M3 (they see its last messages in the report);
---       message_attachments_delete_staff  verified moderators remove a file of a
---                                         reported conversation.
---     No UPDATE policy (nobody replaces a file) and no DELETE for members: what was
---     sent stays, like the messages. The bucket is not public: every read goes
---     through a signed link the client asks for (short expiry).
+--       message_attachments_insert        upload, as oneself, into a conversation the
+--                                         caller may write in now (msg_can_write for
+--                                         their side: verified, accepted, on one of its
+--                                         sides, company not suspended); path well
+--                                         formed; at most 100 files an hour and 300 a
+--                                         day per person (the 60-messages-an-hour rule
+--                                         counts messages, not uploads);
+--       message_attachments_select        the uploader reads their own files; the two
+--                                         companies read a file only once a message
+--                                         that is still shown carries it (a file chosen
+--                                         and never sent, or the file of a message M3
+--                                         removed, is not theirs to open); verified
+--                                         moderators read the files of the messages an
+--                                         OPEN report covers (sent up to the report's
+--                                         time), nothing else;
+--       message_attachments_delete_own    the uploader removes their own file as long
+--                                         as no message carries it (the client tidies
+--                                         up after a send that failed half way);
+--       message_attachments_delete_staff  verified moderators remove a file an open
+--                                         report covers.
+--     No UPDATE policy (nobody replaces a file); a file that was sent stays, like the
+--     messages. The bucket is not public: every read goes through a signed link the
+--     client asks for (short expiry).
 --  3. The BEFORE INSERT trigger of conversation_messages checks the files of a
 --     member's message: each path must be in THIS conversation's folder, exist in
---     the bucket, have been uploaded by the author, be of an allowed type and size;
---     size and type are copied from storage (never what the client says), the name
---     shown is cleaned (no control characters or slashes, 120 characters). At most 5
---     files, no file twice. Everything else of the trigger is unchanged.
+--     the bucket, have been uploaded by the author, be of an allowed type and size,
+--     and its extension must be the type's (a ".png" stored as a PDF is refused);
+--     size and type are copied from storage (never what the client says). The name
+--     shown is cleaned (msg_attachment_display_name: no invisible direction or
+--     zero-width characters, no control characters or slashes, 120 characters, and
+--     it ends with the type's extension: "Invoice.pdf.exe" sent as a PDF shows and
+--     downloads as "Invoice.pdf.exe.pdf"). At most 5 files, no file twice. Everything
+--     else of the trigger is unchanged.
+--     What stays possible: storage keeps the type the uploader declared, and the
+--     bytes themselves are not inspected. A file declared as a PDF opens as a PDF
+--     (or fails to), never as a program.
 --  4. RPCs:
 --       msg_thread(request)        + attachments (null for a removed message)
 --       msg_conversations()        + last_attachment_count, last_attachment_name,
@@ -77,7 +94,8 @@
 --   select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'message-attachments';
 --     -> f, 10485760, {image/jpeg,image/png,image/webp,application/pdf}
 --   select policyname, cmd from pg_policies where schemaname = 'storage' and policyname like 'message_attachments%' order by 1;
---     -> message_attachments_delete_staff DELETE, message_attachments_insert INSERT, message_attachments_select SELECT
+--     -> message_attachments_delete_own DELETE, message_attachments_delete_staff DELETE,
+--        message_attachments_insert INSERT, message_attachments_select SELECT
 --   select pg_get_function_result('public.msg_thread(uuid)'::regprocedure);   -> ... is_deleted boolean, attachments jsonb)
 --   select has_function_privilege('anon', 'public.msg_thread_seen(uuid)', 'execute');   -> false
 --
@@ -109,7 +127,7 @@ ALTER TABLE public.conversation_messages
 -- ─── 2. Helpers for the files ──────────────────────────────────────────────
 
 -- The conversation a file path belongs to, or null when the path is not
--- <request uuid>/<uuid>/<safe name>. Pure.
+-- <request uuid>/<uuid>/<safe name>.<pdf|jpg|jpeg|png|webp>. Pure.
 CREATE OR REPLACE FUNCTION public.msg_attachment_request(p_name text)
  RETURNS uuid
  LANGUAGE sql
@@ -117,7 +135,7 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_request(p_name text)
  SET search_path TO ''
 AS $function$
   select case
-           when p_name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9][A-Za-z0-9._-]{0,119}$'
+           when p_name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9][A-Za-z0-9._-]{0,114}\.(pdf|jpg|jpeg|png|webp)$'
              then split_part(p_name, '/', 1)::uuid
          end;
 $function$;
@@ -132,8 +150,61 @@ AS $function$
   select coalesce(p_mime in ('image/jpeg', 'image/png', 'image/webp', 'application/pdf'), false);
 $function$;
 
+-- A name (or path) ends with the extension of this type: .pdf for a PDF, .jpg or
+-- .jpeg for a JPEG, .png, .webp. Pure.
+CREATE OR REPLACE FUNCTION public.msg_attachment_ext_matches(p_name text, p_mime text)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+  select coalesce(case lower(p_mime)
+           when 'application/pdf' then lower(p_name) ~ '\.pdf$'
+           when 'image/jpeg' then lower(p_name) ~ '\.jpe?g$'
+           when 'image/png' then lower(p_name) ~ '\.png$'
+           when 'image/webp' then lower(p_name) ~ '\.webp$'
+         end, false);
+$function$;
+
+-- The name people see (and the one a download is saved under): invisible format
+-- characters removed (right-to-left overrides that would show "fdp.exe" as
+-- "exe.pdf", zero-width spaces), control characters and slashes made spaces, 120
+-- characters at most, the stored name when nothing is left, and the extension of the
+-- file's type added when the name does not end with it. Pure. (The characters are
+-- built with chr(): no backslash escape to get mangled on the way.)
+CREATE OR REPLACE FUNCTION public.msg_attachment_display_name(p_name text, p_path text, p_mime text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+  with a as (
+    select left(btrim(regexp_replace(
+             regexp_replace(coalesce(p_name, ''),
+               '[' || chr(173) || chr(1564) || chr(6158)
+                   || chr(8203) || '-' || chr(8207)      -- zero-width space .. right-to-left mark
+                   || chr(8232) || '-' || chr(8238)      -- line separator .. right-to-left override
+                   || chr(8288) || '-' || chr(8303)      -- word joiner .. isolates
+                   || chr(65279) || chr(65529) || '-' || chr(65531) || ']+', '', 'g'),
+             '[[:cntrl:]/\\]+', ' ', 'g')), 120) as n
+  ),
+  b as (
+    select case when a.n = '' then split_part(coalesce(p_path, ''), '/', 3) else a.n end as n from a
+  )
+  select case
+           when public.msg_attachment_ext_matches(b.n, p_mime) then b.n
+           else rtrim(left(b.n, 114), '. ') || '.'
+                || case lower(coalesce(p_mime, ''))
+                     when 'application/pdf' then 'pdf' when 'image/jpeg' then 'jpg'
+                     when 'image/png' then 'png' when 'image/webp' then 'webp' else 'file'
+                   end
+         end
+    from b;
+$function$;
+
 -- The signed-in account may upload this file: a well-formed path in a conversation
--- it may write in now, for its own side.
+-- it may write in now, for its own side; fewer than 100 files in the last hour and
+-- 300 in the last day (the uploads it made into this bucket).
 CREATE OR REPLACE FUNCTION public.msg_attachment_can_upload(p_name text)
  RETURNS boolean
  LANGUAGE sql
@@ -143,29 +214,20 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_can_upload(p_name text)
 AS $function$
   select coalesce((
     select public.msg_can_write(x.r, public.msg_my_side_org(x.r))
+       and (select count(*) filter (where o.created_at > now() - interval '1 hour') < 100 and count(*) < 300
+              from storage.objects o
+             where o.bucket_id = 'message-attachments'
+               and coalesce(o.owner_id, o.owner::text) = auth.uid()::text
+               and o.created_at > now() - interval '24 hours')
       from (select public.msg_attachment_request(p_name) as r) x
      where x.r is not null), false);
 $function$;
 
--- The signed-in account may open this file: it may read the conversation, or it is
--- a verified moderator and the conversation was reported to M3.
-CREATE OR REPLACE FUNCTION public.msg_attachment_can_read(p_name text)
- RETURNS boolean
- LANGUAGE sql
- STABLE
- SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-  select coalesce((
-    select public.msg_can_access(x.r)
-        or (public.is_moderator()
-            and exists (select 1 from public.conversation_reports c where c.partner_request_id = x.r))
-      from (select public.msg_attachment_request(p_name) as r) x
-     where x.r is not null), false);
-$function$;
-
--- A verified moderator may remove a file of a conversation reported to M3.
-CREATE OR REPLACE FUNCTION public.msg_attachment_staff_can_delete(p_name text)
+-- A verified moderator may open (and remove) this file: an OPEN report covers it, i.e.
+-- a message of the reported conversation sent up to the report's time carries it
+-- (what M3 sees in the report's excerpt). Nothing before a report, nothing after it
+-- is closed, never a file that was not sent.
+CREATE OR REPLACE FUNCTION public.msg_attachment_staff_access(p_name text)
  RETURNS boolean
  LANGUAGE sql
  STABLE
@@ -174,7 +236,50 @@ CREATE OR REPLACE FUNCTION public.msg_attachment_staff_can_delete(p_name text)
 AS $function$
   select coalesce((
     select public.is_moderator()
-       and exists (select 1 from public.conversation_reports c where c.partner_request_id = x.r)
+       and exists (select 1
+                     from public.conversation_reports c
+                     join public.conversation_messages m on m.partner_request_id = c.partner_request_id
+                    where c.partner_request_id = x.r
+                      and c.status = 'open'
+                      and m.created_at <= c.created_at
+                      and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name)))
+      from (select public.msg_attachment_request(p_name) as r) x
+     where x.r is not null), false);
+$function$;
+
+-- The signed-in account may open this file as one of the two companies: it may read
+-- the conversation (msg_can_access), and a message that is still shown carries the
+-- file. Or M3 staff, as above. (The uploader's own files: the policy itself.)
+CREATE OR REPLACE FUNCTION public.msg_attachment_can_read(p_name text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select coalesce((
+    select (public.msg_can_access(x.r)
+            and exists (select 1 from public.conversation_messages m
+                         where m.partner_request_id = x.r
+                           and m.deleted_at is null
+                           and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name))))
+        or public.msg_attachment_staff_access(p_name)
+      from (select public.msg_attachment_request(p_name) as r) x
+     where x.r is not null), false);
+$function$;
+
+-- No message carries this file (removed ones included): its uploader may delete it.
+CREATE OR REPLACE FUNCTION public.msg_attachment_unsent(p_name text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select coalesce((
+    select not exists (select 1 from public.conversation_messages m
+                        where m.partner_request_id = x.r
+                          and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name)))
       from (select public.msg_attachment_request(p_name) as r) x
      where x.r is not null), false);
 $function$;
@@ -189,20 +294,34 @@ ON CONFLICT (id) DO UPDATE
       allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- ─── 4. storage.objects policies (this bucket only) ────────────────────────
+-- The storage service writes owner_id (and owner) from the caller's token. The
+-- uploader's own files stay readable to them: the service reads the row back when it
+-- uploads (INSERT ... RETURNING) and when it removes one.
 DROP POLICY IF EXISTS message_attachments_insert ON storage.objects;
 CREATE POLICY message_attachments_insert ON storage.objects
   FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'message-attachments' AND public.msg_attachment_can_upload(name));
+  WITH CHECK (bucket_id = 'message-attachments'
+              AND coalesce(owner_id, owner::text) = (select auth.uid())::text
+              AND public.msg_attachment_can_upload(name));
 
 DROP POLICY IF EXISTS message_attachments_select ON storage.objects;
 CREATE POLICY message_attachments_select ON storage.objects
   FOR SELECT TO authenticated
-  USING (bucket_id = 'message-attachments' AND public.msg_attachment_can_read(name));
+  USING (bucket_id = 'message-attachments'
+         AND (coalesce(owner_id, owner::text) = (select auth.uid())::text
+              OR public.msg_attachment_can_read(name)));
+
+DROP POLICY IF EXISTS message_attachments_delete_own ON storage.objects;
+CREATE POLICY message_attachments_delete_own ON storage.objects
+  FOR DELETE TO authenticated
+  USING (bucket_id = 'message-attachments'
+         AND coalesce(owner_id, owner::text) = (select auth.uid())::text
+         AND public.msg_attachment_unsent(name));
 
 DROP POLICY IF EXISTS message_attachments_delete_staff ON storage.objects;
 CREATE POLICY message_attachments_delete_staff ON storage.objects
   FOR DELETE TO authenticated
-  USING (bucket_id = 'message-attachments' AND public.msg_attachment_staff_can_delete(name));
+  USING (bucket_id = 'message-attachments' AND public.msg_attachment_staff_access(name));
 
 -- ─── 5. The message trigger: files checked ─────────────────────────────────
 -- As in 20261009190000 (author, company, time, trimmed text, 60 an hour), plus the
@@ -275,7 +394,9 @@ begin
         end if;
         v_mime := lower(coalesce(v_meta ->> 'mimetype', ''));
         v_size := case when coalesce(v_meta ->> 'size', '') ~ '^[0-9]{1,15}$' then (v_meta ->> 'size')::bigint end;
-        if not public.msg_attachment_mime_ok(v_mime) then
+        -- The type stored, and the path's extension must be that type's (a ".png"
+        -- stored as a PDF is not a photo).
+        if not public.msg_attachment_mime_ok(v_mime) or not public.msg_attachment_ext_matches(v_path, v_mime) then
           raise exception 'Only PDF, JPG, PNG or WebP files can be sent'
             using errcode = '22023', hint = 'attachment_type';
         end if;
@@ -283,10 +404,7 @@ begin
           raise exception 'A file can be up to 10 MB'
             using errcode = '22023', hint = 'attachment_size';
         end if;
-        v_name := left(btrim(regexp_replace(coalesce(v_item ->> 'name', ''), '[[:cntrl:]/\\]+', ' ', 'g')), 120);
-        if v_name = '' then
-          v_name := split_part(v_path, '/', 3);
-        end if;
+        v_name := public.msg_attachment_display_name(case when jsonb_typeof(v_item -> 'name') = 'string' then v_item ->> 'name' end, v_path, v_mime);
         v_clean := v_clean || jsonb_build_array(jsonb_build_object('path', v_path, 'name', v_name, 'size', v_size, 'mime', v_mime));
       end loop;
       new.attachments := v_clean;
@@ -559,17 +677,23 @@ $function$;
 -- client: signed-in members. Each one checks the caller itself.
 REVOKE ALL ON FUNCTION public.msg_attachment_request(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_mime_ok(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_ext_matches(text, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_display_name(text, text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_can_upload(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_staff_access(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_attachment_can_read(text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.msg_attachment_staff_can_delete(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_attachment_unsent(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_thread(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_conversations() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_thread_seen(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_request(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_mime_ok(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_ext_matches(text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_display_name(text, text, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_can_upload(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_staff_access(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_attachment_can_read(text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.msg_attachment_staff_can_delete(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_attachment_unsent(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_thread(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_conversations() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_thread_seen(uuid) TO authenticated, service_role;

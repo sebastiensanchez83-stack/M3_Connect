@@ -118,22 +118,88 @@ export function checkAttachments(files: File[]): string | null {
   return [...lines, ...(rule ? [attachmentRule()] : [])].join(' ');
 }
 
+/** The extension that goes with a type: what a stored file and a download end with. */
+const EXT_OF: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const EXT_OK: Record<string, RegExp> = { 'application/pdf': /\.pdf$/i, 'image/jpeg': /\.jpe?g$/i, 'image/png': /\.png$/i, 'image/webp': /\.webp$/i };
+
 /**
- * The name a file is stored under: letters, digits, dot, dash and underscore, at most
- * 120 characters, the extension kept (the database accepts nothing else). People
- * still see the original name.
+ * The name a file is stored under: letters, digits, dot, dash and underscore, and it
+ * ENDS with the extension of its type (taken from the type, never from the name: the
+ * database refuses anything else, so "Invoice.pdf.exe" can never be stored). People
+ * still see the original name (the database cleans it too).
  */
-export function safeFileName(name: string): string {
+export function safeFileName(name: string, mime: string): string {
   const plain = name.normalize('NFKD').replace(/[̀-ͯ]/g, '');
   const dot = plain.lastIndexOf('.');
-  const ext = dot > 0 ? plain.slice(dot + 1).replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toLowerCase() : '';
   const base = (dot > 0 ? plain.slice(0, dot) : plain)
     .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^[^A-Za-z0-9]+/, '')
     .replace(/[-._]+$/, '')
     .slice(0, 100) || 'file';
-  return ext ? `${base}.${ext}` : base;
+  return `${base}.${EXT_OF[mime] ?? 'pdf'}`;
+}
+
+/**
+ * The name a file is saved under on the member's computer: its name, ending with the
+ * extension of its type ("offer.pdf.exe" sent as a PDF saves as "offer.pdf.exe.pdf"),
+ * without invisible direction characters. The database already gives names this
+ * shape; this is the second lock.
+ */
+export function downloadName(a: Pick<Attachment, 'name' | 'mime' | 'path'>): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = (a.name || '').replace(/[\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g, '').replace(/[\u0000-\u001f\u007f/\\]+/g, ' ').trim()
+    || a.path.split('/').pop() || 'file';
+  const ok = EXT_OK[a.mime];
+  if (ok && ok.test(clean)) return clean;
+  return `${clean.replace(/[. ]+$/, '')}.${EXT_OF[a.mime] ?? 'bin'}`;
+}
+
+/* Photos straight from recent phones can weigh more than 10 MB: such a photo is made
+   smaller in the browser (longest side 4096 px, JPEG) before it is sent, so a member
+   never has to resize it. Anything that is already within the limit is sent as it is. */
+const SHRINK_MAX_SIDE = 4096;
+
+async function shrinkPhoto(file: File): Promise<File | null> {
+  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, SHRINK_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    // A transparent PNG would turn black as a JPEG: white underneath.
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    for (const quality of [0.85, 0.7]) {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (blob && blob.size <= ATTACHMENT_MAX_BYTES) {
+        const base = file.name.replace(/\.[^.]{1,8}$/, '') || 'photo';
+        return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: file.lastModified });
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gets chosen files ready: a photo over 10 MB is made smaller (see above). The others
+ * are returned as they are; checkAttachment / checkAttachments then say what cannot go.
+ */
+export async function prepareAttachments(files: File[]): Promise<File[]> {
+  return Promise.all(files.map(async (f) => {
+    const type = attachmentType(f);
+    if (f.size > ATTACHMENT_MAX_BYTES && type.startsWith('image/') && ATTACHMENT_TYPES.includes(type)) {
+      return (await shrinkPhoto(f)) ?? f;
+    }
+    return f;
+  }));
 }
 
 function newUuid(): string {
@@ -159,14 +225,20 @@ function parseAttachments(raw: unknown): Attachment[] {
 }
 
 /* Signed links: the bucket is private. The photos shown in a conversation get a link
-   for 15 minutes (kept here, asked again shortly before it expires); a download gets
-   its own link for 60 seconds. */
+   for 15 minutes (kept here, asked again shortly before it expires; a photo whose
+   link ran out while the conversation stayed open asks for a new one when it fails
+   to load: forgetAttachmentView); a download gets its own link for 60 seconds. */
 const VIEW_SECONDS = 15 * 60;
 const viewUrls = new Map<string, { url: string; until: number }>();
 
 function cachedView(path: string): string | null {
   const hit = viewUrls.get(path);
   return hit && hit.until > Date.now() + 60_000 ? hit.url : null;
+}
+
+/** Drops the kept link of a photo (it failed to load): the next signAttachmentViews asks again. */
+export function forgetAttachmentView(path: string) {
+  viewUrls.delete(path);
 }
 
 /** Links to show these photos, by path (only the ones that could be signed). */
@@ -190,10 +262,16 @@ export async function signAttachmentViews(paths: string[]): Promise<Record<strin
   return out;
 }
 
-/** Saves a file of a conversation under its own name (a link valid 60 seconds). False when it failed. */
-export async function downloadAttachment(a: Attachment): Promise<boolean> {
-  const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(a.path, 60, { download: a.name || true });
-  if (error || !data?.signedUrl) return false;
+/**
+ * Saves a file of a conversation under its own name (a link valid 60 seconds).
+ * 'gone': the file is no longer there (M3 removed it); 'failed': anything else.
+ */
+export async function downloadAttachment(a: Attachment): Promise<'ok' | 'gone' | 'failed'> {
+  const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(a.path, 60, { download: downloadName(a) });
+  if (error || !data?.signedUrl) {
+    const msg = `${(error as { statusCode?: string | number } | null)?.statusCode ?? ''} ${error?.message ?? ''}`.toLowerCase();
+    return /404|not found/.test(msg) ? 'gone' : 'failed';
+  }
   // The answer says "attachment": the browser saves the file and the page stays where it is.
   const link = document.createElement('a');
   link.href = data.signedUrl;
@@ -201,13 +279,13 @@ export async function downloadAttachment(a: Attachment): Promise<boolean> {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  return true;
+  return 'ok';
 }
 
 /** Uploads one file into the conversation's folder. Throws a plain sentence when it fails. */
 async function uploadAttachment(requestId: string, file: File): Promise<Attachment> {
   const mime = attachmentType(file);
-  const path = `${requestId}/${newUuid()}/${safeFileName(file.name)}`;
+  const path = `${requestId}/${newUuid()}/${safeFileName(file.name, mime)}`;
   // A file goes up as a form, with the type the browser gave it (the contentType
   // option is ignored then): a browser that gave none ("application/octet-stream"
   // for the bucket, refused) or "image/jpg" gets the type of its name instead.
@@ -218,9 +296,19 @@ async function uploadAttachment(requestId: string, file: File): Promise<Attachme
     if (/413|too large|maximum allowed size/.test(msg)) throw new Error(tooBigText(file));
     if (/415|mime type|not supported/.test(msg)) throw new Error(wrongTypeText(file));
     if (/bucket not found/.test(msg)) throw new Error(i18n.t('messages.files.notYet', 'Files cannot be sent yet. Please write your message as text.'));
+    // Refused by the database: most often many files in the last hour (100 an hour, 300 a day).
+    if (/403|row-level security|unauthorized|not allowed/.test(msg)) {
+      throw new Error(i18n.t('messages.files.refused', { name: file.name, defaultValue: '"{{name}}" could not be sent. If you have sent many files in the last hour, please wait a little, then try again.' }));
+    }
     throw new Error(i18n.t('messages.files.uploadFailed', { name: file.name, defaultValue: '"{{name}}" could not be sent. Please check your connection and try again.' }));
   }
   return { path, name: file.name, size: file.size, mime };
+}
+
+/** Removes files uploaded for a message that was not sent after all (best effort: the database lets the uploader remove a file no message carries). */
+async function removeUploads(paths: string[]) {
+  if (paths.length === 0) return;
+  await supabase.storage.from(ATTACHMENT_BUCKET).remove(paths).catch(() => {});
 }
 
 /* ------------------------------------------------------------------ conversations */
@@ -312,8 +400,10 @@ export interface ThreadMessage {
   isDeleted: boolean;
   /** Its files (none for a removed message). */
   attachments: Attachment[];
-  /** Only on the screen, while it is being sent. */
+  /** Only on the screen, while it is being sent (and until the server's copy is read). */
   pending?: boolean;
+  /** Only on the screen: the pending copy of a message the server has accepted. */
+  sent?: boolean;
 }
 
 interface ThreadRow {
@@ -379,7 +469,10 @@ export type SendResult = { ok: true } | { ok: false; rateLimited: boolean; messa
  * Posts a message in a conversation (the database sets the author, company and time),
  * with its files when there are some: they are uploaded first, into the
  * conversation's folder, then named in the message (the database checks each one).
- * A message may be a file alone. Without files it is sent exactly as before.
+ * When the message does not go through (one upload failed, the hourly limit, a lost
+ * connection), the files already uploaded are removed again: the other company never
+ * sees a file that was not sent (it could not open it anyway). A message may be a
+ * file alone. Without files it is sent exactly as before.
  */
 export async function sendThreadMessage(requestId: string, body: string, files: File[] = []): Promise<SendResult> {
   const text = body.trim();
@@ -392,16 +485,19 @@ export async function sendThreadMessage(requestId: string, body: string, files: 
     const problem = checkAttachment(f);
     if (problem) return { ok: false, rateLimited: false, message: problem };
   }
-  let attachments: Attachment[] = [];
-  try {
-    attachments = await Promise.all(files.map((f) => uploadAttachment(requestId, f)));
-  } catch (e) {
-    return { ok: false, rateLimited: false, message: e instanceof Error ? e.message : notSent };
+  const settled = await Promise.allSettled(files.map((f) => uploadAttachment(requestId, f)));
+  const attachments = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []));
+  const refused = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+  if (refused) {
+    await removeUploads(attachments.map((a) => a.path));
+    return { ok: false, rateLimited: false, message: refused.reason instanceof Error ? refused.reason.message : notSent };
   }
   const row: Record<string, unknown> = { partner_request_id: requestId, body: text.slice(0, THREAD_MESSAGE_MAX) };
   if (attachments.length) row.attachments = attachments.map(({ path, name, size, mime }) => ({ path, name, size, mime }));
   const { error } = await supabase.from('conversation_messages').insert(row);
   if (!error) return { ok: true };
+  // Not sent: tidy up (a file the message did carry after all, the database keeps).
+  await removeUploads(attachments.map((a) => a.path));
   const hint = error.hint || '';
   const rateLimited = hint === 'rate_limited';
   let message = notSent;

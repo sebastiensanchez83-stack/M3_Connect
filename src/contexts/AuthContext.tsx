@@ -3,6 +3,7 @@ import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
+import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
 
 interface AuthContextType {
@@ -352,9 +353,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
-    const emailRedirectTo = getStoredInvite()
+    // The activation link lands on /welcome first (forced password step), then goes
+    // on there. The send-email hook enforces the same for every caller (see
+    // src/lib/confirmationLink.ts); this keeps the app's own request consistent.
+    const emailRedirectTo = throughWelcome(getStoredInvite()
       ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
-      : `${window.location.origin}/onboarding?email_confirmed=true`
+      : `${window.location.origin}/onboarding?email_confirmed=true`)
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -400,12 +404,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // ─── signIn ─────────────────────────────────────────────────────────
+  // The app-wide `loading` flag is NOT turned on here: several pages show a spinner
+  // instead of their content while it is on (WelcomePage, /sm26/claim, /sm26/feedback),
+  // which unmounted the sign-in form during the attempt and brought it back empty, its
+  // error message lost. A successful sign-in still turns it on: supabase-js announces
+  // SIGNED_IN (the listener above sets loading and loads the profile) before
+  // signInWithPassword returns.
   const signIn = async (email: string, password: string) => {
-    setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setLoading(false)
-    }
     return { error: error ?? null }
   }
 

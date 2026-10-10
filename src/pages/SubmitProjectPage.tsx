@@ -20,6 +20,7 @@ import { accountHref } from '@/lib/accountNav';
 import { notifyAdmin, sendNotification } from '@/lib/notifications';
 import { Lock, Briefcase } from 'lucide-react';
 import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
+import { HelpTip } from '@/components/help/HelpTip';
 
 export function SubmitProjectPage() {
   const { t } = useTranslation();
@@ -228,7 +229,18 @@ export function SubmitProjectPage() {
           </div>
         </FormCard>
 
-        <FormFooter note={isEditMode ? undefined : t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}>
+        <FormFooter
+          note={isEditMode ? undefined : (
+            <>
+              {/* A project is private (marina_projects: its author and M3 only): it is not "published". */}
+              {t('help.tips.projectNote', 'Only you and the M3 team see your project.')}{' '}
+              {/* Learn more opens in a new tab: what was typed in the form stays. */}
+              <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="publishing-project" newTab>
+                {t('help.tips.project', 'The M3 team reads your project, usually within one business day, and puts you in touch with suitable service providers. Projects are not shown to other members.')}
+              </HelpTip>
+            </>
+          )}
+        >
           <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading || !consent}>
             {loading ? t('common.loading') : isEditMode ? 'Save Changes' : t('submitProject.submit')}
           </Button>

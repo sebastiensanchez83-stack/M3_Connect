@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AuthLoading, AuthShell, AuthStatus, AuthSteps } from '@/components/auth/AuthShell';
 import { PageHero } from '@/components/ui/PageHero';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { HelpTip } from '@/components/help/HelpTip';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -1004,7 +1005,12 @@ export function OnboardingPage() {
             <KeyRound className="h-6 w-6" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-card-title text-navy">Have an organization code?</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-card-title text-navy">Have an organization code?</h2>
+              <HelpTip title={t('help.tips.codeTitle', 'What is an organization code?')} more="marina-listed" newTab className="text-meta">
+                {t('help.tips.codeLink', 'M3 gives a code to some companies it has already listed, such as marinas in the directory. Enter it to link your account to your page instead of creating a second one. No code? Just fill in the form below.')}
+              </HelpTip>
+            </div>
             <p className="mt-1 text-sm leading-6 text-meta">If your marina or organization has already been registered on the platform, enter the code provided to you to join directly.</p>
           </div>
         </div>
@@ -1277,11 +1283,16 @@ export function OnboardingPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>
-                  {profile.persona === 'developer' && t('onboarding.developerForm.interestSectors', 'Sectors of interest')}
-                  {profile.persona === 'investor' && t('onboarding.investorForm.interestSectors', 'Investment focus sectors')}
-                  {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectors')}
-                </Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>
+                    {profile.persona === 'developer' && t('onboarding.developerForm.interestSectors', 'Sectors of interest')}
+                    {profile.persona === 'investor' && t('onboarding.investorForm.interestSectors', 'Investment focus sectors')}
+                    {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectors')}
+                  </Label>
+                  <HelpTip title={t('help.tips.sectorsTitle', 'Why sectors matter')} more="company-sectors" newTab className="text-meta">
+                    {t('help.tips.sectorsWhy', 'They say what your company offers or looks for, and decide which needs and articles we suggest to you.')}
+                  </HelpTip>
+                </div>
                 <p className="text-[13px] leading-5 text-meta">
                   {profile.persona === 'developer' && t('onboarding.developerForm.interestSectorsHint', 'Pick the marina-industry sectors most relevant to your projects.')}
                   {profile.persona === 'investor' && t('onboarding.investorForm.interestSectorsHint', 'Pick the sectors you invest in or look at for deal flow.')}
@@ -1341,6 +1352,15 @@ export function OnboardingPage() {
             </AuthSection>
         )}
 
+        {/* ── What happens next, then the submit button ── */}
+        {!alreadyVerified && (
+          <p className="flex items-center gap-1.5 text-sm leading-5 text-meta">
+            <span>{t('help.tips.onboardingNextWhen', 'Next, the M3 team checks your company, usually within 24 to 48 business hours, and e-mails you.')}</span>
+            <HelpTip title={t('help.tips.onboardingWaitTitle', 'While you wait')} more="verification-meanwhile" newTab>
+              {t('help.tips.onboardingWait', 'You can complete your profile, read the public resources and look at the coming events. Registering for events, messages and publishing open once you are approved.')}
+            </HelpTip>
+          </p>
+        )}
         {/* ── Submit button ── */}
         <Button type="submit" variant="cta" size="lg" className="w-full justify-between" disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

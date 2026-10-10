@@ -19,7 +19,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
-  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock,
+  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock, HelpCircle,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -208,6 +208,13 @@ export function Navbar() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('signup') === 'true') {
       setSignupOpen(true);
+    } else if (params.get('signin') === 'true') {
+      // After "Forgot password?" (ResetPasswordPage signs out, then comes here): the
+      // sign-in window, ready for the new password. Taken out of the address.
+      setLoginOpen(true);
+      params.delete('signin');
+      const q = params.toString();
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
     }
   }, [location.search]);
 
@@ -271,8 +278,8 @@ export function Navbar() {
     access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
   }));
   const inboxLabel = inbox.total > 0
-    ? t('nav.inboxWaiting', { count: inbox.total, defaultValue_one: 'Inbox, {{count}} request waiting', defaultValue_other: 'Inbox, {{count}} requests waiting' })
-    : t('nav.inbox', 'Inbox');
+    ? t('nav.messagesWaiting', { count: inbox.total, defaultValue_one: 'Messages, {{count}} waiting', defaultValue_other: 'Messages, {{count}} waiting' })
+    : t('nav.messages', 'Messages');
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user
@@ -548,6 +555,15 @@ export function Navbar() {
                     </>
                   )}
 
+                  {/* The help centre (/help): answers in plain words, then a person at M3. */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                    <Link to="/help" className="flex items-center gap-2.5">
+                      <HelpCircle className="h-4 w-4 text-meta" />
+                      {t('nav.help', 'Help')}
+                    </Link>
+                  </DropdownMenuItem>
+
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer rounded-field text-red-600 focus:bg-red-50 focus:text-red-700">
                     <LogOut className="h-4 w-4 mr-2.5" />
@@ -706,10 +722,12 @@ export function Navbar() {
                                 >
                                   <s.icon className="h-4 w-4 text-meta" aria-hidden="true" />
                                   <span className="flex-1">{t(s.labelKey, s.fallback)}</span>
-                                  {s.key === 'inbox' && inbox.total > 0 && (
+                                  {/* Messages: unread messages + requests (the dot's count). My team: people
+                                      asking to join (counted apart, they are answered there). */}
+                                  {((s.key === 'inbox' && inbox.total > 0) || (s.key === 'team' && inbox.joins > 0)) && (
                                     <span className="grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
-                                      <span aria-hidden="true">{inbox.total}</span>
-                                      <span className="sr-only">{t('nav.waiting', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}</span>
+                                      <span aria-hidden="true">{s.key === 'team' ? inbox.joins : inbox.total}</span>
+                                      <span className="sr-only">{t('nav.waiting', { count: s.key === 'team' ? inbox.joins : inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}</span>
                                     </span>
                                   )}
                                 </Link>
@@ -747,20 +765,32 @@ export function Navbar() {
                               {isAdmin ? t('nav.adminPanel', 'Admin') : t('nav.moderation', 'Moderation')}
                             </Link>
                           )}
+                          {/* The help centre (/help), as in the avatar menu. */}
+                          <Link to="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                            <HelpCircle className="h-4 w-4 text-meta" aria-hidden="true" />
+                            {t('nav.help', 'Help')}
+                          </Link>
                           <button type="button" onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
                             <LogOut className="h-4 w-4" aria-hidden="true" />
                             {t('nav.logout', 'Log out')}
                           </button>
                         </>
                       ) : (
-                        <div className="flex gap-2 px-1 pt-3">
-                          <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.login')}
-                          </Button>
-                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.signup')}
-                          </Button>
-                        </div>
+                        <>
+                          {/* Signed out too: the help centre ("I cannot sign in", "how do I join"). */}
+                          <Link to="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                            <HelpCircle className="h-4 w-4 text-meta" aria-hidden="true" />
+                            {t('nav.help', 'Help')}
+                          </Link>
+                          <div className="flex gap-2 px-1 pt-3">
+                            <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.login')}
+                            </Button>
+                            <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.signup')}
+                            </Button>
+                          </div>
+                        </>
                       )}
                     </div>
                   </nav>

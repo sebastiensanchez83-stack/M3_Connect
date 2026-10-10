@@ -262,6 +262,12 @@ const PLAIN_PAGES: Record<string, { title: string; description: string; canonica
     description: 'The commercial terms of the visibility and sponsorship offers on Smart Marina Connect: contract, pricing and payment, duration, termination and refunds.',
     canonical: '/conditions-commerciales',
   },
+  // The help centre (Oct 2026): plain English, like the legal documents.
+  '/help': {
+    title: 'Help centre',
+    description: 'Short answers about Smart Marina Connect: your account, how M3 checks members, messages, publishing a need, events and e-mails.',
+    canonical: '/help',
+  },
   '/sm26/agenda': {
     title: 'Agenda — Monaco Smart & Sustainable Marina Rendezvous 2026',
     description: 'The programme of the Monaco Smart & Sustainable Marina Rendezvous, 20–21 September 2026: sessions, workshops and slides, kept here as an archive.',
@@ -329,6 +335,7 @@ export const SITEMAP_FIXED_PATHS: string[] = [
   '/opportunities',
   '/about',
   '/contact',
+  '/help',
   '/privacy',
   '/terms',
   '/cookies',

@@ -89,7 +89,7 @@ export const HOME_SECTIONS: HomeSection[] = [
   {
     key: 'inbox', icon: MessageSquare,
     labelKey: 'dash.tiles.messages', fallback: 'Messages',
-    descKey: 'dash.tiles.messagesDesc', descFallback: 'Connection requests and team requests',
+    descKey: 'dash.tiles.messagesDesc', descFallback: 'Your conversations with other companies',
   },
   {
     key: 'requests', icon: ClipboardList,

@@ -5,7 +5,9 @@ import { supabase } from '@/lib/supabase';
 import { getStoredInvite } from '@/lib/invite-store';
 import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
-import { AuthInput, AuthLabel, AuthNotice, FieldHint, OrDivider, PasswordInput } from '@/components/auth/fields';
+import { AuthInput, AuthLabel, AuthNotice, PasswordInput } from '@/components/auth/fields';
+import { throughWelcome } from '@/lib/confirmationLink';
+import { type AuthErrorLike, isInvalidCredentials, isNetworkError, isRateLimited, signInErrorMessage } from '@/lib/authErrors';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, MailWarning } from 'lucide-react';
 
@@ -68,6 +70,8 @@ export function isEmailNotConfirmed(error: { message?: string; code?: string } |
  * Sends the sign-up activation link again (supabase.auth.resend), with GoTrue's
  * cooldown and a line of feedback. `justSent` starts the cooldown at once, for
  * a screen that shows up right after the first mail went out.
+ * The link always goes through /welcome (see throughWelcome), whatever
+ * `redirectTo` says: an activation ends with the mailbox owner's own password.
  */
 export function ResendConfirmationButton({ email, redirectTo, label, justSent = false }: {
   email: string;
@@ -100,7 +104,7 @@ export function ResendConfirmationButton({ email, redirectTo, label, justSent = 
     try {
       // GoTrue answers 200 without sending for an unknown or already-confirmed
       // address (no enumeration), so "sent" means "asked for", not "delivered".
-      const { error } = await supabase.auth.resend({ type: 'signup', email: address, options: { emailRedirectTo: withMailLang(redirectTo, i18n.language) } });
+      const { error } = await supabase.auth.resend({ type: 'signup', email: address, options: { emailRedirectTo: withMailLang(throughWelcome(redirectTo), i18n.language) } });
       if (error) console.error('Confirmation resend error:', error.message);
       else sent = true;
     } catch (err) {
@@ -138,26 +142,32 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
-  const [magicLoading, setMagicLoading] = useState(false);
-  const [magicSent, setMagicSent] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  // Why the last sign-in was refused, in plain words (cleared as soon as they edit).
+  const [signInError, setSignInError] = useState<string | null>(null);
+  // That refusal was a wrong address or password: the notice offers a new password.
+  const [wrongCredentials, setWrongCredentials] = useState(false);
   // The address a sign-in was refused for because it is not confirmed yet.
   const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setSignInError(null);
 
-    const { error } = await signIn(email, password);
+    let error: AuthErrorLike | null = null;
+    try {
+      ({ error } = await signIn(email.trim(), password));
+    } catch (err) {
+      error = err instanceof Error ? err : { message: String(err) };
+    }
 
     if (isEmailNotConfirmed(error)) {
       // Explain it and offer the link again, rather than GoTrue's bare "Email not confirmed".
       setUnconfirmedEmail(email);
     } else if (error) {
-      toast({
-        title: t('common.error'),
-        description: error.message,
-        variant: 'destructive',
-      });
+      setSignInError(signInErrorMessage(error, t));
+      setWrongCredentials(isInvalidCredentials(error));
     } else {
       toast({
         title: t('auth.loginSuccess'),
@@ -175,43 +185,39 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       return;
     }
     setForgotLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: withMailLang(withNext(`${window.location.origin}/reset-password`, next), i18n.language),
-    });
+    setForgotError(null);
+    // Passwords are mandatory (Victor, 6 Oct 2026): the only e-mailed way in from
+    // here is this link, which ends with choosing a password on /reset-password.
+    // It also serves accounts that never had one (created for an event: pw_pending).
+    let error: AuthErrorLike | null = null;
+    try {
+      ({ error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: withMailLang(withNext(`${window.location.origin}/reset-password`, next), i18n.language),
+      }));
+    } catch (err) {
+      error = err instanceof Error ? err : { message: String(err) };
+    }
     setForgotLoading(false);
     if (error) {
-      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
+      if (import.meta.env.DEV) console.error('Password link could not be sent:', error);
+      setForgotError(isRateLimited(error)
+        ? t('auth.passwordLink.tooSoon', 'Please wait a minute before asking for another link.')
+        : isNetworkError(error)
+          ? t('auth.signInError.network', "We couldn't reach the server. Check your internet connection and try again.")
+          : t('auth.passwordLink.failed', "We couldn't send the link just now. Please try again in a moment."));
     } else {
+      // Said the same way whether or not the address has an account (GoTrue answers both alike).
       setForgotSent(true);
-      toast({ title: t('auth.resetEmailSent', 'Reset e-mail sent'), description: t('auth.checkEmailForReset', 'Check your e-mail for a password reset link.') });
     }
-  };
-
-  // Sign in with a one-time link instead of a password. Same email machinery as
-  // the reset, but it drops you straight in — no password to choose, remember or
-  // get wrong — which is what most people stuck at this screen actually want.
-  const handleMagicLink = async () => {
-    if (!email) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
-      return;
-    }
-    setMagicLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: withMailLang(withNext(`${window.location.origin}/welcome`, next), i18n.language) },
-    });
-    setMagicLoading(false);
-    if (error) {
-      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
-      return;
-    }
-    setMagicSent(true);
   };
 
   if (forgotMode) {
     return (
       <form onSubmit={handleForgotPassword} className="space-y-5">
-        <p className="text-sm leading-6 text-meta">{t('auth.forgotPasswordDesc', 'Enter your e-mail and we\'ll send you a link to reset your password.')}</p>
+        <h3 className="text-h3 text-navy">{t('auth.passwordLink.title', 'Get a link to set your password')}</h3>
+        <p className="text-sm leading-6 text-meta">
+          {t('auth.passwordLink.desc', "Enter your e-mail address. We'll send you a link to choose a new password. It also works if you have never set one, for example when your account was created for an event.")}
+        </p>
         <div className="space-y-2">
           <AuthLabel htmlFor="forgot-email">{t('auth.email')}</AuthLabel>
           <AuthInput
@@ -219,42 +225,37 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
             type="email"
             autoComplete="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { setEmail(e.target.value); setForgotError(null); }}
             required
           />
         </div>
-        {forgotSent || magicSent ? (
+        {forgotSent ? (
           <div className="space-y-3 text-center">
             <AuthNotice tone="success" role="status" className="text-left">
               <p className="font-semibold text-navy">
-                {magicSent
-                  ? t('auth.signInLinkSent', 'Sign-in link sent — check your inbox.')
-                  : t('auth.resetEmailSent', 'Reset e-mail sent! Check your inbox.')}
+                {t('auth.passwordLink.sentTitle', 'Check your inbox')}
               </p>
               <p className="text-[13px] text-meta">
-                {t('auth.linkAnyDevice', 'The link opens on any device — phone or computer. If it is not there in a minute, check your spam folder.')}
+                {t('auth.passwordLink.sentHint', 'If an account exists for this address, the link is on its way. It opens on any device, phone or computer. Nothing after a few minutes? Check your spam folder.')}
               </p>
             </AuthNotice>
-            <UnderlineLink arrow={false} onClick={() => { setForgotMode(false); setForgotSent(false); setMagicSent(false); }}>
-              {t('auth.backToLogin', 'Back to login')}
+            <UnderlineLink arrow={false} className="min-h-11" onClick={() => { setForgotMode(false); setForgotSent(false); }}>
+              {t('auth.backToSignIn', 'Back to sign in')}
             </UnderlineLink>
           </div>
         ) : (
           <div className="space-y-4">
-            <Button type="submit" variant="cta" className="w-full justify-between" disabled={forgotLoading || magicLoading}>
-              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.sendResetLink', 'Send reset link')}
+            {forgotError && (
+              <AuthNotice tone="error" role="alert">
+                <p>{forgotError}</p>
+              </AuthNotice>
+            )}
+            <Button type="submit" variant="cta" className="w-full justify-between" disabled={forgotLoading}>
+              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.passwordLink.send', 'Send me the link')}
             </Button>
-            {/* The way out for anyone who has already fought the password twice. */}
-            <OrDivider>{t('auth.or', 'or')}</OrDivider>
-            <Button type="button" variant="ctaOutline" className="w-full justify-between" disabled={forgotLoading || magicLoading} onClick={handleMagicLink}>
-              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.emailSignInLink', 'E-mail me a sign-in link instead')}
-            </Button>
-            <FieldHint className="text-center">
-              {t('auth.signInLinkHint', 'Signs you straight in — no password needed.')}
-            </FieldHint>
             <div className="text-center">
-              <UnderlineLink arrow={false} onClick={() => setForgotMode(false)}>
-                {t('auth.backToLogin', 'Back to login')}
+              <UnderlineLink arrow={false} className="min-h-11" onClick={() => { setForgotMode(false); setForgotError(null); }}>
+                {t('auth.backToSignIn', 'Back to sign in')}
               </UnderlineLink>
             </div>
           </div>
@@ -267,13 +268,13 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
     <form onSubmit={handleSubmit} className="space-y-5">
       {showConfirmedBanner && !linkError && (
         <AuthNotice tone="success" className="items-center">
-          <p>{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</p>
+          <p>{t('auth.emailConfirmedSignIn', 'Your e-mail is confirmed. Sign in to continue.')}</p>
         </AuthNotice>
       )}
       {linkError && (
         <AuthNotice tone="warning" title={t('auth.linkInvalidTitle', 'This link no longer works')}>
           <p>
-            {t('auth.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
+            {t('auth.linkInvalidSignInDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try signing in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
           </p>
           <div className="pt-1.5">
             <ResendConfirmationButton email={email} redirectTo={confirmationRedirectTo()} label={t('auth.sendNewLink', 'Send me a new link')} />
@@ -287,7 +288,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => { setEmail(e.target.value); setSignInError(null); setWrongCredentials(false); }}
           required
         />
       </div>
@@ -295,7 +296,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <AuthLabel htmlFor="password">{t('auth.password')}</AuthLabel>
-          <UnderlineLink arrow={false} onClick={() => setForgotMode(true)} className="!text-[13px] !font-medium">
+          <UnderlineLink arrow={false} onClick={() => { setForgotMode(true); setSignInError(null); }} className="-my-2.5 min-h-11 !text-[13px] !font-medium">
             {t('auth.forgotPassword')}
           </UnderlineLink>
         </div>
@@ -303,10 +304,25 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
           id="password"
           autoComplete="current-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => { setPassword(e.target.value); setSignInError(null); setWrongCredentials(false); }}
           required
         />
       </div>
+
+      {signInError && (
+        <AuthNotice tone="error" role="alert">
+          <p>{signInError}</p>
+          {wrongCredentials && (
+            <UnderlineLink
+              arrow={false}
+              className="min-h-11 !text-sm !font-medium"
+              onClick={() => { setForgotMode(true); setSignInError(null); setWrongCredentials(false); }}
+            >
+              {t('auth.signInError.setPassword', 'Set a new password')}
+            </UnderlineLink>
+          )}
+        </AuthNotice>
+      )}
 
       <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
         {loading ? t('common.loading') : t('auth.login')}
@@ -315,7 +331,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       {unconfirmedEmail !== null && unconfirmedEmail === email && (
         <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>
           <p>
-            {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
+            {t('auth.emailNotConfirmedSignIn', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then sign in. Nothing in your inbox or spam folder? Send it again.')}
           </p>
           <div className="pt-1.5">
             <ResendConfirmationButton email={unconfirmedEmail} redirectTo={confirmationRedirectTo()} />

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import i18n from '@/i18n';
 import { cn } from '@/lib/utils';
 import { CTA_WRAP } from '@/components/auth/fields';
 
@@ -69,15 +70,24 @@ async function callFunction(method: 'GET' | 'POST', token: string, body?: Record
   return { status: res.status, data };
 }
 
+/**
+ * The b2b e-mails are now the Friday summary of messages from companies (and the
+ * e-mail when a company accepts yours): called by the name the account's
+ * preferences give them, whatever the unsubscribe function still calls them.
+ */
+const b2bLabel = () => i18n.t('unsubscribe.label.b2b', 'Messages from companies');
+
 function asLinkState(data: Record<string, unknown> | null): LinkState | null {
   if (!data || data.ok !== true || typeof data.category !== 'string') return null;
   return {
     email: typeof data.email === 'string' ? data.email : '',
     category: data.category,
-    category_label: typeof data.category_label === 'string' ? data.category_label : '',
+    category_label: data.category === 'b2b' ? b2bLabel() : typeof data.category_label === 'string' ? data.category_label : '',
     category_optional: data.category_optional === true,
     subscribed: data.subscribed === true,
-    optional: Array.isArray(data.optional) ? (data.optional as OptionalCategory[]) : [],
+    optional: Array.isArray(data.optional)
+      ? (data.optional as OptionalCategory[]).map((o) => (o && o.key === 'b2b' ? { ...o, label: b2bLabel() } : o))
+      : [],
   };
 }
 
@@ -101,7 +111,7 @@ export function UnsubscribePage() {
   // What one kind of e-mail is called in a sentence ("Unsubscribe from <x> e-mails").
   const noun = (key: string, fallback: string): string => {
     switch (key) {
-      case 'b2b': return t('unsubscribe.noun.b2b', 'B2B connection');
+      case 'b2b': return t('unsubscribe.noun.companyMessages', 'company message');
       case 'submissions': return t('unsubscribe.noun.submissions', 'submission update');
       case 'recommendations': return t('unsubscribe.noun.recommendations', 'recommendation');
       case 'events': return t('unsubscribe.noun.events', 'event');

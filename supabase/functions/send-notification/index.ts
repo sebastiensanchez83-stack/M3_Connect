@@ -409,25 +409,30 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
 
     // ── Payment notifications ──
+    // Sent by payment-ipn (service caller) once per payment and status. The platform
+    // is free (6 Oct 2026): a payment is for an event, and nobody can start a new one
+    // themselves (create-payment is staff only), so no "retry" and no pricing page.
+    // ?tab=registrations opens the member's events on the old and the new site alike.
+    // event_title: the event's name, read by payment-ipn from the database.
     case "payment_confirmed":
       return {
         subject: "Payment confirmed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Payment Confirmed",
-        body: `Your payment of ${d.amount || "the specified amount"} has been successfully processed.\n\nPayment type: ${d.payment_type === "membership" ? "Membership Fee" : d.payment_type === "additional_seats" ? "Additional Seats" : d.payment_type === "event_participation" ? "Event Participation" : d.payment_type || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}\n\nA confirmation receipt has been recorded in your account.`,
-        buttonText: "View Pricing & Payments",
-        buttonUrl: `${accountUrl}?tab=pricing`,
-        footer: "Thank you for your payment!",
+        title: "Payment confirmed",
+        body: `We have received your payment of ${d.amount || "the amount due"}.\n\nFor: ${d.event_title || (d.payment_type === "event_participation" ? "Event participation" : "Payment to M3")}${d.transaction_id ? `\nReference: ${d.transaction_id}` : ""}\n\nKeep this e-mail as your proof of payment.`,
+        buttonText: "See my registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
+        footer: "Thank you for your payment.",
       };
     case "payment_failed":
       return {
-        subject: "Payment issue — Smart Marina Connect",
+        subject: "Payment not completed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Payment Not Completed",
-        body: `We were unable to process your payment of ${d.amount || "the specified amount"}.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nPlease try again or use a different payment method.`,
-        buttonText: "Retry Payment",
-        buttonUrl: `${accountUrl}?tab=pricing`,
-        footer: "If the issue persists, please contact our support team.",
+        title: "Payment not completed",
+        body: `Your payment of ${d.amount || "the amount due"}${d.event_title ? ` for ${d.event_title}` : ""} did not go through, and nothing was charged.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nThe M3 team will contact you to settle it. You can also write to events@m3monaco.com.`,
+        buttonText: "See my registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
+        footer: "If you think this is a mistake, reply to this e-mail.",
       };
     case "membership_payment_received":
       return {
@@ -688,7 +693,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 //
 // Three kinds of caller:
 //   service  -- another edge function holding the service-role key (notify-admins,
-//               send-profile-reminders, payment-ipn once it sends that key). Trusted:
+//               send-profile-reminders, payment-ipn since 9 Oct 2026). Trusted:
 //               any known type, recipient as given.
 //   staff    -- a signed-in VERIFIED admin or moderator (same test as sm_is_staff()).
 //               The admin consoles. Any known type, recipient as given.

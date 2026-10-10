@@ -808,11 +808,11 @@ export function AdminSM26Detail() {
                 setSignInLinkBusy(false);
                 if (error) { toast({ title: 'Could not send', description: error.message, variant: 'destructive' }); return; }
                 toast({
-                  title: 'Sign-in link sent',
+                  title: 'Password link sent',
                   description: `${reg.email} — ask them to check their spam folder if it hasn't arrived in a few minutes.`,
                 });
               }}>
-              {signInLinkBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send a sign-in link
+              {signInLinkBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send a password link
             </Button>
           </CardContent>
         </Card>

@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { clearStoredInvite } from '@/lib/invite-store';
 import { ResendConfirmationButton, isEmailNotConfirmed } from '@/components/auth/LoginForm';
+import { isInvalidCredentials, signInErrorMessage, signUpErrorMessage } from '@/lib/authErrors';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { readAuthLanding, scrubAuthLandingUrl } from '@/components/auth/AuthRedirector';
 import { Loader2, Mail, MailWarning, AlertTriangle } from 'lucide-react';
@@ -83,6 +84,11 @@ export function JoinPage() {
   // Login form
   const [loginPassword, setLoginPassword] = useState('');
   const [loginUnconfirmed, setLoginUnconfirmed] = useState(false);
+  // Why the sign-in was refused, in plain words; a wrong password offers a new one.
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginWrongPassword, setLoginWrongPassword] = useState(false);
+  // "Forgot password?": a link to /reset-password that comes back here.
+  const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   // Accept state
   const [accepting, setAccepting] = useState(false);
@@ -253,7 +259,7 @@ export function JoinPage() {
         });
         setPageState('login');
       } else {
-        toast({ title: t('joinInvite.signupError', 'Signup error'), description: error.message, variant: 'destructive' });
+        toast({ title: t('joinInvite.signupError', 'Signup error'), description: signUpErrorMessage(error, t), variant: 'destructive' });
       }
       return;
     }
@@ -276,6 +282,8 @@ export function JoinPage() {
     if (!invite) return;
     markJoinIntent(inviteId);
     setLoading(true);
+    setLoginError(null);
+    setLoginWrongPassword(false);
 
     const { error } = await signIn(invite.email, loginPassword);
     setLoading(false);
@@ -286,7 +294,9 @@ export function JoinPage() {
       return;
     }
     if (error) {
-      toast({ title: t('joinInvite.loginError', 'Login error'), description: error.message, variant: 'destructive' });
+      // Plain words under the form, never GoTrue's own text.
+      setLoginError(signInErrorMessage(error, t));
+      setLoginWrongPassword(isInvalidCredentials(error));
       return;
     }
 
@@ -294,6 +304,28 @@ export function JoinPage() {
     // accept state is reached (same e-mail checks as before), no second click.
     setAutoAccept(true);
     // After login, useEffect will switch to 'accept' state
+  };
+
+  // ── "Forgot password?" (or never had one): the same e-mail as on the sign-in window.
+  // /reset-password saves the new password, keeps them signed in and brings them
+  // back here (?next=), where joining is one click.
+  const handleResetLink = async () => {
+    if (!invite || resetState === 'sending') return;
+    setResetState('sending');
+    setLoginError(null);
+    setLoginWrongPassword(false);
+    const redirect = new URL('/reset-password', window.location.origin);
+    redirect.searchParams.set('next', `/join/${inviteId}`);
+    let failed = false;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(invite.email, { redirectTo: redirect.toString() });
+      if (error) { failed = true; console.error('Password link could not be sent:', error.code ?? error.name); }
+    } catch (err) {
+      failed = true;
+      console.error('Password link could not be sent:', err);
+    }
+    // GoTrue answers an unknown address like a known one: "sent" means "asked for".
+    setResetState(failed ? 'error' : 'sent');
   };
 
   // ── Handle accept invitation ──
@@ -431,13 +463,13 @@ export function JoinPage() {
         <div className="space-y-5">
           {landing === 'confirmed' && (
             <AuthNotice tone="success" className="items-center">
-              <p>{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</p>
+              <p>{t('auth.emailConfirmedSignIn', 'Your e-mail is confirmed. Sign in to continue.')}</p>
             </AuthNotice>
           )}
           {landing === 'link-error' && invite && (
             <AuthNotice tone="warning" title={t('auth.linkInvalidTitle', 'This link no longer works')}>
               <p>
-                {t('joinInvite.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, ask for a new link.')}
+                {t('joinInvite.linkInvalidSignInDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try signing in first: if your address is confirmed, that is all you need. Otherwise, ask for a new link.')}
               </p>
               <div className="pt-1.5">
                 <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} label={t('auth.sendNewLink', 'Send me a new link')} />
@@ -450,25 +482,53 @@ export function JoinPage() {
               <AuthInput id="join-login-email" value={invite?.email || ''} disabled className="bg-page" />
             </div>
             <div className="space-y-2">
-              <AuthLabel htmlFor="join-login-password">{t('auth.password', 'Password')}</AuthLabel>
+              <div className="flex items-center justify-between gap-3">
+                <AuthLabel htmlFor="join-login-password">{t('auth.password', 'Password')}</AuthLabel>
+                <UnderlineLink arrow={false} onClick={() => void handleResetLink()} disabled={resetState === 'sending'} className="-my-2.5 min-h-11 !text-[13px] !font-medium">
+                  {t('auth.forgotPassword', 'Forgot password?')}
+                </UnderlineLink>
+              </div>
               <PasswordInput
                 id="join-login-password"
                 autoComplete="current-password"
                 value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
+                onChange={(e) => { setLoginPassword(e.target.value); setLoginError(null); setLoginWrongPassword(false); }}
                 required
                 placeholder={t('joinInvite.loginPasswordPlaceholder', 'Enter your password')}
                 autoFocus
               />
             </div>
+            {loginError && (
+              <AuthNotice tone="error" role="alert">
+                <p>{loginError}</p>
+                {loginWrongPassword && (
+                  <UnderlineLink arrow={false} onClick={() => void handleResetLink()} disabled={resetState === 'sending'} className="min-h-11 !text-sm !font-medium">
+                    {t('auth.signInError.setPassword', 'Set a new password')}
+                  </UnderlineLink>
+                )}
+              </AuthNotice>
+            )}
+            {resetState === 'sent' && (
+              <AuthNotice tone="success" role="status">
+                <p className="font-semibold text-navy">{t('auth.passwordLink.sentTitle', 'Check your inbox')}</p>
+                <p className="break-words text-[13px] text-meta">
+                  {t('joinInvite.passwordLinkSent', 'If {{email}} has an account, a link is on its way. Open it to choose your password: it brings you back here to join the team. Nothing after a few minutes? Check your spam folder, or create your account instead.', { email: invite?.email ?? '' })}
+                </p>
+              </AuthNotice>
+            )}
+            {resetState === 'error' && (
+              <AuthNotice tone="error" role="alert">
+                <p>{t('auth.passwordLink.failed', "We couldn't send the link just now. Please try again in a moment.")}</p>
+              </AuthNotice>
+            )}
             <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {t('joinInvite.loginAndJoin', 'Log in & Join')}
+              {t('joinInvite.signInAndJoin', 'Sign in and join')}
             </Button>
             {loginUnconfirmed && invite && (
               <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>
                 <p>
-                  {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
+                  {t('auth.emailNotConfirmedSignIn', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then sign in. Nothing in your inbox or spam folder? Send it again.')}
                 </p>
                 <div className="pt-1.5">
                   <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} />

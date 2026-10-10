@@ -127,7 +127,8 @@ Deno.serve(async (req: Request) => {
 
     switch (email_action_type) {
       case "signup":
-        add(user.email, copy.signup, { link: linkFor(token_hash).url });
+        // Always through /welcome, whatever page the caller asked for: see signupConfirmLink.
+        add(user.email, copy.signup, { link: signupConfirmLink(redirectTarget, site_url, token_hash) ?? linkFor(token_hash).url });
         break;
       case "recovery": {
         const link = linkFor(token_hash);
@@ -225,6 +226,51 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+// ---- Sign-up activation link ----
+// Pre-registration takeover (9 Oct 2026). Anyone can sign up with someone else's address
+// and a password of their choosing, through the website or straight through the Auth API
+// with the public key, and they choose redirect_to too. Once "Confirm email" is ON, the
+// real owner of the mailbox gets this e-mail: if the link only confirmed the address, the
+// stranger's password would keep working on the now-confirmed account. So the activation
+// link ALWAYS opens /welcome, which redeems the token_hash itself and then forces the
+// "choose your password" step (type=signup) on the old and the new site alike. The page
+// the caller asked for only becomes ?next= (WelcomePage keeps it to a path on the site).
+// GoTrue passes on only a redirect_to it accepted (Site URL or allow list), else the Site
+// URL, so the origin is ours. null when neither URL can be read (the caller then keeps
+// the old link).
+function signupConfirmLink(redirectTarget: string, siteUrl: string, hash: string): string | null {
+  const web = (u: URL) => u.protocol === "https:" || u.protocol === "http:";
+  let base: URL | null = null;
+  try {
+    const r = new URL(redirectTarget);
+    if (web(r)) base = r;
+  } catch {
+    /* unreadable: the Site URL below */
+  }
+  if (!base) {
+    try {
+      const s = new URL(siteUrl);
+      if (web(s)) base = new URL("/", s.origin);
+    } catch {
+      return null;
+    }
+  }
+  if (!base) return null;
+  const path = base.pathname.replace(/\/+$/, "") || "/";
+  let link: URL;
+  if (path === "/welcome") {
+    link = new URL(base.toString());
+  } else {
+    link = new URL("/welcome", base.origin);
+    // A bare site address (no redirect asked for) or a password page: the sign-up's own next step.
+    link.searchParams.set("next", path === "/" || path === "/reset-password" ? "/onboarding" : `${path}${base.search}`);
+  }
+  link.hash = "";
+  link.searchParams.set("token_hash", hash);
+  link.searchParams.set("type", "signup");
+  return link.toString();
+}
 
 async function sendViaResend(email: OutgoingEmail): Promise<{ ok: boolean; status: number; body: string }> {
   const res = await fetch("https://api.resend.com/emails", {

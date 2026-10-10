@@ -8,8 +8,8 @@
 //
 // The previews are rendered by the REAL code of the edge functions (send-email,
 // send-notification, claim-code-signup, contact-submit, guest-list, guest-webinar-register,
-// guest-webinar-reminders, send-reference-email, send-status-notification, sp-notify and
-// sponsor-invite): their source is transpiled with the TypeScript compiler, the remote
+// guest-webinar-reminders, send-reference-email, send-status-notification, sp-notify,
+// sponsor-invite and messages-digest): their source is transpiled with the TypeScript compiler, the remote
 // imports are cut and Deno, createClient and QRCode are stubbed, so nothing here can drift
 // from what is deployed. Nothing is sent, nothing touches the network or the database.
 // Sample data is fictional. (The QR code of the World Yachting Summit pass is drawn here with
@@ -82,8 +82,8 @@ for (const name of fs.readdirSync(fnDir).sort()) {
   }
 }
 
-// The unsubscribe token helper is pasted in send-notification (signs) and unsubscribe
-// (verifies): both copies must stay identical.
+// The unsubscribe token helper is pasted in send-notification and messages-digest (they
+// sign) and unsubscribe (verifies): every copy must stay identical.
 {
   const T_START = "// ---- SMC unsubscribe token v1";
   const T_END = "// ---- end SMC unsubscribe token ----";
@@ -95,8 +95,12 @@ for (const name of fs.readdirSync(fnDir).sort()) {
   };
   const sn = tokenBlock("send-notification");
   const un = tokenBlock("unsubscribe");
+  const md = tokenBlock("messages-digest");
   if (!sn || !un) fail("unsubscribe token block missing from send-notification or unsubscribe");
   else if (sn !== un) fail("the unsubscribe token block differs between send-notification and unsubscribe");
+  if (!md) fail("unsubscribe token block missing from messages-digest");
+  else if (un && md !== un) fail("the unsubscribe token block differs between messages-digest and unsubscribe");
+  if (hasBackslashU(fs.readFileSync(path.join(fnDir, "messages-digest", "index.ts"), "utf8"))) fail("messages-digest: contains a backslash-u escape (the MCP deploy mangles them)");
   if (hasBackslashU(fs.readFileSync(path.join(fnDir, "unsubscribe", "index.ts"), "utf8"))) fail("unsubscribe: contains a backslash-u escape (the MCP deploy mangles them)");
 }
 
@@ -135,6 +139,7 @@ const regCron = load("registration-cron", [
   "ctxOf", "durationMs", "remindersOf", "renderReminder", "renderFollowup", "renderReplayAvailable", "renderEventDigest", "renderReviewDigest", "signUnsubToken",
 ]);
 const provision = load("provision-person", ["renderAccountReady", "renderTeamMemberAdded"]);
+const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
 
 // A token signed by send-notification verifies in the unsubscribe function, and a
 // tampered or foreign one does not (sample key, nothing leaves this process).
@@ -153,6 +158,10 @@ const provision = load("provision-person", ["renderAccountReady", "renderTeamMem
   const forged = Buffer.from(JSON.stringify({ v: 1, u: "00000000-0000-4000-8000-000000000002", c: "all", iat: 1 })).toString("base64url");
   if (await checker.verifyUnsubToken(key, `${forged}.${sig}`)) fail("unsubscribe token: a swapped payload verifies");
   if (/[^A-Za-z0-9_.-]/.test(tok)) fail("unsubscribe token: not URL-safe");
+  // The Friday digest signs its own links (category b2b): they must verify in the unsubscribe function.
+  const dtok = await digest.signUnsubToken(key, uid, "b2b");
+  const dok = await checker.verifyUnsubToken(key, dtok);
+  if (!dok || dok.userId !== uid || dok.category !== "b2b") fail("unsubscribe token: a messages-digest token does not verify");
 }
 
 // ---------------------------------------------------------------- samples
@@ -217,7 +226,7 @@ const items = [];
   }, "introduction, two recipients, CC");
   add(4, "webinar_accepted", "sam.rivera@example.com", { first_name: "Sam", title: "Shore power: lessons from three marinas" });
   add(5, "user_account_approved", "alex.martin@example.com", { first_name: "Alex", org_name: "Port Azur Marina" });
-  add(6, "payment_confirmed", "alex.martin@example.com", { first_name: "Alex", amount: "€500", payment_type: "membership", transaction_id: "TXN-EXAMPLE-0001" });
+  add(6, "payment_confirmed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", payment_type: "event_participation", transaction_id: "924529", event_title: "Example Marina Forum 2026" });
   add(7, "rfp_rejected", "camille.durand@example.com", { first_name: "Camille", title: "Fuel dock renovation", reason: "The scope is not detailed enough for partners to quote. Please add the dock length and the expected timeline." }, "reason note");
   add(8, "sponsorship_approved", "alex.martin@example.com", { first_name: "Alex", requested_tier: "Gold" }, "bullet list");
   add(9, "org_claim_code", "harbour.master@example.com", { first_name: "Marie", org_name: "Port Azur Marina", claim_code: "AZUR-7K2Q", email: "harbour.master@example.com" }, "code box");
@@ -225,7 +234,7 @@ const items = [];
   add(11, "membership_payment_received", "admin@example.com", { amount: "€500", submitter: "Alex Martin", org_name: "Port Azur Marina", transaction_id: "TXN-EXAMPLE-0001" }, "admin, info table");
   add(12, "profile_reminder_verified_but_thin", "alex.martin@example.com", { first_name: "Alex" }, "reminder with bullets");
   add(13, "team_invitation", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", signup_url: `${SITE}/?signup=true&email=new.colleague%40example.com` }, "ampersand in a name");
-  add(14, "payment_failed", "alex.martin@example.com", { first_name: "Alex", amount: "€500", reason: "The card was declined." }, "reason note");
+  add(14, "payment_failed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", event_title: "Example Marina Forum 2026" });
 }
 
 // Other Resend senders (each has its own function)
@@ -356,6 +365,38 @@ try {
 
   add("sponsor-1-portal-ready", "sponsor-invite · sponsorship portal ready (magic link)", "jordan.lee@example.com", sponsorInvite.buildInviteEmail("Jordan", "Nautic Systems", `https://example.supabase.co/auth/v1/verify?token=EXAMPLE_TOKEN&type=magiclink&redirect_to=${encodeURIComponent(SITE + "/welcome")}`));
   add("sponsor-2-asset-needed", "sp-notify · sponsor asset needed", "jordan.lee@example.com", spNotify.buildAssetNeededEmail("Nautic Systems", "Company logo (SVG, white version)", `${SITE}/account?tab=sponsorship`));
+
+  // The Friday digest of company messages (messages-digest): no e-mail per message.
+  const digestUnsub = `${SITE}/unsubscribe?t=EXAMPLE_PAYLOAD.EXAMPLE_SIGNATURE`;
+  const longText = "Thank you for the quick answer. We can visit the marina on Tuesday morning to measure the pontoons and check the existing power cabinets, then send you a first estimate before the end of the month.";
+  add("digest-1-messages-and-requests", "messages-digest · Friday digest (5 messages, 2 requests waiting)", "camille.durand@example.com", digest.renderDigest({
+    firstName: "Camille",
+    messageCount: 5,
+    previews: [
+      { name: "Jordan Lee", company: "Nautic Systems", text: longText.slice(0, 140) },
+      { name: "Sam Rivera", company: "Harbourline & Sons", text: "Here is the brochure we mentioned. Happy to set up a call next week." },
+      { name: "Jordan Lee", company: "Nautic Systems", text: "Do you have the plans of pontoon C?" },
+    ],
+    requestCount: 2,
+    requests: [
+      { name: "Léa Martin", company: "Bluequay Energy", text: "We install shore power for marinas of your size. Could we introduce our team?" },
+      { name: "Pat Keller", company: "Tidewater Architects", text: "" },
+    ],
+  }, digestUnsub));
+  add("digest-2-request-only", "messages-digest · Friday digest (one request, no message)", "alex.martin@example.com", digest.renderDigest({
+    firstName: "",
+    messageCount: 0,
+    previews: [],
+    requestCount: 1,
+    requests: [{ name: "Jordan Lee", company: "Nautic Systems", text: "Hello, we would like to discuss smart berth sensors with your team." }],
+  }, digestUnsub));
+  for (const id of ["digest-1-messages-and-requests", "digest-2-request-only"]) {
+    const it = items.find((x) => x.id === id);
+    if (!it.html.includes(`href="${digestUnsub}"`) || !it.text.includes(digestUnsub)) fail(`${id}: the unsubscribe link is missing`);
+    // /inbox, not /?open=inbox: signed out, /inbox asks to sign in first, then shows Messages.
+    if (!it.html.includes(`href="${SITE}/inbox"`) || !it.text.includes(`${SITE}/inbox`) || it.html.includes('open=inbox')) fail(`${id}: the button does not open Messages (${SITE}/inbox)`);
+  }
+  if (items.find((x) => x.id === "digest-1-messages-and-requests").subject !== "This week you received 5 messages") fail("digest-1: unexpected subject");
 }
 
 // Registration core: registration, registration-cron, provision-person (fictional data).
@@ -480,6 +521,10 @@ for (const it of items) {
     }).html,
     "sponsor-invite": sponsorInvite.buildInviteEmail(bad, evilImg, `${SITE}/?a=1&b="${bad}"`).html,
     "sp-notify": spNotify.buildAssetNeededEmail(bad, evilImg, `${SITE}/?a=1&b="${bad}"`).html,
+    "messages-digest": digest.renderDigest({
+      firstName: bad, messageCount: 2, previews: [{ name: bad, company: evilImg, text: `${evilImg} <script>x</script>` }],
+      requestCount: 1, requests: [{ name: evilImg, company: bad, text: evilImg }],
+    }, `${SITE}/unsubscribe?t=a"${bad}`).html,
   };
   for (const [fn, html] of Object.entries(evils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
 
@@ -611,6 +656,26 @@ for (const it of items) {
     "provision-person": provision.renderAccountReady(bad, evilImg, `${SITE}/?a="${bad}"`).html + provision.renderTeamMemberAdded(bad, evilImg, bad, evilImg, evilImg).html,
   };
   for (const [fn, html] of Object.entries(regEvils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
+}
+
+// Sign-up activation links always open /welcome (forced password step), whatever page
+// the caller of signUp asked for: the pre-registration takeover fix (send-email).
+{
+  const { signupConfirmLink } = load("send-email", ["signupConfirmLink"]);
+  const cases = [
+    [`${SITE}/onboarding?email_confirmed=true`, `${SITE}/welcome?next=%2Fonboarding%3Femail_confirmed%3Dtrue&token_hash=H&type=signup`],
+    [`${SITE}/welcome?next=%2Fjoin%2Fabc%3Femail_confirmed%3Dtrue`, `${SITE}/welcome?next=%2Fjoin%2Fabc%3Femail_confirmed%3Dtrue&token_hash=H&type=signup`],
+    [`${SITE}/`, `${SITE}/welcome?next=%2Fonboarding&token_hash=H&type=signup`],
+    [`${SITE}/reset-password?next=%2Faccount`, `${SITE}/welcome?next=%2Fonboarding&token_hash=H&type=signup`],
+    ["not a url", `${SITE}/welcome?next=%2Fonboarding&token_hash=H&type=signup`],
+    ["javascript:alert(1)", `${SITE}/welcome?next=%2Fonboarding&token_hash=H&type=signup`],
+    ["http://localhost:5173/onboarding", "http://localhost:5173/welcome?next=%2Fonboarding&token_hash=H&type=signup"],
+  ];
+  for (const [redirect, want] of cases) {
+    const got = signupConfirmLink(redirect, SITE, "H");
+    if (got !== want) fail(`send-email signupConfirmLink(${redirect}): ${got}, expected ${want}`);
+  }
+  if (signupConfirmLink("not a url", "also not", "H") !== null) fail("send-email signupConfirmLink: unreadable URLs should give null");
 }
 
 // ---------------------------------------------------------------- write

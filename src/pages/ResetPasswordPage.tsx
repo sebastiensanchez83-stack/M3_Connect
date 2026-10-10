@@ -6,6 +6,7 @@ import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, PasswordInput } from '@/components/auth/fields';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle } from 'lucide-react';
 
@@ -33,6 +34,39 @@ function isSessionGone(error: AuthErrorLike): boolean {
   return error.name === 'AuthSessionMissingError' || SESSION_GONE_CODES.has(error.code ?? '') || error.status === 401;
 }
 
+/** GoTrue refuses to "change" a password to the one already set. */
+function isSamePassword(error: AuthErrorLike): boolean {
+  return error.code === 'same_password' || /different from the old password/i.test(error.message || '');
+}
+
+// Where /welcome sends an account that still owes its password step (see WelcomePage).
+const EVENT_HUB = '/sm26/me';
+const AFTER_SIGNUP = '/onboarding';
+
+/**
+ * Where to go after the password is saved, for an account that was still flagged
+ * pw_pending when the link was opened, or null for any other account.
+ *
+ * Such an account has never had a password of its own: an event-provisioned one
+ * (SM26 access link, sponsor invitation) or a sign-up confirmed through /welcome
+ * (claim code: pw_pending_next is /onboarding?code=..., where the company is
+ * claimed). If the person reaches this page through "Forgot password?" instead of
+ * their /welcome link, the link carries no ?next=, and saving the password clears
+ * the flag: without this, they were signed out and sent to the home page, and the
+ * step /welcome would have taken them to (claiming the company, the event hub) was
+ * lost. Same destinations as WelcomePage: the stored pw_pending_next, else
+ * /onboarding after a sign-up, else the event hub for the provisioners of today
+ * (sm26-register, sm26-provision, sm26-attendee-invite, sponsor-invite: no reason),
+ * else (a later provisioner that names its reason) the member home.
+ */
+function pendingDestination(meta: Record<string, unknown> | undefined): string | null {
+  if (!meta || meta.pw_pending !== true) return null;
+  const stored = safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/reset-password', '/welcome'] });
+  if (stored) return stored;
+  if (meta.pw_pending_reason === 'signup') return AFTER_SIGNUP;
+  return meta.pw_pending_reason ? MEMBER_HOME : EVENT_HUB;
+}
+
 export function ResetPasswordPage() {
   const { t, i18n } = useTranslation();
   const [password, setPassword] = useState('');
@@ -58,7 +92,16 @@ export function ResetPasswordPage() {
   const lost = useRef(false);
   // The account the link signed in, to pre-fill the request for a fresh one.
   const accountEmail = useRef('');
+  // The same, shown on the form: which account the password is for.
+  const [accountAddress, setAccountAddress] = useState('');
+  // Where a pw_pending account goes once its password is saved (pendingDestination).
+  const [pendingNext, setPendingNext] = useState<string | null>(null);
+  // A sign-up still owing its password step: its password may have been typed by
+  // someone else (see WelcomePage), so saving one here ends the other sessions.
+  const [pendingSignup, setPendingSignup] = useState(false);
   const redirectTimer = useRef<number | undefined>(undefined);
+  // Where to go after saving: the link's own ?next= first, else the pw_pending fallback.
+  const destination = next ?? pendingNext;
 
   useEffect(() => () => window.clearTimeout(redirectTimer.current), []);
 
@@ -81,9 +124,11 @@ export function ResetPasswordPage() {
     // copied or bookmarked URL carries nothing usable.
     const scrubUrl = () => window.history.replaceState({}, '', window.location.pathname);
 
-    const ready = (email?: string | null) => {
+    const ready = (user?: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
       if (!mounted || lost.current) return;
-      if (email) accountEmail.current = email;
+      if (user?.email) { accountEmail.current = user.email; setAccountAddress(user.email); }
+      setPendingNext(pendingDestination(user?.user_metadata));
+      setPendingSignup(user?.user_metadata?.pw_pending === true && user?.user_metadata?.pw_pending_reason === 'signup');
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
@@ -94,7 +139,7 @@ export function ResetPasswordPage() {
     // for the link: only the calls below (or a recovery event) decide.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted || !session) return;
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && !fromLink)) ready(session.user?.email);
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && !fromLink)) ready(session.user);
     });
 
     void (async () => {
@@ -106,7 +151,7 @@ export function ResetPasswordPage() {
           typeParam && OTP_TYPES.includes(typeParam) ? (typeParam as EmailOtpType) : 'recovery';
         const { data, error: otpError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
         if (!mounted) return;
-        if (data?.session) { ready(data.session.user?.email); return; }
+        if (data?.session) { ready(data.session.user); return; }
         if (otpError) logAuthError('verifyOtp failed:', otpError);
       }
 
@@ -116,7 +161,7 @@ export function ResetPasswordPage() {
       if (code) {
         const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         if (!mounted) return;
-        if (data?.session) { ready(data.session.user?.email); return; }
+        if (data?.session) { ready(data.session.user); return; }
         if (exchangeError) logAuthError('Code exchange failed:', exchangeError);
         // supabase-js may have redeemed the code itself at start-up
         // (detectSessionInUrl), which spends it before the call above and only
@@ -127,7 +172,7 @@ export function ResetPasswordPage() {
         if (!new URLSearchParams(window.location.search).has('code')) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!mounted) return;
-          if (session) { ready(session.user?.email); return; }
+          if (session) { ready(session.user); return; }
         }
       }
 
@@ -143,7 +188,7 @@ export function ResetPasswordPage() {
       if (!fromLink) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
-        if (session) { ready(session.user?.email); return; }
+        if (session) { ready(session.user); return; }
       }
 
       // Nothing resolved outright. Give the hash-fragment listener a moment if a
@@ -231,10 +276,15 @@ export function ResetPasswordPage() {
       // an event-provisioned account that resets its password here has done the
       // welcome step's job, and AuthRedirector would otherwise keep bouncing it
       // back to /welcome to "set a password" on every navigation.
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
-        data: { pw_pending: false, pw_pending_reason: null, pw_pending_next: null },
-      });
+      const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };
+      let { error: updateError } = await supabase.auth.updateUser({ password, data: done });
+      // An account still owing its password step that types the password it already
+      // has (a sign-up typing the one from the sign-up form): GoTrue refuses that as
+      // a "change" and drops `data` with it. Knowing it is proof enough, as on
+      // /welcome: record the step as done and go on.
+      if (updateError && pendingNext && isSamePassword(updateError)) {
+        ({ error: updateError } = await supabase.auth.updateUser({ data: done }));
+      }
 
       if (updateError) {
         logAuthError('Password could not be updated:', updateError);
@@ -252,22 +302,30 @@ export function ResetPasswordPage() {
         return;
       }
 
+      if (pendingSignup) {
+        // As on /welcome: end any other session of this account (best effort).
+        const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+        if (othersError) logAuthError('Other sessions could not be ended:', othersError);
+      }
+
       setSuccess(true);
 
-      if (next) {
-        // In-app change: keep them signed in and put them back where they started.
+      if (destination) {
+        // In-app change (`next`), or an account that still owed its password step
+        // (pendingDestination): keep them signed in and take them on.
         // A full page load, not a router navigation: the link's session arrives as
         // PASSWORD_RECOVERY, which AuthContext only records — it never loads that
         // account's profile and organisations. Opened on another device, or with
         // someone else signed in here, an in-app jump would land on a page with no
         // profile (or the previous account's). The reload starts from the stored
-        // session. `next` is already a path on this site (safeNext).
-        redirectTimer.current = window.setTimeout(() => window.location.replace(next), 1500);
+        // session. Both are paths on this site (safeNext).
+        redirectTimer.current = window.setTimeout(() => window.location.replace(destination), 1500);
       } else {
         // Recovery from an email link: sign out so the new password gets used once,
-        // which confirms to them that it works.
+        // which confirms to them that it works. ?signin=true opens the sign-in window
+        // on the home page (Navbar), so they do not have to look for it.
         await supabase.auth.signOut();
-        redirectTimer.current = window.setTimeout(() => { window.location.href = '/'; }, 2000);
+        redirectTimer.current = window.setTimeout(() => { window.location.href = '/?signin=true'; }, 2000);
       }
     } catch (err) {
       logAuthError('Password update failed:', err);
@@ -293,7 +351,7 @@ export function ResetPasswordPage() {
           title={t('resetPassword.checkInboxTitle', 'Check your inbox')}
           lead={<span className="break-words">{t('resetPassword.newLinkSent', 'If {{email}} has an account, a new link is on its way. It works once, on any device. Nothing after a few minutes? Check your spam folder.', { email: resendEmail.trim().toLowerCase() })}</span>}
         >
-          <Button variant="ctaOnDark" onClick={() => (window.location.href = '/')}>{t('common.goHome', 'Go to Homepage')}</Button>
+          <Button variant="ctaOnDark" onClick={() => (window.location.href = '/')}>{t('authRefonte.gate.home', 'Go to the home page')}</Button>
         </AuthShell>
       );
     }
@@ -336,8 +394,8 @@ export function ResetPasswordPage() {
             )}
           </Button>
           <div className="text-center">
-            <UnderlineLink arrow={false} onClick={() => (window.location.href = '/')}>
-              {t('common.goHome', 'Go to Homepage')}
+            <UnderlineLink arrow={false} className="min-h-11" onClick={() => (window.location.href = '/')}>
+              {t('authRefonte.gate.home', 'Go to the home page')}
             </UnderlineLink>
           </div>
         </form>
@@ -350,16 +408,26 @@ export function ResetPasswordPage() {
       <AuthShell
         layout="centered"
         icon={<CheckCircle className="h-6 w-6" />}
-        title={t('resetPassword.successTitle', 'Password updated!')}
+        title={pendingNext ? t('resetPassword.savedTitle', 'Password saved') : t('resetPassword.successTitle', 'Password updated!')}
         lead={next
           ? t('resetPassword.takingYouBack', 'Taking you back...')
-          : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
+          : destination
+            ? t('resetPassword.takingYouOn', 'Taking you to the next step...')
+          : t('resetPassword.signInWithNew', 'Now sign in with your new password. Opening the sign-in window...')}
       />
     );
   }
 
   return (
-    <AuthShell title={t('resetPassword.title', 'Reset your password')} points={false}>
+    <AuthShell
+      title={pendingNext ? t('resetPassword.chooseTitle', 'Choose your password') : t('resetPassword.title', 'Reset your password')}
+      lead={accountAddress
+        ? <span className="break-words">{pendingNext
+          ? t('resetPassword.chooseLead', 'Choose the password you will use to sign in as {{email}}.', { email: accountAddress })
+          : t('resetPassword.lead', 'Choose a new password for {{email}}.', { email: accountAddress })}</span>
+        : null}
+      points={false}
+    >
       <div className="space-y-5">
         {error && (
           <AuthNotice tone="error" role="alert">
@@ -367,6 +435,8 @@ export function ResetPasswordPage() {
           </AuthNotice>
         )}
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Lets password managers file the new password under the right account. */}
+          <input type="email" name="username" autoComplete="username" value={accountAddress} readOnly hidden />
           <div className="space-y-2">
             <AuthLabel htmlFor="password">{t('resetPassword.newPassword', 'New password')}</AuthLabel>
             <PasswordInput
@@ -380,7 +450,7 @@ export function ResetPasswordPage() {
             />
           </div>
           <div className="space-y-2">
-            <AuthLabel htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <AuthLabel htmlFor="confirmPassword">{t('authRefonte.signup.confirmPassword', 'Confirm password')}</AuthLabel>
             <PasswordInput
               id="confirmPassword"
               autoComplete="new-password"
@@ -397,6 +467,8 @@ export function ResetPasswordPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {t('resetPassword.updating', 'Updating...')}
               </>
+            ) : pendingNext ? (
+              t('resetPassword.submitChoose', 'Save my password')
             ) : (
               t('resetPassword.submit', 'Update password')
             )}

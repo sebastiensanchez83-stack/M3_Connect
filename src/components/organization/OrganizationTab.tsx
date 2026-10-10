@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { HelpTip } from '@/components/help/HelpTip';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -849,7 +850,13 @@ export function OrganizationTab({ onSaved }: {
                 />
               </div>
               <div className="space-y-2">
-                <Label>{t('org.description')}</Label>
+                {/* What M3 checks (help centre). New tab: the form keeps what was typed. */}
+                <div className="flex items-center gap-1.5">
+                  <Label>{t('org.description')}</Label>
+                  <HelpTip title={t('help.tips.checkTitle', 'What M3 checks')} more="verification-what" newTab className="text-meta">
+                    {t('help.tips.checkWhat', 'That your company exists and works in the marina or maritime world, from its website and what you write here. A short, clear description helps.')}
+                  </HelpTip>
+                </div>
                 <textarea
                   className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                   value={createForm.description}

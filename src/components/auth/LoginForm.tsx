@@ -305,9 +305,13 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
             {t('auth.forgotPassword', 'Forgot password?')}
           </UnderlineLink>
         </div>
+        {/* Address filled in for them (after /reset-password): start on the password.
+            Without this the window focuses the address with its text selected, and
+            the first key typed would replace it with the password, in clear. */}
         <PasswordInput
           id="password"
           autoComplete="current-password"
+          autoFocus={!!defaultEmail}
           value={password}
           onChange={(e) => { setPassword(e.target.value); setSignInError(null); setWrongCredentials(false); }}
           required

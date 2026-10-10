@@ -243,9 +243,8 @@ export function ResetPasswordPage() {
     if (err.code === 'weak_password') {
       return t('resetPassword.weakPassword', 'This password is too weak or too common. Choose a longer, less predictable one.');
     }
-    if (err.code === 'same_password' || /different from the old password/i.test(err.message || '')) {
-      return t('resetPassword.samePassword', 'This is already your password. Choose a different one.');
-    }
+    // No "same password" case: handleSubmit accepts the password the account
+    // already has (isSamePassword), so that refusal never reaches this point.
     if (isRateLimited(err)) {
       return t('resetPassword.tooManyAttempts', 'Too many attempts. Please wait a minute and try again.');
     }
@@ -255,11 +254,8 @@ export function ResetPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (password !== confirmPassword) {
-      setError(t('auth.passwordMismatch', 'Passwords do not match.'));
-      return;
-    }
-
+    // Same checks, same order and same words as /welcome (WelcomePage), shown at
+    // the same place: under the boxes.
     if (password.length < 8) {
       setError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).'));
       return;
@@ -268,6 +264,11 @@ export function ResetPasswordPage() {
     // GoTrue refuses more than 72 bytes (bcrypt); say so before the round trip.
     if (new TextEncoder().encode(password).length > 72) {
       setError(t('resetPassword.passwordTooLong', 'Password too long (max. 72 characters).'));
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError(t('auth.passwordsNotSame', 'The two passwords are not the same. Type the same password in both boxes.'));
       return;
     }
 
@@ -444,11 +445,6 @@ export function ResetPasswordPage() {
       points={false}
     >
       <div className="space-y-5">
-        {error && (
-          <AuthNotice tone="error" role="alert">
-            <p>{error}</p>
-          </AuthNotice>
-        )}
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Lets password managers file the new password under the right account. */}
           <input type="email" name="username" autoComplete="username" value={accountAddress} readOnly hidden />
@@ -458,7 +454,7 @@ export function ResetPasswordPage() {
               id="password"
               autoComplete="new-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); setError(null); }}
               placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
               required
               disabled={loading}
@@ -470,12 +466,18 @@ export function ResetPasswordPage() {
               id="confirmPassword"
               autoComplete="new-password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={(e) => { setConfirmPassword(e.target.value); setError(null); }}
               placeholder={t('resetPassword.confirmPlaceholder', 'Confirm new password')}
               required
               disabled={loading}
             />
           </div>
+          {/* Under the boxes, as on /welcome. */}
+          {error && (
+            <AuthNotice tone="error" role="alert">
+              <p>{error}</p>
+            </AuthNotice>
+          )}
           {/* data-help-avoid: the floating Help button steps aside instead of covering it on phones. */}
           <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading} data-help-avoid>
             {loading ? (

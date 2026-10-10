@@ -732,7 +732,7 @@ const EMAIL_KIND_LABEL: Record<string, { label: string; hint: string }> = {
   submissions: { label: 'Your requests and proposals', hint: 'When the M3 team approves or answers what you published.' },
   recommendations: { label: 'References', hint: 'When a marina confirms or declines a reference you asked for.' },
   events: { label: 'Events', hint: 'Your registrations and reminders before a webinar.' },
-  payments: { label: 'Payments and invoices', hint: 'Invoices and payment confirmations.' },
+  payments: { label: 'Payments and invoices', hint: 'Invoices and sponsor level changes. Payment receipts are always sent.' },
   team: { label: 'Your team', hint: 'Invitations and people asking to join your company.' },
   account: { label: 'Your account', hint: 'When your account is approved. Best kept on.' },
   marketing: { label: 'News from M3', hint: 'Welcome e-mails about the platform.' },

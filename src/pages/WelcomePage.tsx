@@ -279,7 +279,7 @@ export function WelcomePage() {
     if (pw.length < 8) { setFormError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).')); return; }
     // GoTrue refuses more than 72 bytes (bcrypt); say so before the round trip.
     if (new TextEncoder().encode(pw).length > 72) { setFormError(t('welcome.passwordTooLong', 'Password too long (max. 72 characters).')); return; }
-    if (pw !== pw2) { setFormError(t('welcome.passwordMismatchInline', 'The two passwords are not the same. Type the same password in both boxes.')); return; }
+    if (pw !== pw2) { setFormError(t('auth.passwordsNotSame', 'The two passwords are not the same. Type the same password in both boxes.')); return; }
     setFormError('');
     setBusy(true);
     const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };

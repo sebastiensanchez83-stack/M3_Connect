@@ -24,6 +24,10 @@
  *         behind with the production keys): M3's admins get an e-mail (once per
  *         transaction, flag in payments.metadata.ipn_review) and Lyra gets 503, so that
  *         its retries apply it once the secrets are fixed. Any other status: 200.
+ *         Except a PAID TEST-mode one while PRODUCTION is expected (the TEST password
+ *         installed, LYRA_MODE unset): no card was charged, so it is answered 200
+ *         "Ignored" and M3's admins are told (once) that the set-up is wrong and that
+ *         the payment must NOT be marked paid by hand.
  *     Lyra re-sends a refused (non-2xx) IPN a few times over about an hour, ONLY if
  *     "automatic retry" is on for the IPN rule in the Lyra back office. Any other
  *     algorithm: 400. The signature is compared in constant time.
@@ -403,7 +407,14 @@ Deno.serve(async (req) => {
     // The customer may have been charged: M3 is told (once per transaction) and the
     // notification is refused with 503, so that Lyra's retries apply it once the
     // secrets are fixed (if "automatic retry" is on in the Lyra back office).
-    console.error(`IPN NOT APPLIED for payment ${paymentId}: ${wrongSetup}. Fix the Lyra secrets (Supabase dashboard, Edge Functions > Secrets); Lyra's retry then applies it.`);
+    // Except a TEST-mode payment while PRODUCTION is expected: the shop matches, so
+    // the installed password is the TEST one (Lyra signs a TEST notification with
+    // it). No card was charged: never applied, never to be marked paid by hand, and
+    // answered 200 (only switching the platform to TEST could apply a retry).
+    const testWhileLive = !(answerShop && answerShop !== LYRA_SHOP_ID) && answerMode === 'TEST' && EXPECTED_MODE === 'PRODUCTION';
+    console.error(testWhileLive
+      ? `IPN NOT APPLIED for payment ${paymentId}: ${wrongSetup}. A TEST payment (no card charged) while LYRA_API_PASSWORD holds the TEST password: real payments cannot be verified until the production password is installed.`
+      : `IPN NOT APPLIED for payment ${paymentId}: ${wrongSetup}. Fix the Lyra secrets (Supabase dashboard, Edge Functions > Secrets); Lyra's retry then applies it.`);
     const reviewKey = txUuid || 'no-transaction';
     if (meta?.ipn_review?.transaction_uuid !== reviewKey) {
       const { error: flagError } = await db
@@ -414,7 +425,13 @@ Deno.serve(async (req) => {
         })
         .eq('id', paymentId);
       if (flagError) console.error(`IPN: could not record the review flag on payment ${paymentId}:`, flagError.message);
-      await alertM3('payment needs review', [
+      if (testWhileLive) await alertM3('test payment not applied', [
+        `Lyra reported a TEST-mode payment as paid. No card was charged, so it was NOT applied. Do NOT mark it paid by hand.`,
+        `Payment: ${paymentId}`,
+        `Lyra transaction: ${plain(txUuid) || 'n/a'}`,
+        `The platform expects real payments (LYRA_MODE unset or PRODUCTION), but LYRA_API_PASSWORD holds the TEST password, so real payments cannot be verified until the production password is installed. For a test run, set LYRA_MODE=TEST instead.`,
+      ]);
+      else await alertM3('payment needs review', [
         `Lyra reported a payment as PAID, but the notification does not match the platform's Lyra settings, so it was NOT applied.`,
         `Reason: ${wrongSetup}`,
         `Payment: ${paymentId}`,
@@ -422,6 +439,7 @@ Deno.serve(async (req) => {
         `Check the secrets LYRA_SHOP_ID, LYRA_API_PASSWORD and LYRA_MODE (unset or PRODUCTION for real payments). Once fixed, Lyra's next retry applies it; otherwise mark the payment paid by hand.`,
       ]);
     }
+    if (testWhileLive) return text('Ignored', 200);
     return text('Payment notifications are not set up for this shop or mode', 503);
   }
 

@@ -15,6 +15,7 @@ import {
   TrendingUp, MapPin, Building2, Anchor, HardHat, ChevronRight,
   Filter, Loader2, MessageSquare, Search, RefreshCw,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
@@ -65,7 +66,11 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 };
 
 export function DealFlowPage() {
-  const { user, profile, organization, isVerified, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
+  const {
+    user, profile, organization, isVerified, loading: authLoading,
+    can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable, retryCapabilities,
+  } = useAuth();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -87,10 +92,14 @@ export function DealFlowPage() {
 
   // Access guard — unified investor accreditation: a verified platform investor
   // (persona) OR someone with a confirmed SM26 investor role can see the deal-flow.
+  // Once the rights switch is on (src/lib/capabilities.ts) the board follows the
+  // company type, as the database does (oci_select_dealflow): members of a
+  // validated investor company, and M3 staff. The SM26 investor role then gives no
+  // access (the database never let it read the board).
   const personaInvestor = !!user && profile?.persona === 'investor' && isVerified;
   const [smInvestor, setSmInvestor] = useState<boolean | null>(null); // null = still checking
   useEffect(() => {
-    if (!user || personaInvestor) { setSmInvestor(false); return; }
+    if (!user || personaInvestor || capabilitiesEnforced) { setSmInvestor(false); return; }
     let cancelled = false;
     (async () => {
       const { data } = await supabase
@@ -102,9 +111,11 @@ export function DealFlowPage() {
       if (!cancelled) setSmInvestor(has);
     })();
     return () => { cancelled = true; };
-  }, [user, personaInvestor]);
-  const accessOK = personaInvestor || smInvestor === true;
-  const checkingAccess = !!user && !personaInvestor && smInvestor === null;
+  }, [user, personaInvestor, capabilitiesEnforced]);
+  const accessOK = capabilitiesReady && (capabilitiesEnforced
+    ? isVerified && can('see_dealflow')
+    : personaInvestor || smInvestor === true);
+  const checkingAccess = !!user && (!capabilitiesReady || (!capabilitiesEnforced && !personaInvestor && smInvestor === null));
 
   const loadData = async (showSpinner = true) => {
     if (!user || !accessOK) return;
@@ -356,10 +367,16 @@ export function DealFlowPage() {
               titleAs="h1"
               icon={TrendingUp}
               title="Investor access required"
-              body={profile?.persona !== 'investor'
-                ? 'The deal-flow board is reserved for verified investor accounts.'
-                : 'Your investor account is pending verification.'}
-              action={<Button variant="ctaNavy" size="sm" onClick={() => navigate('/dashboard')}>Back to my account</Button>}
+              body={capabilitiesEnforced
+                ? capabilitiesUnavailable
+                  ? t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.')
+                  : t('rights.dealflow.companyType', 'The deal-flow board is open to members of investor companies the M3 team has validated.')
+                : profile?.persona !== 'investor'
+                  ? 'The deal-flow board is reserved for verified investor accounts.'
+                  : 'Your investor account is pending verification.'}
+              action={capabilitiesUnavailable
+                ? <Button variant="ctaNavy" size="sm" onClick={retryCapabilities}>{t('rights.retry', 'Try again')}</Button>
+                : <Button variant="ctaNavy" size="sm" onClick={() => navigate('/dashboard')}>Back to my account</Button>}
             />
           </CardShell>
         </div>

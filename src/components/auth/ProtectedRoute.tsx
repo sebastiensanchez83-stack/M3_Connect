@@ -76,7 +76,7 @@ export function ProtectedRoute({
   requireCapability,
 }: ProtectedRouteProps) {
   const { t } = useTranslation();
-  const { user, loading, profile, isVerified, isAdmin, isModerator, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
+  const { user, loading, profile, isVerified, isAdmin, isModerator, can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable } = useAuth();
   const { isFeatureEnabled, isLoading: entitlementsLoading } = useEntitlements();
 
   // Signed out, back from a confirmation link that could not sign in here.
@@ -114,6 +114,12 @@ export function ProtectedRoute({
     return <AuthLoading className="min-h-[100svh]" />;
   }
   if (requireCapability && capabilitiesEnforced) {
+    if (capabilitiesUnavailable) {
+      // The rights could not be read (tried again when the tab regains focus): say so,
+      // rather than "not for you".
+      const message = t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.');
+      return showLocked ? <LockedState message={message} /> : <RedirectWithToast to={redirectTo} message={message} />;
+    }
     if (!can(requireCapability)) {
       const message = t('authRefonte.gate.noCapability', 'This page opens to members of a company type that has this right.');
       return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to={redirectTo} message={message} />;

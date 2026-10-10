@@ -5,64 +5,80 @@
 -- (Generated: the two migrations and the down script below are verbatim copies;
 -- if any of them changes, rebuild this file.)
 --
--- Once the shadow migration is applied in production, its section B below still
--- runs harmlessly (IF NOT EXISTS, OR REPLACE, ON CONFLICT): this file stays valid
--- before and after it.
+-- Once the shadow migration is applied in production, its section B below runs
+-- again (IF NOT EXISTS, OR REPLACE, ON CONFLICT). T05 then checks that it changed
+-- nothing (functions, policies, table rows): if production's shadow objects were
+-- edited since, T05 fails and this file must be rebuilt from production.
 --
 -- How to run: the WHOLE file in ONE execute_sql call (one implicit transaction).
 -- Do not add BEGIN/COMMIT and do not run it statement by statement. The last
 -- statement ends with RAISE EXCEPTION 'DRYRUN ...': both migrations, every test
 -- write and the down script roll back; the error text IS the report ("n PASS,
--- m FAIL" first, then one line per check).
+-- m FAIL" first, then one line per check; INFO lines are not counted).
 -- Tripwire: if the report says "before-snapshot missing", the statements did NOT
 -- run in one transaction: check pg_policies for partner_requests_insert_capable
 -- at once, and run supabase/migrations/down/capabilities_enforce.down.sql if it
 -- is there.
 --
 -- Layout
---   A. helpers (pg_temp) and the snapshot;
+--   A. helpers (pg_temp) and the snapshot (and the org_type_capability rows, if
+--      the table is already there);
 --   B. the shadow migration, verbatim; then the "mid" snapshot;
 --   C. the switch, verbatim;
---   D. checks: T00-T03 structure (exactly 8 policies dropped, 8 added, 4 rewritten
---      in place plus the origin rule, nothing else; the persona functions and the
---      partners directory untouched; origin 'interest'; the flag on), then EVERY
---      ROW OF THE TABLE (M01-M10) against the real policies and triggers: a
+--   D. checks: T00-T05 structure (exactly 8 policies dropped, 8 added, 4 rewritten
+--      in place plus the origin rule; the publisher's guard and its two triggers
+--      the only other new objects; the persona functions and the partners
+--      directory untouched; origin 'interest'; the flag on; the fingerprint for
+--      the down script; an already-applied shadow migration unchanged), then
+--      EVERY ROW OF THE TABLE (M01-M10) against the real policies and triggers: a
 --      verified member P is given one company of the row's type (Q, another
---      member, runs a validated marina that published an RFP and a consultation),
---      and twelve things are tried as P, each in its own rolled-back
---      sub-transaction:
---        see the RFP, see the consultation, publish an RFP, publish a
---        consultation, submit a project (through P's company), express interest
---        (origin interest), send a first message (origin message), send an
---        old-site request (origin null), propose a webinar, read the deal flow,
---        edit and delete P's own RFP;
---      M11 two companies (publishing goes through the company that may publish,
---      never under a company P is not in); M12 anonymous;
+--      member, runs a validated marina that published an approved RFP, an
+--      approved consultation and an RFP not approved yet; P has an open and a
+--      closed RFP of their own under their company), and sixteen things are tried
+--      as P, each in its own rolled-back sub-transaction:
+--         1 sees the approved RFP       2 sees the approved consultation
+--         3 sees the RFP not approved   4 publishes an RFP
+--         5 publishes a consultation    6 submits a project (through P's company)
+--         7 expresses interest (origin interest, through P's company)
+--         8 expresses interest in their own RFP
+--         9 sends a first message (origin message)
+--        10 sends an old-site request (origin null)
+--        11 proposes a webinar         12 reads the deal flow
+--        13 edits their own RFP        14 closes their own RFP
+--        15 reopens their own closed RFP   16 deletes their own RFP
+--      M11 two companies (marina + service provider): publishes through the marina
+--      only, answers through the service provider only, cannot move a need to a
+--      company that may not publish or is not theirs; M12 anonymous; M13 an own
+--      need filed under no company (closes it, edits it once filed under their
+--      marina); M14 developer colleagues (cannot answer each other's need);
 --   E. the switch's down script, verbatim;
 --   F. E1-E4: the twelve policies and the origin rule are back exactly as after
---      B, the flag is off, an origin 'interest' row is kept with origin null, the
---      shadow objects stay; the report.
+--      B and the guard is gone, the flag is off, an origin 'interest' row is kept
+--      with origin null, the shadow objects stay; the report.
 --
 -- Expected matrix (Y allowed, N refused), columns in the order above:
---   M01 marina                         YYYYYNYYYNYY   (sees, read-only: no interest)
---   M02 service provider               YYNNNYYYYNNY
---   M03 investor                       YYNNNYYYYYNY
---   M04 developer                      YYYYYYYYYNYY
---   M05 media                          YYNNNYYYYNNY
---   M06 participant (no company)       NNNNNNNNYNNY   (webinar only)
---   M07 validated company, no type     NNNNNNNNYNNY
---   M08 suspended marina company       NNNNNNNNYNNY
---   M09 person pending review          NNNNNNNNNNNN
---   M10 M3 staff                       YYYYYYYYYYYY
--- Expected: "23 PASS, 0 FAIL".
+--                                       1234567890123456
+--   M01 marina                          YYNYYYNNYYYNYYYY   (sees, read-only: no interest)
+--   M02 service provider                YYNNNNYNYYYNNYNY   (closes, never reopens)
+--   M03 investor                        YYNNNNYNYYYYNYNY   (deal flow)
+--   M04 developer                       YYNYYYYNYYYNYYYY   (publishes and answers, not itself)
+--   M05 media                           YYNNNNYNYYYNNYNY
+--   M06 participant (no company)        NNNNNNNNNNYNNYNY   (webinar; closes and deletes)
+--   M07 validated company, no type      NNNNNNNNNNYNNYNY
+--   M08 suspended marina company        NNNNNNNNNNYNNYNY   (an author whose company was
+--                                                           suspended still withdraws)
+--   M09 person pending review           NNNNNNNNNNNNNNNN
+--   M10 M3 staff                        YYYYYYYNYYYYYYYY   (everything but answering itself)
+-- Expected: "28 PASS, 0 FAIL" (T00, 4 x T01, T02, 2 x T03, T04, T05, M01-M14, E1-E4).
 --
 -- Callers, looked up AT RUN TIME (read-only): P and Q = the first two verified
 -- non-staff profiles (by id), A = the first verified admin.
 --
 -- Locks: the switch replaces policies on rfps, consultations, marina_projects,
--- partner_requests, webinar_requests and org_capital_intents and a constraint of
--- partner_requests (ACCESS EXCLUSIVE until the run rolls back). Every read of
--- those tables waits meanwhile: run it at a quiet hour; it gives up after 5 s.
+-- partner_requests, webinar_requests and org_capital_intents, adds triggers on
+-- rfps and consultations and changes a constraint of partner_requests (ACCESS
+-- EXCLUSIVE until the run rolls back). Every read of those tables waits
+-- meanwhile: run it at a quiet hour; it gives up after 5 s waiting for a lock.
 
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -240,6 +256,20 @@ create temp table _dr_report (n serial, line text) on commit drop;
 
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snapshot();
 select set_config('smc_dryrun.before', 'yes', true);
+
+-- The rights table as production has it (when the shadow migration is already
+-- there), for T05.
+do $otc$
+declare
+  v text;
+begin
+  if to_regclass('public.org_type_capability') is not null then
+    execute 'select coalesce(string_agg(c.org_type || '':'' || c.capability, '','' order by c.org_type collate "C", c.capability collate "C"), '''') from public.org_type_capability c'
+      into v;
+  end if;
+  perform set_config('smc_dryrun.otc_before', coalesce(v, '<none>'), true);
+end
+$otc$;
 
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -671,19 +701,27 @@ create temp table _dr_mid on commit drop as select * from pg_temp.dr_snapshot();
 -- ════════════════════════════════════════════════════════════════════════════
 -- What changes (each policy is rewritten explicitly; nothing is blanket-wrapped)
 -- ════════════════════════════════════════════════════════════════════════════
---  rfps, consultations (the same four policies each)
---    *_select_marketplace     staff, the author, or has_capability('see_opportunities')
---                             (was: has_marketplace_access(), i.e. persona marina,
---                             partner, media_partner, or Individual + partner_like)
+--  rfps, consultations (the same four policies each, and one trigger each)
+--    *_select_marketplace     staff, the author, or an APPROVED need for anyone with
+--                             has_capability('see_opportunities') (was: any status for
+--                             has_marketplace_access(), i.e. persona marina, partner,
+--                             media_partner, or Individual + partner_like; submitted,
+--                             rejected and archived needs, with their admin_notes and
+--                             rejection_reason, no longer reach other readers)
 --    *_select_developer       dropped (developers see through their company type)
 --    *_write_owner, *_write_owner_developer (FOR ALL, persona marina / developer)
---                             replaced by three policies:
+--                             replaced by three policies and a trigger:
 --      *_insert_publisher     the author is the caller, organization_id is set, and
 --                             has_capability('publish_needs', organization_id): the
 --                             PUBLISHING company must be a validated marina or
 --                             developer of theirs (not the persona, not "any company")
---      *_update_owner         the author, while they can publish; the row stays
---                             attached to a company that lets them publish
+--      *_update_owner         the author, while verified; the trigger
+--      trg_*_publish_right    (guard_need_publish_right) then lets them CLOSE their
+--                             need whatever their rights (the author can always
+--                             withdraw), and asks for anything else (editing,
+--                             reopening, moving it to another company)
+--                             has_capability('publish_needs', organization_id) of the
+--                             company the need is filed under after the change
 --      *_delete_owner         the author, while verified (they can always withdraw)
 --  marina_projects
 --    marina_projects_insert   the author is the caller, organization_id is set, and
@@ -693,13 +731,24 @@ create temp table _dr_mid on commit drop as select * from pg_temp.dr_snapshot();
 --  partner_requests
 --    partner_requests_insert_verified (any verified person) becomes
 --    partner_requests_insert_capable, by origin:
---      'message'  (Send a message, company page)  has_capability('message_companies',
---                 partner_organization_id): the sending company must give that right
---      'interest' (Express interest, Opportunities) has_capability('answer_needs')
+--      'message'  (Send a message, company page)  partner_organization_id is set and
+--                 has_capability('message_companies', partner_organization_id): the
+--                 sending company must give that right
+--      'interest' (Express interest, Opportunities) in the caller's own name, from
+--                 a company that answers needs: has_capability('answer_needs',
+--                 partner_organization_id); never to themselves or to their own
+--                 company (a developer both publishes and answers). A marina never
+--                 answers a need, even when its member also belongs to a service
+--                 provider: the answer goes out under the company that may answer.
 --      null       (old site: connection requests, Express interest, Deal flow)
 --                 has_capability('message_companies')
 --    The check constraint now accepts origin 'interest' (the new site sends it for
 --    Express interest once the switch is on). Its triggers treat it like null.
+--    "Marinas read needs, read-only" is enforced for Express interest only: a
+--    marina may still WRITE to the company that published a need (Send a message,
+--    origin 'message', or the old site's null origin), like any company, since the
+--    table gives marinas message_companies. The site hides Express interest from
+--    marinas; nothing hides Send a message, on purpose.
 --  webinar_requests
 --    webinar_requests_insert_owner_eligible: has_capability('propose_webinar')
 --    (every verified person has it through the participant set: same people as today)
@@ -727,10 +776,21 @@ create temp table _dr_mid on commit drop as select * from pg_temp.dr_snapshot();
 --
 -- UNDO: supabase/migrations/down/capabilities_enforce.down.sql (restores every
 -- policy byte for byte, the check constraint, and the flag; 'interest' rows go
--- back to origin null).
+-- back to origin null; drops the trigger guard). It refuses to run if the policies
+-- or the guard this file creates were changed after it: section 10 records their
+-- fingerprint in the comment of partner_requests_insert_capable.
 -- Dry run: supabase/dryrun/capabilities_enforce.dryrun.sql (applies the shadow
 -- migration AND this file in one transaction, tests every row of the table, then
 -- the down script).
+--
+-- Locks: ACCESS EXCLUSIVE on rfps, consultations, marina_projects,
+-- partner_requests, webinar_requests and org_capital_intents until it commits.
+-- It gives up after 5 s waiting for any one lock (lock_timeout), so it never
+-- holds the tables it already took while queuing behind a long transaction:
+-- if it gives up, nothing is applied; run it again at a quieter moment.
+
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
 
 -- ─── 0. Preconditions ────────────────────────────────────────────────────────
 do $pre$
@@ -773,6 +833,18 @@ begin
      is distinct from 'CHECK (((origin IS NULL) OR (origin = ''message''::text)))' then
     raise exception 'capabilities switch: partner_requests_origin_check changed; re-read it';
   end if;
+
+  -- d. Every RFP and consultation is filed under a company (both sites send the
+  --    active company; no row without one on 10 Oct 2026). Under the switch the
+  --    author of a need without a company can still close or delete it, never edit
+  --    or reopen it: attach such needs to their author's marina or developer
+  --    company first (an UPDATE of organization_id, as postgres).
+  if exists (select 1 from public.rfps where organization_id is null)
+     or exists (select 1 from public.consultations where organization_id is null) then
+    raise exception 'capabilities switch: % RFP(s) and % consultation(s) have no organization_id; attach them to their author''s company first',
+      (select count(*) from public.rfps where organization_id is null),
+      (select count(*) from public.consultations where organization_id is null);
+  end if;
 end
 $pre$;
 
@@ -782,7 +854,61 @@ alter table public.partner_requests
   add constraint partner_requests_origin_check
   check (origin is null or origin in ('message', 'interest'));
 
--- ─── 2. rfps ─────────────────────────────────────────────────────────────────
+-- ─── 2. The publisher's guard on updates (rfps, consultations) ───────────────
+-- The author may always CLOSE their need (is_open true -> false, nothing else),
+-- whatever their rights today: a need must never stay open because its author's
+-- company was suspended or retyped, or because they left it. Anything else
+-- (editing, reopening, moving the need to another company) needs publish_needs
+-- through the company the need is filed under after the change.
+-- SECURITY INVOKER on purpose (as guard_need_moderation_columns): current_user is
+-- the role doing the write; postgres (RPCs, migrations, cron) and service_role
+-- (edge functions) pass untouched, and so do verified staff. Fires after
+-- trg_*_guard_moderation (triggers run in name order), which has already put back
+-- the status and moderation columns a member may not change.
+create or replace function public.guard_need_publish_right()
+returns trigger
+language plpgsql
+set search_path = ''
+as $function$
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if public.is_moderator() then
+    return new;
+  end if;
+
+  -- Closing (or leaving closed), and nothing else changes.
+  if new.is_open is not true
+     and (to_jsonb(new) - 'is_open' - 'updated_at') = (to_jsonb(old) - 'is_open' - 'updated_at') then
+    return new;
+  end if;
+
+  if new.organization_id is null
+     or not public.has_capability('publish_needs', new.organization_id) then
+    raise exception 'Only a member of a validated marina or developer company can change this need. You can still close or delete it.'
+      using errcode = '42501', hint = 'publish_needs';
+  end if;
+  return new;
+end
+$function$;
+
+comment on function public.guard_need_publish_right() is
+  'BEFORE UPDATE on rfps and consultations (capabilities switch): the author may close their need whatever their rights; any other change needs has_capability(''publish_needs'', organization_id). Staff, postgres and service_role pass. 2026-10-10.';
+-- Privileges left at the default, as for the other trigger functions of these
+-- tables (a trigger function cannot be called on its own).
+
+drop trigger if exists trg_rfps_publish_right on public.rfps;
+create trigger trg_rfps_publish_right
+  before update on public.rfps
+  for each row execute function public.guard_need_publish_right();
+
+drop trigger if exists trg_consultations_publish_right on public.consultations;
+create trigger trg_consultations_publish_right
+  before update on public.consultations
+  for each row execute function public.guard_need_publish_right();
+
+-- ─── 3. rfps ─────────────────────────────────────────────────────────────────
 drop policy if exists rfps_select_developer on public.rfps;
 drop policy if exists rfps_write_owner on public.rfps;
 drop policy if exists rfps_write_owner_developer on public.rfps;
@@ -794,7 +920,7 @@ create policy rfps_select_marketplace on public.rfps
   using (
     public.is_moderator()
     or marina_user_id = (select auth.uid())
-    or (select public.has_capability('see_opportunities'))
+    or (status = 'approved' and (select public.has_capability('see_opportunities')))
   );
 
 create policy rfps_insert_publisher on public.rfps
@@ -806,17 +932,16 @@ create policy rfps_insert_publisher on public.rfps
     and public.has_capability('publish_needs', organization_id)
   );
 
+-- What may change is decided by trg_rfps_publish_right (section 2).
 create policy rfps_update_owner on public.rfps
   for update
   to authenticated
   using (
     marina_user_id = (select auth.uid())
-    and (select public.has_capability('publish_needs'))
+    and (select public.is_verified(null::public.persona_enum))
   )
   with check (
     marina_user_id = (select auth.uid())
-    and organization_id is not null
-    and public.has_capability('publish_needs', organization_id)
   );
 
 create policy rfps_delete_owner on public.rfps
@@ -827,7 +952,7 @@ create policy rfps_delete_owner on public.rfps
     and (select public.is_verified(null::public.persona_enum))
   );
 
--- ─── 3. consultations ────────────────────────────────────────────────────────
+-- ─── 4. consultations ────────────────────────────────────────────────────────
 drop policy if exists consultations_select_developer on public.consultations;
 drop policy if exists consultations_write_owner on public.consultations;
 drop policy if exists consultations_write_owner_developer on public.consultations;
@@ -839,7 +964,7 @@ create policy consultations_select_marketplace on public.consultations
   using (
     public.is_moderator()
     or marina_user_id = (select auth.uid())
-    or (select public.has_capability('see_opportunities'))
+    or (status = 'approved' and (select public.has_capability('see_opportunities')))
   );
 
 create policy consultations_insert_publisher on public.consultations
@@ -851,17 +976,16 @@ create policy consultations_insert_publisher on public.consultations
     and public.has_capability('publish_needs', organization_id)
   );
 
+-- What may change is decided by trg_consultations_publish_right (section 2).
 create policy consultations_update_owner on public.consultations
   for update
   to authenticated
   using (
     marina_user_id = (select auth.uid())
-    and (select public.has_capability('publish_needs'))
+    and (select public.is_verified(null::public.persona_enum))
   )
   with check (
     marina_user_id = (select auth.uid())
-    and organization_id is not null
-    and public.has_capability('publish_needs', organization_id)
   );
 
 create policy consultations_delete_owner on public.consultations
@@ -872,7 +996,7 @@ create policy consultations_delete_owner on public.consultations
     and (select public.is_verified(null::public.persona_enum))
   );
 
--- ─── 4. marina_projects ──────────────────────────────────────────────────────
+-- ─── 5. marina_projects ──────────────────────────────────────────────────────
 drop policy if exists marina_projects_insert on public.marina_projects;
 
 create policy marina_projects_insert on public.marina_projects
@@ -884,24 +1008,30 @@ create policy marina_projects_insert on public.marina_projects
     and public.has_capability('publish_needs', organization_id)
   );
 
--- ─── 5. partner_requests ─────────────────────────────────────────────────────
+-- ─── 6. partner_requests ─────────────────────────────────────────────────────
 drop policy if exists partner_requests_insert_verified on public.partner_requests;
 
--- Runs after the BEFORE INSERT triggers: partner_organization_id is already the
--- sender's own company (partner_request_user_org), never one they are not in.
+-- Runs after the BEFORE INSERT triggers: partner_organization_id and
+-- marina_organization_id are already companies of the sender and of the recipient
+-- (partner_request_user_org), never ones they are not in.
 create policy partner_requests_insert_capable on public.partner_requests
   for insert
   to authenticated
   with check (
     (partner_user_id = (select auth.uid()) or marina_user_id = (select auth.uid()))
     and case origin
-          when 'message'  then public.has_capability('message_companies', partner_organization_id)
-          when 'interest' then (select public.has_capability('answer_needs'))
+          when 'message'  then partner_organization_id is not null
+                               and public.has_capability('message_companies', partner_organization_id)
+          when 'interest' then partner_organization_id is not null
+                               and partner_user_id = (select auth.uid())
+                               and marina_user_id is distinct from partner_user_id
+                               and marina_organization_id is distinct from partner_organization_id
+                               and public.has_capability('answer_needs', partner_organization_id)
           else (select public.has_capability('message_companies'))
         end
   );
 
--- ─── 6. webinar_requests ─────────────────────────────────────────────────────
+-- ─── 7. webinar_requests ─────────────────────────────────────────────────────
 drop policy if exists webinar_requests_insert_owner_eligible on public.webinar_requests;
 
 create policy webinar_requests_insert_owner_eligible on public.webinar_requests
@@ -912,7 +1042,7 @@ create policy webinar_requests_insert_owner_eligible on public.webinar_requests
     or public.is_moderator()
   );
 
--- ─── 7. org_capital_intents (Deal flow) ──────────────────────────────────────
+-- ─── 8. org_capital_intents (Deal flow) ──────────────────────────────────────
 drop policy if exists oci_select_verified_investors on public.org_capital_intents;
 
 create policy oci_select_dealflow on public.org_capital_intents
@@ -920,24 +1050,48 @@ create policy oci_select_dealflow on public.org_capital_intents
   to public
   using ((select public.has_capability('see_dealflow')));
 
--- ─── 8. The site follows ─────────────────────────────────────────────────────
+-- ─── 9. The site follows ─────────────────────────────────────────────────────
 update public.platform_settings
    set value = jsonb_set(value, '{capabilities_enforced}', 'true'::jsonb, true),
        updated_at = now()
  where key = 'registration_flags';
 
--- ─── 9. Postcondition ────────────────────────────────────────────────────────
+-- ─── 10. Postcondition, and the fingerprint the down script checks ───────────
 do $post$
+declare
+  v_fp text;
 begin
   if (select count(*) from pg_policies
        where schemaname = 'public'
-         and (coalesce(qual, '') like '%has_capability%' or coalesce(with_check, '') like '%has_capability%')) <> 10 then
-    raise exception 'capabilities switch: expected 10 policies calling has_capability';
+         and (coalesce(qual, '') like '%has_capability%' or coalesce(with_check, '') like '%has_capability%')) <> 8 then
+    raise exception 'capabilities switch: expected 8 policies calling has_capability';
   end if;
   if (select value -> 'capabilities_enforced' from public.platform_settings where key = 'registration_flags')
      is distinct from 'true'::jsonb then
     raise exception 'capabilities switch: the flag did not turn on';
   end if;
+
+  -- The twelve policies this file leaves and the guard's body, as applied. The
+  -- down script recomputes the same value and refuses to undo a later edit
+  -- silently. (Same expression in down/capabilities_enforce.down.sql.)
+  select md5(string_agg(format('%s.%s|%s|%s|%s|%s|%s', tablename, policyname, permissive, cmd, roles,
+                               coalesce(qual, ''), coalesce(with_check, '')), ';' order by tablename, policyname)
+             || coalesce((select md5(p.prosrc) from pg_proc p
+                           where p.oid = to_regprocedure('public.guard_need_publish_right()')), '-'))
+    into v_fp
+    from pg_policies
+   where schemaname = 'public'
+     and (tablename, policyname) in (
+       ('rfps', 'rfps_select_marketplace'), ('rfps', 'rfps_insert_publisher'),
+       ('rfps', 'rfps_update_owner'), ('rfps', 'rfps_delete_owner'),
+       ('consultations', 'consultations_select_marketplace'), ('consultations', 'consultations_insert_publisher'),
+       ('consultations', 'consultations_update_owner'), ('consultations', 'consultations_delete_owner'),
+       ('marina_projects', 'marina_projects_insert'),
+       ('partner_requests', 'partner_requests_insert_capable'),
+       ('webinar_requests', 'webinar_requests_insert_owner_eligible'),
+       ('org_capital_intents', 'oci_select_dealflow'));
+  execute format('comment on policy partner_requests_insert_capable on public.partner_requests is %L',
+                 'Rights per company type (held/capabilities_enforce.sql). Switch fingerprint ' || v_fp);
 end
 $post$;
 
@@ -945,8 +1099,12 @@ $post$;
 -- D. Checks of the switch: every row of the table, against the real policies
 -- ════════════════════════════════════════════════════════════════════════════
 
--- 'ok' -> Y, a refusal (42501: RLS or the messaging trigger's "company not
--- validated") -> N, anything else -> E (unexpected).
+-- The switch sets its own statement_timeout (60 s) for the rest of the
+-- transaction: the checks get the dry run's back.
+set local statement_timeout = '180s';
+
+-- 'ok' -> Y, a refusal (42501: RLS, the messaging trigger's "company not
+-- validated", or the publisher's guard) -> N, anything else -> E (unexpected).
 create function pg_temp.dr_class(p_res text)
 returns text
 language sql
@@ -954,20 +1112,60 @@ as $cls$
   select case when p_res = 'ok' then 'Y' when p_res like '42501%' then 'N' else 'E' end
 $cls$;
 
--- The twelve things a person may or may not do, tried one by one (each rolled
+-- Runs one counting statement (an UPDATE or DELETE ... RETURNING, counted) as a
+-- person, in its own sub-transaction, always rolled back: the count as text, or
+-- the SQLSTATE and message of the refusal.
+create function pg_temp.dr_rows(p_user uuid, p_sql text)
+returns text
+language plpgsql
+as $rows$
+declare
+  v bigint;
+begin
+  begin
+    if p_user is null then
+      perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+      set local role anon;
+    else
+      perform set_config('request.jwt.claims', json_build_object('sub', p_user, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+    end if;
+    execute p_sql into v;
+    raise exception 'dryrun: counted' using errcode = 'P0D02';
+  exception
+    when sqlstate 'P0D02' then
+      return v::text;
+    when others then
+      return sqlstate || ' ' || sqlerrm;
+  end;
+end
+$rows$;
+
+-- One row changed -> Y; none (not theirs to change) or refused (42501) -> N; else E.
+create function pg_temp.dr_class_rows(p_res text)
+returns text
+language sql
+as $clr$
+  select case when p_res = '1' then 'Y' when p_res = '0' or p_res like '42501%' then 'N' else 'E' end
+$clr$;
+
+-- The sixteen things a person may or may not do, tried one by one (each rolled
 -- back on its own, so no attempt changes the next), compared with p_exp
--- (12 characters, Y / N, '-' = not checked).
+-- (16 characters, Y / N, '-' = not checked).
 create function pg_temp.dr_matrix(p_label text, p_user uuid, p_q uuid, p_ot uuid, p_om uuid,
-                                  p_rfp uuid, p_consult uuid, p_own uuid, p_exp text)
+                                  p_rfp uuid, p_consult uuid, p_rfp_sub uuid, p_own uuid, p_own_closed uuid,
+                                  p_exp text)
 returns text
 language plpgsql
 as $mx$
 declare
   names constant text[] := array[
-    'sees an RFP', 'sees a consultation', 'publishes an RFP', 'publishes a consultation',
-    'submits a project', 'expresses interest (origin interest)', 'sends a first message (origin message)',
-    'sends an old-site request (origin null)', 'proposes a webinar', 'reads the deal flow',
-    'edits their own RFP', 'deletes their own RFP'];
+    'sees an approved RFP', 'sees an approved consultation', 'sees another company''s RFP not approved yet',
+    'publishes an RFP', 'publishes a consultation', 'submits a project',
+    'expresses interest (origin interest)', 'expresses interest in their own RFP',
+    'sends a first message (origin message)', 'sends an old-site request (origin null)',
+    'proposes a webinar', 'reads the deal flow',
+    'edits their own RFP', 'closes their own RFP', 'reopens their own closed RFP', 'deletes their own RFP'];
   got text[] := array[]::text[];
   raw text[] := array[]::text[];
   res text;
@@ -976,12 +1174,14 @@ declare
   want text;
   bad text := '';
 begin
-  -- 1-2 what they see
+  -- 1-3 what they see (Q's approved RFP and consultation; Q's RFP still submitted)
   n := pg_temp.dr_count(p_user, format('select count(*) from public.rfps where id = %L', p_rfp));
   got := got || case when n = 1 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
   n := pg_temp.dr_count(p_user, format('select count(*) from public.consultations where id = %L', p_consult));
   got := got || case when n = 1 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
-  -- 3-5 what they publish (through p_ot, their company in the scenario)
+  n := pg_temp.dr_count(p_user, format('select count(*) from public.rfps where id = %L', p_rfp_sub));
+  got := got || case when n = 1 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
+  -- 4-6 what they publish (through p_ot, their company in the scenario)
   res := pg_temp.dr_try(p_user, format(
     'insert into public.rfps (marina_user_id, title, scope, organization_id) values (%L, %L, %L, %L)',
     p_user, 'DRYRUN capabilities', 'DRYRUN', p_ot));
@@ -994,11 +1194,16 @@ begin
     'insert into public.marina_projects (user_id, description, organization_id) values (%L, %L, %L)',
     p_user, 'DRYRUN capabilities', p_ot));
   got := got || pg_temp.dr_class(res); raw := raw || res;
-  -- 6-8 what they send to the publishing company
+  -- 7-8 Express interest: in Q's need (to Q's marina), and in their own need
   res := pg_temp.dr_try(p_user, format(
     'insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)',
     p_user, p_q, p_ot, p_om, 'DRYRUN capabilities', 'pending', 'interest'));
   got := got || pg_temp.dr_class(res); raw := raw || res;
+  res := pg_temp.dr_try(p_user, format(
+    'insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)',
+    p_user, p_user, p_ot, p_ot, 'DRYRUN capabilities', 'pending', 'interest'));
+  got := got || pg_temp.dr_class(res); raw := raw || res;
+  -- 9-10 what they send to the publishing company
   res := pg_temp.dr_try(p_user, format(
     'insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)',
     p_user, p_q, p_ot, p_om, 'DRYRUN capabilities', 'pending', 'message'));
@@ -1007,23 +1212,29 @@ begin
     'insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status) values (%L, %L, %L, %L, %L, %L)',
     p_user, p_q, p_ot, p_om, 'DRYRUN capabilities', 'pending'));
   got := got || pg_temp.dr_class(res); raw := raw || res;
-  -- 9 webinar
+  -- 11 webinar
   res := pg_temp.dr_try(p_user, format(
     'insert into public.webinar_requests (user_id, title, description) values (%L, %L, %L)',
     p_user, 'DRYRUN capabilities', 'DRYRUN'));
   got := got || pg_temp.dr_class(res); raw := raw || res;
-  -- 10 deal flow (their scenario company has no capital intent: any row seen comes from the right)
+  -- 12 deal flow (their scenario company has no capital intent: any row seen comes from the right)
   n := pg_temp.dr_count(p_user, 'select count(*) from public.org_capital_intents');
   got := got || case when n > 0 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
-  -- 11-12 their own RFP (filed as postgres under p_ot)
-  n := pg_temp.dr_count(p_user, format(
+  -- 13-16 their own RFPs (filed as postgres under p_ot; one open, one closed)
+  res := pg_temp.dr_rows(p_user, format(
     'with u as (update public.rfps set title = %L where id = %L returning 1) select count(*) from u', 'DRYRUN edited', p_own));
-  got := got || case when n = 1 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
-  n := pg_temp.dr_count(p_user, format(
+  got := got || pg_temp.dr_class_rows(res); raw := raw || res;
+  res := pg_temp.dr_rows(p_user, format(
+    'with u as (update public.rfps set is_open = false where id = %L returning 1) select count(*) from u', p_own));
+  got := got || pg_temp.dr_class_rows(res); raw := raw || res;
+  res := pg_temp.dr_rows(p_user, format(
+    'with u as (update public.rfps set is_open = true where id = %L returning 1) select count(*) from u', p_own_closed));
+  got := got || pg_temp.dr_class_rows(res); raw := raw || res;
+  res := pg_temp.dr_rows(p_user, format(
     'with d as (delete from public.rfps where id = %L returning 1) select count(*) from d', p_own));
-  got := got || case when n = 1 then 'Y' when n = 0 then 'N' else 'E' end; raw := raw || n::text;
+  got := got || pg_temp.dr_class_rows(res); raw := raw || res;
 
-  for i in 1 .. 12 loop
+  for i in 1 .. 16 loop
     want := substr(p_exp, i, 1);
     if want <> '-' and got[i] is distinct from want then
       bad := bad || case when bad = '' then '' else '; ' end
@@ -1036,7 +1247,9 @@ end
 $mx$;
 
 -- One row of the table: P belongs to one company of p_type (or none) with
--- p_org_status, Q to a validated marina that published an RFP and a consultation.
+-- p_org_status, Q to a validated marina that published an approved RFP, an
+-- approved consultation and an RFP not approved yet. P has an open and a closed
+-- RFP of their own, filed under their scenario company (none: no company).
 -- Called inside a block that is always rolled back.
 create function pg_temp.dr_scenario(p_label text, p_user uuid, p_q uuid, p_type text, p_org_status text,
                                     p_person_status text, p_exp text)
@@ -1048,16 +1261,20 @@ declare
   v_ot uuid;
   v_rfp uuid;
   v_consult uuid;
+  v_rfp_sub uuid;
   v_own uuid;
+  v_own_closed uuid;
 begin
   perform pg_temp.dr_solo(p_user);
   perform pg_temp.dr_solo(p_q);
   v_om := pg_temp.dr_org('marina', 'verified');
   perform pg_temp.dr_join(v_om, p_q);
-  insert into public.rfps (marina_user_id, title, scope, organization_id)
-  values (p_q, 'DRYRUN capabilities', 'DRYRUN', v_om) returning id into v_rfp;
-  insert into public.consultations (marina_user_id, title, description, organization_id)
-  values (p_q, 'DRYRUN capabilities', 'DRYRUN', v_om) returning id into v_consult;
+  insert into public.rfps (marina_user_id, title, scope, organization_id, status)
+  values (p_q, 'DRYRUN capabilities', 'DRYRUN', v_om, 'approved') returning id into v_rfp;
+  insert into public.consultations (marina_user_id, title, description, organization_id, status)
+  values (p_q, 'DRYRUN capabilities', 'DRYRUN', v_om, 'approved') returning id into v_consult;
+  insert into public.rfps (marina_user_id, title, scope, organization_id, status)
+  values (p_q, 'DRYRUN not approved yet', 'DRYRUN', v_om, 'submitted') returning id into v_rfp_sub;
 
   if p_type is distinct from 'none' then
     v_ot := pg_temp.dr_org(nullif(p_type, 'untyped'), p_org_status);
@@ -1068,8 +1285,10 @@ begin
   end if;
   insert into public.rfps (marina_user_id, title, scope, organization_id)
   values (p_user, 'DRYRUN own', 'DRYRUN', v_ot) returning id into v_own;
+  insert into public.rfps (marina_user_id, title, scope, organization_id, is_open)
+  values (p_user, 'DRYRUN own closed', 'DRYRUN', v_ot, false) returning id into v_own_closed;
 
-  return pg_temp.dr_matrix(p_label, p_user, p_q, v_ot, v_om, v_rfp, v_consult, v_own, p_exp);
+  return pg_temp.dr_matrix(p_label, p_user, p_q, v_ot, v_om, v_rfp, v_consult, v_rfp_sub, v_own, v_own_closed, p_exp);
 end
 $scn$;
 
@@ -1089,8 +1308,10 @@ declare
   v_om uuid;
   v_ot uuid;
   v_ot2 uuid;
+  v_own uuid;
   v_res text[];
   v_id uuid;
+  sc record;
 begin
   select p.user_id into v_p from public.profiles p
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
@@ -1108,7 +1329,8 @@ begin
   -- T00 one transaction
   r := pg_temp.dr_line(current_setting('smc_dryrun.before', true) = 'yes', 'T00 before-snapshot present (one transaction)');
 
-  -- T01 exactly the expected policies were dropped, added and rewritten; nothing else moved
+  -- T01 exactly the expected policies were dropped, added and rewritten; the guard
+  --     and its two triggers are the only other new objects; nothing else moved
   select string_agg(x.k, ',' order by x.k collate "C") into v_t from (
     select m.k from _dr_mid m where m.k like 'policy %'
     except
@@ -1128,6 +1350,19 @@ begin
    where x.k in (select m.k from _dr_mid m);
   r := r || nl || pg_temp.dr_line(v_t = 'constraint partner_requests.partner_requests_origin_check,policy consultations.consultations_select_marketplace,policy marina_projects.marina_projects_insert,policy rfps.rfps_select_marketplace,policy webinar_requests.webinar_requests_insert_owner_eligible',
          'T01 rewritten in place: the two marketplace reads, the project insert, the webinar insert, the origin rule; nothing else changed', v_t);
+  select string_agg(x.k, ',' order by x.k collate "C") into v_t from (
+    select s.k from pg_temp.dr_snapshot() s where s.k not like 'policy %' and s.k <> 'flags'
+    except
+    select m.k from _dr_mid m) x;
+  select string_agg(x.k, ',' order by x.k collate "C") into v_t2 from (
+    select m.k from _dr_mid m where m.k not like 'policy %' and m.k <> 'flags'
+    except
+    select s.k from pg_temp.dr_snapshot() s) x;
+  r := r || nl || pg_temp.dr_line(
+         v_t = 'function guard_need_publish_right(),trigger consultations.trg_consultations_publish_right,trigger rfps.trg_rfps_publish_right'
+           and v_t2 is null,
+         'T01 besides policies: only the publisher''s guard and its two triggers are added, nothing is removed',
+         coalesce(v_t, '-') || ' / removed: ' || coalesce(v_t2, '-'));
 
   -- T02 what stays on the persona rule, on purpose
   select count(*) into v_n from (
@@ -1146,6 +1381,61 @@ begin
   select ps.value ->> 'capabilities_enforced' into v_t from public.platform_settings ps where ps.key = 'registration_flags';
   r := r || nl || pg_temp.dr_line(v_t = 'true', 'T03 registration_flags.capabilities_enforced is true', v_t);
 
+  -- T04 the switch recorded the fingerprint its down script checks, and it matches
+  --     what is there (same expression as both files)
+  select md5(string_agg(format('%s.%s|%s|%s|%s|%s|%s', tablename, policyname, permissive, cmd, roles,
+                               coalesce(qual, ''), coalesce(with_check, '')), ';' order by tablename, policyname)
+             || coalesce((select md5(p.prosrc) from pg_proc p
+                           where p.oid = to_regprocedure('public.guard_need_publish_right()')), '-'))
+    into v_t
+    from pg_policies
+   where schemaname = 'public'
+     and (tablename, policyname) in (
+       ('rfps', 'rfps_select_marketplace'), ('rfps', 'rfps_insert_publisher'),
+       ('rfps', 'rfps_update_owner'), ('rfps', 'rfps_delete_owner'),
+       ('consultations', 'consultations_select_marketplace'), ('consultations', 'consultations_insert_publisher'),
+       ('consultations', 'consultations_update_owner'), ('consultations', 'consultations_delete_owner'),
+       ('marina_projects', 'marina_projects_insert'),
+       ('partner_requests', 'partner_requests_insert_capable'),
+       ('webinar_requests', 'webinar_requests_insert_owner_eligible'),
+       ('org_capital_intents', 'oci_select_dealflow'));
+  select substring(d.description from 'fingerprint ([0-9a-f]{32})') into v_t2
+    from pg_policy pol
+    join pg_description d on d.objoid = pol.oid and d.classoid = 'pg_policy'::regclass
+   where pol.polrelid = 'public.partner_requests'::regclass and pol.polname = 'partner_requests_insert_capable';
+  r := r || nl || pg_temp.dr_line(v_t2 is not null and v_t = v_t2,
+         'T04 the switch fingerprint (for its down script) is recorded and matches', coalesce(v_t2, 'none') || ' / ' || coalesce(v_t, '-'));
+
+  -- T05 when the shadow migration was already in production, section B changed
+  --     nothing: otherwise this run tested the file's version, not production's
+  if current_setting('smc_dryrun.otc_before', true) = '<none>' then
+    r := r || nl || pg_temp.dr_line(true, 'T05 the shadow migration was not in production yet: section B applied it for this run');
+  else
+    select string_agg(distinct x.k, ', ') into v_t from (
+      (select b.k, b.v from _dr_before b
+        where starts_with(b.k, 'function capability_set(') or starts_with(b.k, 'function has_capability(')
+           or starts_with(b.k, 'function my_capabilities(') or starts_with(b.k, 'function capability_shadow_report(')
+           or starts_with(b.k, 'policy org_type_capability.') or starts_with(b.k, 'constraint org_type_capability.')
+           or b.k = 'table org_type_capability'
+       except
+       select m.k, m.v from _dr_mid m)
+      union all
+      (select m.k, m.v from _dr_mid m
+        where starts_with(m.k, 'function capability_set(') or starts_with(m.k, 'function has_capability(')
+           or starts_with(m.k, 'function my_capabilities(') or starts_with(m.k, 'function capability_shadow_report(')
+           or starts_with(m.k, 'policy org_type_capability.') or starts_with(m.k, 'constraint org_type_capability.')
+           or m.k = 'table org_type_capability'
+       except
+       select b.k, b.v from _dr_before b)) x;
+    select coalesce(string_agg(c.org_type || ':' || c.capability, ',' order by c.org_type collate "C", c.capability collate "C"), '')
+      into v_t2 from public.org_type_capability c;
+    v_b := v_t2 = current_setting('smc_dryrun.otc_before', true);
+    r := r || nl || pg_temp.dr_line(v_t is null and v_b,
+           'T05 the shadow migration in production is the file''s: section B changed no function, policy or table row',
+           'differs: ' || coalesce(v_t, '-') || case when v_b then '' else ' + the org_type_capability rows' end
+             || ' (rebuild this dry run from production)');
+  end if;
+
   -- The deal-flow column can only be checked when there is something to see.
   select count(*) into v_n from public.org_capital_intents;
   v_df := case when v_n > 0 then '' else '-' end;
@@ -1153,92 +1443,41 @@ begin
     r := r || nl || 'INFO org_capital_intents is empty: the deal-flow column is not checked';
   end if;
 
-  -- ── Every row of the table. Columns: see RFP, see consultation, publish RFP,
-  --    publish consultation, submit project, express interest, first message,
-  --    old-site request, webinar, deal flow, edit own RFP, delete own RFP. ──
-  begin
-    r := r || nl || pg_temp.dr_scenario('M01 marina', v_p, v_q, 'marina', 'verified', null,
-                                        'YYYYYNYYY' || coalesce(nullif(v_df, ''), 'N') || 'YY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M01 marina: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M02 service provider', v_p, v_q, 'partner', 'verified', null,
-                                        'YYNNNYYYY' || coalesce(nullif(v_df, ''), 'N') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M02 service provider: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M03 investor', v_p, v_q, 'investor', 'verified', null,
-                                        'YYNNNYYYY' || coalesce(nullif(v_df, ''), 'Y') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M03 investor: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M04 developer', v_p, v_q, 'developer', 'verified', null,
-                                        'YYYYYYYYY' || coalesce(nullif(v_df, ''), 'N') || 'YY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M04 developer: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M05 media', v_p, v_q, 'media_partner', 'verified', null,
-                                        'YYNNNYYYY' || coalesce(nullif(v_df, ''), 'N') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M05 media: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M06 participant (verified, no company)', v_p, v_q, 'none', null, null,
-                                        'NNNNNNNNY' || coalesce(nullif(v_df, ''), 'N') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M06 participant: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M07 validated company without a type', v_p, v_q, 'untyped', 'verified', null,
-                                        'NNNNNNNNY' || coalesce(nullif(v_df, ''), 'N') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M07 untyped company: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M08 suspended marina company', v_p, v_q, 'marina', 'suspended', null,
-                                        'NNNNNNNNY' || coalesce(nullif(v_df, ''), 'N') || 'NY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M08 suspended company: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M09 person pending review, in a validated marina', v_p, v_q, 'marina', 'verified', 'pending',
-                                        'NNNNNNNNN' || coalesce(nullif(v_df, ''), 'N') || 'NN');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M09 pending person: ' || sqlstate || ' ' || sqlerrm;
-  end;
-  begin
-    r := r || nl || pg_temp.dr_scenario('M10 M3 staff (admin, in a service provider)', v_a, v_q, 'partner', 'verified', null,
-                                        'YYYYYYYYY' || coalesce(nullif(v_df, ''), 'Y') || 'YY');
-    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
-  exception
-    when sqlstate 'P0D01' then null;
-    when others then r := r || nl || 'FAIL M10 staff: ' || sqlstate || ' ' || sqlerrm;
-  end;
+  -- ── Every row of the table. Columns: sees an approved RFP, an approved
+  --    consultation, another company's RFP not approved yet; publishes an RFP, a
+  --    consultation, a project; expresses interest, in their own RFP; first
+  --    message, old-site request; webinar; deal flow; edits, closes, reopens,
+  --    deletes their own RFP. ──
+  for sc in
+    select * from (values
+      (1,  'M01 marina',                                         'marina',        'verified',  null::text, false, 'YYNYYYNNYYY', 'N', 'YYYY'),
+      (2,  'M02 service provider',                               'partner',       'verified',  null,       false, 'YYNNNNYNYYY', 'N', 'NYNY'),
+      (3,  'M03 investor',                                       'investor',      'verified',  null,       false, 'YYNNNNYNYYY', 'Y', 'NYNY'),
+      (4,  'M04 developer',                                      'developer',     'verified',  null,       false, 'YYNYYYYNYYY', 'N', 'YYYY'),
+      (5,  'M05 media',                                          'media_partner', 'verified',  null,       false, 'YYNNNNYNYYY', 'N', 'NYNY'),
+      (6,  'M06 participant (verified, no company)',             'none',          null,        null,       false, 'NNNNNNNNNNY', 'N', 'NYNY'),
+      (7,  'M07 validated company without a type',               'untyped',       'verified',  null,       false, 'NNNNNNNNNNY', 'N', 'NYNY'),
+      (8,  'M08 suspended marina company',                       'marina',        'suspended', null,       false, 'NNNNNNNNNNY', 'N', 'NYNY'),
+      (9,  'M09 person pending review, in a validated marina',   'marina',        'verified',  'pending',  false, 'NNNNNNNNNNN', 'N', 'NNNN'),
+      (10, 'M10 M3 staff (admin, in a service provider)',        'partner',       'verified',  null,       true,  'YYYYYYYNYYY', 'Y', 'YYYY')
+    ) v(ord, label, typ, org_status, person_status, staff, pre, df, post)
+    order by ord
+  loop
+    begin
+      r := r || nl || pg_temp.dr_scenario(sc.label, case when sc.staff then v_a else v_p end, v_q,
+                                          sc.typ, sc.org_status, sc.person_status,
+                                          sc.pre || coalesce(nullif(v_df, ''), sc.df) || sc.post);
+      raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then r := r || nl || 'FAIL ' || sc.label || ': ' || sqlstate || ' ' || sqlerrm;
+    end;
+  end loop;
 
   -- M11 two companies (a marina and a service provider): publishing goes through the
-  --     company that may publish; a need cannot be filed under someone else's company
+  --     company that may publish, answering through the one that may answer; a need
+  --     is never filed under, or moved to, a company that may not publish or that
+  --     they are not in
   begin
     perform pg_temp.dr_solo(v_p);
     perform pg_temp.dr_solo(v_q);
@@ -1248,15 +1487,23 @@ begin
     v_ot2 := pg_temp.dr_org('partner', 'verified');
     perform pg_temp.dr_join(v_ot, v_p);
     perform pg_temp.dr_join(v_ot2, v_p);
+    insert into public.rfps (marina_user_id, title, scope, organization_id)
+    values (v_p, 'DRYRUN own', 'DRYRUN', v_ot) returning id into v_own;
     v_res := array[
       pg_temp.dr_try(v_p, format('insert into public.rfps (marina_user_id, title, scope, organization_id) values (%L, %L, %L, %L)', v_p, 'DRYRUN', 'DRYRUN', v_ot)),
       pg_temp.dr_try(v_p, format('insert into public.rfps (marina_user_id, title, scope, organization_id) values (%L, %L, %L, %L)', v_p, 'DRYRUN', 'DRYRUN', v_ot2)),
       pg_temp.dr_try(v_p, format('insert into public.rfps (marina_user_id, title, scope, organization_id) values (%L, %L, %L, %L)', v_p, 'DRYRUN', 'DRYRUN', v_om)),
       pg_temp.dr_try(v_p, format('insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)', v_p, v_q, v_ot, v_om, 'DRYRUN', 'pending', 'interest')),
-      pg_temp.dr_try(v_p, format('insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)', v_p, v_q, v_ot2, v_om, 'DRYRUN', 'pending', 'message'))];
+      pg_temp.dr_try(v_p, format('insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)', v_p, v_q, v_ot2, v_om, 'DRYRUN', 'pending', 'interest')),
+      pg_temp.dr_try(v_p, format('insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)', v_p, v_q, v_ot2, v_om, 'DRYRUN', 'pending', 'message')),
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set organization_id = %L where id = %L returning 1) select count(*) from u', v_om, v_own)),
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set organization_id = %L where id = %L returning 1) select count(*) from u', v_ot2, v_own)),
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set title = %L where id = %L returning 1) select count(*) from u', 'DRYRUN edited', v_own))];
     r := r || nl || pg_temp.dr_line(
-           v_res[1] = 'ok' and v_res[2] like '42501%' and v_res[3] like '42501%' and v_res[4] = 'ok' and v_res[5] = 'ok',
-           'M11 marina + service provider: publishes through the marina only, never under a company they are not in; answers and writes',
+           v_res[1] = 'ok' and v_res[2] like '42501%' and v_res[3] like '42501%'
+             and v_res[4] like '42501%' and v_res[5] = 'ok' and v_res[6] = 'ok'
+             and v_res[7] like '42501%' and v_res[8] like '42501%' and v_res[9] = '1',
+           'M11 marina + service provider: publishes through the marina only; answers through the service provider only (never as the marina); writes; cannot move their need to a company that may not publish or that is not theirs',
            array_to_string(v_res, ' | '));
     raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
   exception
@@ -1273,6 +1520,48 @@ begin
            'M12 anonymous: no RFP, no capital intent (and no error), no webinar proposal', v_n || ' / ' || v_n2 || ' / ' || v_t);
   exception
     when others then r := r || nl || 'FAIL M12 anonymous: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- M13 a marina publisher's own need filed under NO company (as before the switch,
+  --     when a site sent none): they close it; they edit it only by filing it under
+  --     their marina
+  begin
+    perform pg_temp.dr_solo(v_p);
+    v_ot := pg_temp.dr_org('marina', 'verified');
+    perform pg_temp.dr_join(v_ot, v_p);
+    insert into public.rfps (marina_user_id, title, scope, organization_id)
+    values (v_p, 'DRYRUN own, no company', 'DRYRUN', null) returning id into v_own;
+    v_res := array[
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set is_open = false where id = %L returning 1) select count(*) from u', v_own)),
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set title = %L where id = %L returning 1) select count(*) from u', 'DRYRUN edited', v_own)),
+      pg_temp.dr_rows(v_p, format('with u as (update public.rfps set title = %L, organization_id = %L where id = %L returning 1) select count(*) from u', 'DRYRUN edited', v_ot, v_own))];
+    r := r || nl || pg_temp.dr_line(v_res[1] = '1' and v_res[2] like '42501%' and v_res[3] = '1',
+           'M13 own need without a company: closes it; edits it only once filed under their marina',
+           array_to_string(v_res, ' | '));
+    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+  exception
+    when sqlstate 'P0D01' then null;
+    when others then r := r || nl || 'FAIL M13 own need without a company: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- M14 two colleagues of one developer company: one sees the other's need but
+  --     cannot express interest in it (their own company)
+  begin
+    perform pg_temp.dr_solo(v_p);
+    perform pg_temp.dr_solo(v_q);
+    v_ot := pg_temp.dr_org('developer', 'verified');
+    perform pg_temp.dr_join(v_ot, v_p);
+    perform pg_temp.dr_join(v_ot, v_q);
+    insert into public.rfps (marina_user_id, title, scope, organization_id, status)
+    values (v_q, 'DRYRUN colleague', 'DRYRUN', v_ot, 'approved') returning id into v_id;
+    v_n := pg_temp.dr_count(v_p, format('select count(*) from public.rfps where id = %L', v_id));
+    v_t := pg_temp.dr_try(v_p, format('insert into public.partner_requests (partner_user_id, marina_user_id, partner_organization_id, marina_organization_id, message, status, origin) values (%L, %L, %L, %L, %L, %L, %L)', v_p, v_q, v_ot, v_ot, 'DRYRUN', 'pending', 'interest'));
+    r := r || nl || pg_temp.dr_line(v_n = 1 and v_t like '42501%',
+           'M14 developer colleagues: sees the colleague''s need, cannot answer it', v_n || ' / ' || v_t);
+    raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+  exception
+    when sqlstate 'P0D01' then null;
+    when others then r := r || nl || 'FAIL M14 developer colleagues: ' || sqlstate || ' ' || sqlerrm;
   end;
 
   -- For the down script: one Express interest row (origin 'interest') between the two
@@ -1295,13 +1584,70 @@ $tests$;
 --
 -- Puts back, byte for byte, the twelve policies it replaced (as they were on
 -- 10 Oct 2026), the partner_requests origin rule, and turns the site's switch
--- registration_flags.capabilities_enforced off. Rows written while the switch was
--- on stay; Express interest rows (origin 'interest') go back to origin null, which
--- is what they would have been without the switch. The shadow objects stay (undo
--- them with down/20261010200000_capabilities_shadow.down.sql if wanted).
+-- registration_flags.capabilities_enforced off; drops the publisher's guard
+-- (guard_need_publish_right and its two triggers). Rows written while the switch
+-- was on stay; Express interest rows (origin 'interest') go back to origin null,
+-- which is what they would have been without the switch. The shadow objects stay
+-- (undo them with down/20261010200000_capabilities_shadow.down.sql if wanted).
 -- Idempotent: safe to run twice.
+--
+-- It refuses to run when the policies or the guard the switch created were changed
+-- after it (the fingerprint the switch recorded in the comment of
+-- partner_requests_insert_capable): restoring 10 Oct 2026 over a later change
+-- would lose it silently. Re-read them and update this file first.
+--
+-- Locks: as the switch (ACCESS EXCLUSIVE on the six tables until it commits); it
+-- gives up after 5 s waiting for any one lock: run it again.
+
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
+
+-- ─── 0. Precondition: what the switch created is unchanged ───────────────────
+do $pre$
+declare
+  v_fp text;
+  v_saved text;
+begin
+  -- Only when the switch is there (a second run finds nothing to check).
+  if exists (select 1 from pg_policies
+              where schemaname = 'public' and tablename = 'partner_requests'
+                and policyname = 'partner_requests_insert_capable') then
+    -- Same expression as section 10 of held/capabilities_enforce.sql.
+    select md5(string_agg(format('%s.%s|%s|%s|%s|%s|%s', tablename, policyname, permissive, cmd, roles,
+                                 coalesce(qual, ''), coalesce(with_check, '')), ';' order by tablename, policyname)
+               || coalesce((select md5(p.prosrc) from pg_proc p
+                             where p.oid = to_regprocedure('public.guard_need_publish_right()')), '-'))
+      into v_fp
+      from pg_policies
+     where schemaname = 'public'
+       and (tablename, policyname) in (
+         ('rfps', 'rfps_select_marketplace'), ('rfps', 'rfps_insert_publisher'),
+         ('rfps', 'rfps_update_owner'), ('rfps', 'rfps_delete_owner'),
+         ('consultations', 'consultations_select_marketplace'), ('consultations', 'consultations_insert_publisher'),
+         ('consultations', 'consultations_update_owner'), ('consultations', 'consultations_delete_owner'),
+         ('marina_projects', 'marina_projects_insert'),
+         ('partner_requests', 'partner_requests_insert_capable'),
+         ('webinar_requests', 'webinar_requests_insert_owner_eligible'),
+         ('org_capital_intents', 'oci_select_dealflow'));
+    select substring(d.description from 'fingerprint ([0-9a-f]{32})')
+      into v_saved
+      from pg_policy pol
+      join pg_description d on d.objoid = pol.oid and d.classoid = 'pg_policy'::regclass
+     where pol.polrelid = 'public.partner_requests'::regclass
+       and pol.polname = 'partner_requests_insert_capable';
+    if v_saved is null or v_fp is distinct from v_saved then
+      raise exception 'capabilities switch undo: the policies or the guard the switch created changed since it was applied (fingerprint % instead of %); re-read them and update this file before undoing',
+        v_fp, coalesce(v_saved, 'none recorded');
+    end if;
+  end if;
+end
+$pre$;
 
 -- ─── 1. partner_requests.origin ──────────────────────────────────────────────
+-- Writes wait from here on (reads go on), so no new 'interest' row can arrive
+-- between the UPDATE and the stricter rule.
+lock table public.partner_requests in share row exclusive mode;
+
 update public.partner_requests set origin = null where origin = 'interest';
 
 alter table public.partner_requests drop constraint if exists partner_requests_origin_check;
@@ -1357,13 +1703,18 @@ create policy consultations_write_owner_developer on public.consultations
   using (marina_user_id = (select auth.uid()) and public.is_verified('developer'::public.persona_enum))
   with check (marina_user_id = (select auth.uid()) and public.is_verified('developer'::public.persona_enum));
 
--- ─── 4. marina_projects ──────────────────────────────────────────────────────
+-- ─── 4. The publisher's guard ────────────────────────────────────────────────
+drop trigger if exists trg_rfps_publish_right on public.rfps;
+drop trigger if exists trg_consultations_publish_right on public.consultations;
+drop function if exists public.guard_need_publish_right();
+
+-- ─── 5. marina_projects ──────────────────────────────────────────────────────
 drop policy if exists marina_projects_insert on public.marina_projects;
 create policy marina_projects_insert on public.marina_projects
   as permissive for insert to authenticated
   with check (user_id = (select auth.uid()));
 
--- ─── 5. partner_requests ─────────────────────────────────────────────────────
+-- ─── 6. partner_requests ─────────────────────────────────────────────────────
 drop policy if exists partner_requests_insert_capable on public.partner_requests;
 drop policy if exists partner_requests_insert_verified on public.partner_requests;
 create policy partner_requests_insert_verified on public.partner_requests
@@ -1375,7 +1726,7 @@ create policy partner_requests_insert_verified on public.partner_requests
                    and profiles.access_status = 'verified'::public.access_status_enum)
   );
 
--- ─── 6. webinar_requests ─────────────────────────────────────────────────────
+-- ─── 7. webinar_requests ─────────────────────────────────────────────────────
 drop policy if exists webinar_requests_insert_owner_eligible on public.webinar_requests;
 create policy webinar_requests_insert_owner_eligible on public.webinar_requests
   as permissive for insert to public
@@ -1386,7 +1737,7 @@ create policy webinar_requests_insert_owner_eligible on public.webinar_requests
     or public.is_moderator()
   );
 
--- ─── 7. org_capital_intents ──────────────────────────────────────────────────
+-- ─── 8. org_capital_intents ──────────────────────────────────────────────────
 drop policy if exists oci_select_dealflow on public.org_capital_intents;
 drop policy if exists oci_select_verified_investors on public.org_capital_intents;
 create policy oci_select_verified_investors on public.org_capital_intents
@@ -1396,7 +1747,7 @@ create policy oci_select_verified_investors on public.org_capital_intents
                     and profiles.persona = 'investor'::public.persona_enum
                     and profiles.access_status = 'verified'::public.access_status_enum));
 
--- ─── 8. The site's switch, off ───────────────────────────────────────────────
+-- ─── 9. The site's switch, off ───────────────────────────────────────────────
 update public.platform_settings
    set value = jsonb_set(value, '{capabilities_enforced}', 'false'::jsonb, true),
        updated_at = now()
@@ -1421,7 +1772,8 @@ begin
   r := coalesce(r, 'FAIL the checks block left no report');
 
   -- E1 every policy, function, trigger, constraint and table as right after the
-  --    shadow migration (the twelve policies byte for byte, the origin rule)
+  --    shadow migration (the twelve policies byte for byte, the origin rule; the
+  --    publisher's guard and its triggers gone)
   select count(*), string_agg(x.k, ', ' order by x.k) into v_n, v_t from (
     select m.k, m.v from _dr_mid m where m.k <> 'flags'
     except
@@ -1431,7 +1783,7 @@ begin
     except
     select m.k, m.v from _dr_mid m where m.k <> 'flags') x;
   r := r || nl || pg_temp.dr_line(v_n = 0 and v_n2 = 0,
-         'E1 down script: the twelve policies and the origin rule are back exactly; nothing else differs',
+         'E1 down script: the twelve policies and the origin rule are back exactly, the guard and its triggers are gone; nothing else differs',
          v_n || ' missing or changed (' || coalesce(v_t, '-') || '), ' || v_n2 || ' extra');
 
   -- E2 the site's switch is off again

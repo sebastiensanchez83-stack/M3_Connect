@@ -110,15 +110,21 @@ export function parseCapabilities(raw: unknown): CapabilitySnapshot | null {
   };
 }
 
-/** The signed-in person's rights, or null (signed out, offline, or before the migration). */
+/**
+ * The signed-in person's rights, or null (signed out, offline, before the
+ * migration, or no answer within six seconds: a page never waits longer).
+ */
 export async function fetchMyCapabilities(): Promise<CapabilitySnapshot | null> {
-  try {
-    const { data, error } = await supabase.rpc('my_capabilities');
-    if (error) return null;
-    return parseCapabilities(data);
-  } catch {
-    return null;
-  }
+  const read = (async () => {
+    try {
+      const { data, error } = await supabase.rpc('my_capabilities');
+      if (error) return null;
+      return parseCapabilities(data);
+    } catch {
+      return null;
+    }
+  })();
+  return withTimeout(read, 6000, null);
 }
 
 /**
@@ -139,35 +145,63 @@ export function capabilityAllows(snapshot: CapabilitySnapshot | null, cap: Capab
 /* ------------------------------------------------------------------ the switch */
 
 const FLAG_TTL_MS = 5 * 60 * 1000;
+/**
+ * How long a page waits for the switch before deciding it is off. A read that
+ * hangs (the auth lock after a tab comes back, a bad connection) must never keep
+ * a page on its loader: while the switch is off, nothing depends on it.
+ */
+const FLAG_TIMEOUT_MS = 4000;
 let flagCache: { at: number; value: boolean } | null = null;
-let flagInflight: Promise<boolean> | null = null;
+let flagInflight: Promise<boolean | null> | null = null;
+
+/** `p`, or `fallback` once `ms` have passed or when it fails. Never rejects. */
+function withTimeout<T>(p: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    Promise.resolve(p).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
 
 /**
- * registration_flags.capabilities_enforced, read once and kept five minutes.
- * Never rejects: a missing row, a failed read or anything but a literal true is off.
+ * registration_flags.capabilities_enforced: true or false, or null when it could
+ * not be read (error, or no answer within four seconds). Only a successful read
+ * is kept, five minutes (as src/lib/flags.ts of the registration work): after a
+ * failure the next caller asks again. Only a literal true is on; a missing row
+ * or any other value is off.
  */
-export function loadCapabilitiesEnforced(force = false): Promise<boolean> {
+export function readCapabilitiesEnforced(force = false): Promise<boolean | null> {
   if (!force && flagCache && Date.now() - flagCache.at < FLAG_TTL_MS) return Promise.resolve(flagCache.value);
   if (flagInflight) return flagInflight;
-  flagInflight = (async () => {
+  const read = (async (): Promise<boolean | null> => {
     try {
       const { data, error } = await supabase
         .from('platform_settings')
         .select('value')
         .eq('key', 'registration_flags')
         .maybeSingle();
-      const v = error ? null : (data as { value?: unknown } | null)?.value;
+      if (error) return null;
+      const v = (data as { value?: unknown } | null)?.value;
       const on = !!v && typeof v === 'object' && !Array.isArray(v)
         && (v as Record<string, unknown>).capabilities_enforced === true;
       flagCache = { at: Date.now(), value: on };
       return on;
     } catch {
-      return false;
-    } finally {
-      flagInflight = null;
+      return null;
     }
   })();
-  return flagInflight;
+  const inflight = withTimeout(read, FLAG_TIMEOUT_MS, null).finally(() => {
+    if (flagInflight === inflight) flagInflight = null;
+  });
+  flagInflight = inflight;
+  return inflight;
+}
+
+/** The switch, a failed read counting as off. Never rejects. */
+export async function loadCapabilitiesEnforced(force = false): Promise<boolean> {
+  return (await readCapabilitiesEnforced(force)) === true;
 }
 
 /* ------------------------------------------------------------------ outside React */

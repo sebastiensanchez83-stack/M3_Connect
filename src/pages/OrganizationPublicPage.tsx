@@ -350,7 +350,7 @@ export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
   const seoTr = useSeoTr();
-  const { user, profile, organization, organizations, isVerified, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
+  const { user, profile, organization, organizations, isVerified, can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
@@ -901,6 +901,8 @@ export function OrganizationPublicPage() {
     ? 'noCompany'
     : !companyValidated
     ? 'companyPending'
+    : capabilitiesEnforced && capabilitiesUnavailable && !isMemberOfThisOrg
+    ? 'rightsUnavailable'
     : capabilitiesEnforced && capabilitiesReady && !isMemberOfThisOrg
     ? 'companyNoRight'
     : null;
@@ -1791,7 +1793,9 @@ function ProfileSection({
 
 type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'noCompany' | 'companyPending'
   /** Rights switch on: the active company is validated but its type (or lack of one) does not send messages. */
-  | 'companyNoRight';
+  | 'companyNoRight'
+  /** Rights switch on, but the person's rights could not be read (tried again when the tab regains focus). */
+  | 'rightsUnavailable';
 
 /**
  * Beside "About" on a claimed page: how to get in touch with the company, by who is
@@ -1846,6 +1850,10 @@ function TouchCard({
     companyPending: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
       body: t('orgProfile.touch.companyPendingBody', 'Once the M3 team has validated your company, you can send {{name}} a message.', { name }),
+    },
+    rightsUnavailable: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.'),
     },
     companyNoRight: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),

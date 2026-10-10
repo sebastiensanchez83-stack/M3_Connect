@@ -26,12 +26,12 @@ import { requireFreshSession } from '@/lib/session';
  * and no longer asks for a validated company. The active company, when there is one,
  * is still attached to the proposal for the M3 team.
  *
- * Once the rights switch is on (src/lib/capabilities.ts) the same question is asked as
- * can('propose_webinar'), which every verified person has (the participant set).
+ * The rights switch (src/lib/capabilities.ts) changes nothing here: every verified
+ * person has propose_webinar (the participant set), so the page asks only that.
  */
 export function WebinarRequestPage() {
   const { t } = useTranslation();
-  const { user, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
+  const { user, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   // /request-webinar?edit=<id> (the Edit button on a submitted proposal in the account) loads that proposal and updates it.
   const [searchParams] = useSearchParams();
@@ -50,8 +50,8 @@ export function WebinarRequestPage() {
     preferred_timeframe: '',
   });
 
-  // Who may propose: every verified person (the switch only re-asks it as a capability).
-  const mayPropose = !!user && isVerified && (!capabilitiesEnforced || can('propose_webinar'));
+  // Who may propose: every person M3 verified, company or not.
+  const mayPropose = !!user && isVerified;
 
   useEffect(() => {
     if (authLoading) return;
@@ -196,7 +196,7 @@ export function WebinarRequestPage() {
   };
 
   // ── Loading states ────────────────────────────────────────────────────
-  if (authLoading || loadingExisting || (!!user && !capabilitiesReady)) {
+  if (authLoading || loadingExisting) {
     return <PageLoader />;
   }
 

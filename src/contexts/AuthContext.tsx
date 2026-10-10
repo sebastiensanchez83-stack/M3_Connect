@@ -10,7 +10,7 @@ import {
   type CapabilitySnapshot,
   capabilityAllows,
   fetchMyCapabilities,
-  loadCapabilitiesEnforced,
+  readCapabilitiesEnforced,
   setCapabilityGate,
 } from '@/lib/capabilities'
 
@@ -42,6 +42,10 @@ interface AuthContextType {
   /** The switch is known and, when it is on, so are the person's rights. */
   capabilitiesReady: boolean
   capabilities: CapabilitySnapshot | null
+  /** The switch is on but the person's rights could not be read (can() is false meanwhile). */
+  capabilitiesUnavailable: boolean
+  /** Reads the switch and the rights again (also done on its own when the tab regains focus). */
+  retryCapabilities: () => void
   // needsConfirmation: account created but no session until the e-mailed link is
   // opened ("Confirm email" ON). emailRedirectTo: where that link lands — reuse it
   // for supabase.auth.resend so a re-sent link goes to the same place.
@@ -377,10 +381,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // user/profile objects: auth-js hands over a new user object on every tab
   // refocus. Re-read when the person's status or companies change (refreshProfile
   // after M3 validates or types a company).
+  // Both reads give up after a few seconds (src/lib/capabilities.ts), so a page
+  // waiting on capabilitiesReady never stays on its loader. A failed read is tried
+  // again when the person comes back to the tab (focus), without blanking the page:
+  // capabilitiesReady stays true and the rights already known are kept meanwhile.
   const [capSnapshot, setCapSnapshot] = useState<CapabilitySnapshot | null>(null)
   const [capsEnforced, setCapsEnforced] = useState(false)
   const [capsReady, setCapsReady] = useState(false)
+  const [capsFailed, setCapsFailed] = useState(false)
+  const [capsRetry, setCapsRetry] = useState(0)
   const capsUidRef = useRef<string | null | undefined>(undefined)
+  const capsEnforcedRef = useRef(false)
   const capsUid = user?.id ?? null
   const capsPersonKey = profile ? `${profile.access_status}:${profile.persona}` : ''
   const capsCompaniesKey = organizations
@@ -395,22 +406,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       capsUidRef.current = capsUid
       setCapsReady(false)
       setCapSnapshot(null)
+      setCapsFailed(false)
     }
     ;(async () => {
-      const enforced = await loadCapabilitiesEnforced()
+      const flag = await readCapabilitiesEnforced()
+      // A failed read of the switch keeps what was known (off, at first).
+      const enforced = flag ?? capsEnforcedRef.current
       const snapshot = enforced && capsUid ? await fetchMyCapabilities() : null
       if (!alive) return
+      capsEnforcedRef.current = enforced
       setCapsEnforced(enforced)
-      setCapSnapshot(snapshot)
+      const snapshotFailed = enforced && !!capsUid && !snapshot
+      // A failed read of the rights keeps the ones already known for this person.
+      if (!snapshotFailed) setCapSnapshot(snapshot)
+      setCapsFailed(flag === null || snapshotFailed)
       setCapsReady(true)
     })()
     return () => { alive = false }
-  }, [capsUid, capsPersonKey, capsCompaniesKey])
+  }, [capsUid, capsPersonKey, capsCompaniesKey, capsRetry])
+
+  useEffect(() => {
+    if (!capsFailed) return
+    const retry = () => setCapsRetry(n => n + 1)
+    window.addEventListener('focus', retry)
+    return () => window.removeEventListener('focus', retry)
+  }, [capsFailed])
+  const retryCapabilities = useCallback(() => setCapsRetry(n => n + 1), [])
 
   const can = useCallback(
     (cap: Capability, orgId?: string | null) => isModerator || capabilityAllows(capSnapshot, cap, orgId),
     [isModerator, capSnapshot],
   )
+  // The switch is on but this person's rights could not be read: can() says no to
+  // everything, so screens say "could not load" rather than "you may not".
+  const capabilitiesUnavailable = capsReady && capsEnforced && !!capsUid && !capSnapshot && !isModerator
   const capabilityGateValue = useMemo(
     () => ({ enforced: capsEnforced, ready: capsReady, can }),
     [capsEnforced, capsReady, can],
@@ -506,7 +535,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, session, loading, profileTimedOut, profile, organization, orgRole, organizations, setActiveOrganization, hasOrganization,
       isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile,
-      can, capabilitiesEnforced: capsEnforced, capabilitiesReady: capsReady, capabilities: capSnapshot
+      can, capabilitiesEnforced: capsEnforced, capabilitiesReady: capsReady, capabilities: capSnapshot,
+      capabilitiesUnavailable, retryCapabilities
     }}>
       {children}
     </AuthContext.Provider>

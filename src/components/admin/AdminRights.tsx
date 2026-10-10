@@ -61,16 +61,22 @@ export function AdminRights() {
   const [rows, setRows] = useState<ShadowRow[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
   const [enforced, setEnforced] = useState(false);
+  // Validated companies with no type give their members no right but proposing a
+  // webinar: M3 should never validate one (null = could not be counted).
+  const [untyped, setUntyped] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setReportError(null);
-    const [table, report, flag] = await Promise.all([
+    const [table, report, flag, untypedCount] = await Promise.all([
       supabase.from('org_type_capability').select('org_type, capability'),
       supabase.rpc('capability_shadow_report'),
       loadCapabilitiesEnforced(true),
+      supabase.from('organizations').select('id', { count: 'exact', head: true })
+        .eq('access_status', 'verified').is('organization_type', null),
     ]);
     setEnforced(flag);
+    setUntyped(untypedCount.error ? null : untypedCount.count ?? 0);
     if (table.error) {
       // 42P01 / PGRST205: the shadow migration is not applied yet.
       setMissing(true);
@@ -138,7 +144,7 @@ export function AdminRights() {
         <AdminStatusPill tone="success" icon={ShieldCheck}>{t('adminRights.enforced', 'Enforced by the site and the database')}</AdminStatusPill>
       ) : (
         <AdminStatusPill tone="warning" title={t('adminRights.shadowHint', 'registration_flags.capabilities_enforced is off: the site and the database keep today\'s rules.')}>
-          {t('adminRights.shadow', 'Shadow mode: today\'s rules still apply')}
+          {t('adminRights.notSwitchedOn', 'Not switched on: today\'s rules still apply')}
         </AdminStatusPill>
       )}
       actions={(
@@ -176,6 +182,20 @@ export function AdminRights() {
           <p className="mt-1 max-w-3xl text-[14px] leading-5 text-meta">
             {t('adminRights.matrixLead', 'A person gets the rights of every validated, typed company they belong to. A suspended, pending or untyped company counts as none: the person is a participant. People not verified yet have no right. M3 staff keep everything.')}
           </p>
+          {untyped !== null && (
+            <p className={untyped > 0
+              ? 'mt-3 max-w-3xl rounded-field border border-amber-300 bg-amber-50 px-4 py-3 text-[14px] leading-5 text-amber-900'
+              : 'mt-1 text-[13px] leading-5 text-meta'}
+            >
+              {untyped > 0
+                ? t('adminRights.untypedWarning', {
+                  count: untyped,
+                  defaultValue_one: '{{count}} validated company has no type: its members get no right but proposing a webinar. Set its type before the switch.',
+                  defaultValue_other: '{{count}} validated companies have no type: their members get no right but proposing a webinar. Set their type before the switch.',
+                })
+                : t('adminRights.untypedNone', 'Validated companies without a type: none.')}
+            </p>
+          )}
         </div>
         <AdminTableCard footer={t('adminRights.matrixFooter', 'Marinas see the needs other marinas publish, read-only: they do not answer them. Sponsor tiers add no right.')}>
           <table className="w-full min-w-[720px]">

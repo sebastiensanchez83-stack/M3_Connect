@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { openSignup } from '@/lib/authModal';
+import { memberHomeHref } from '@/lib/accountNav';
 import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -372,7 +373,10 @@ function themeChoices(list: Opportunity[]): { options: Theme[]; counts: Record<s
 
 export function OpportunitiesPage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
+  const {
+    user, profile, isVerified, organization, organizations, loading: authLoading,
+    can, capabilities, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable, retryCapabilities,
+  } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const [params, setParams] = useSearchParams();
 
@@ -407,9 +411,27 @@ export function OpportunitiesPage() {
   // service providers, investors, developers and media see the needs; all of them
   // but marinas answer (marinas read other marinas' needs, read-only: Victor, 7 and
   // 9 Oct 2026); a person with no validated company sees the door.
+  // An answer goes out under a company that may answer, as the database checks it:
+  // the active company when it may, or else the person's first one that may (a
+  // member of a marina and of a service provider answers as the service provider,
+  // never as the marina).
   const enforced = capabilitiesEnforced;
   const canSee = enforced ? isVerified && can('see_opportunities') : isVerified;
-  const canAnswer = enforced ? isVerified && can('answer_needs') : isPartner;
+  const activeOrgId = organization?.id ?? null;
+  const answerOrg = useMemo((): { id: string; name: string | null } | null => {
+    if (!enforced) return activeOrgId ? { id: activeOrgId, name: null } : null;
+    if (activeOrgId && can('answer_needs', activeOrgId)) return { id: activeOrgId, name: null };
+    const other = capabilities?.companies.find((c) => c.caps.includes('answer_needs'));
+    return other ? { id: other.id, name: other.name } : null;
+  }, [enforced, activeOrgId, can, capabilities]);
+  const canAnswer = enforced ? isVerified && !!answerOrg : isPartner;
+  // Nobody answers their own need, nor one of their own company (a developer both
+  // publishes and answers; the database refuses it too).
+  const myOrgIds = useMemo(() => organizations.map((m) => m.organization.id), [organizations]);
+  const canAnswerItem = (item: Opportunity) => canAnswer
+    && item.kind !== 'projects'
+    && item.marina_user_id !== uid
+    && !(item.marina_organization_id && myOrgIds.includes(item.marina_organization_id));
 
   /* ---- existing interests (to mark "already expressed") ---- */
   useEffect(() => {
@@ -559,7 +581,7 @@ export function OpportunitiesPage() {
       const kindLabel = interestTarget.type === 'rfp' ? 'RFP' : 'consultation';
       const existing = await routeToExistingConversation({
         uid: user.id,
-        activeOrgId: organization?.id ?? null,
+        activeOrgId: answerOrg?.id ?? null,
         targetOrgId: interestTarget.marina_organization_id,
         text: `Interest in your ${kindLabel}: ${interestTarget.title}${typed ? `\n\n${typed}` : ''}`,
       });
@@ -590,7 +612,7 @@ export function OpportunitiesPage() {
       const row = {
         partner_user_id: user.id,
         marina_user_id: interestTarget.marina_user_id,
-        partner_organization_id: organization?.id || null,
+        partner_organization_id: answerOrg?.id ?? null,
         marina_organization_id: interestTarget.marina_organization_id,
         sector_id: interestTarget.sector_id,
         message: interestMessage.trim() || `Expressed interest in ${interestTarget.type === 'rfp' ? 'RFP' : 'consultation'}: ${interestTarget.title}`,
@@ -598,12 +620,9 @@ export function OpportunitiesPage() {
       };
       // Once the rights switch is on, an answer to a need is marked as such (origin
       // 'interest'): the database lets every type that answers needs send it, which is
-      // not the same people as those who send a first message. A database without
-      // the switch's origin rule (check violation, 23514) gets today's row.
-      let { error } = await supabase.from('partner_requests').insert(enforced ? { ...row, origin: 'interest' } : row);
-      if (error?.code === '23514' && enforced) {
-        ({ error } = await supabase.from('partner_requests').insert(row));
-      }
+      // not the same people as those who send a first message. The switch adds that
+      // origin and turns the flag on in one migration, so the two always go together.
+      const { error } = await supabase.from('partner_requests').insert(enforced ? { ...row, origin: 'interest' } : row);
 
       if (error) throw error;
 
@@ -719,10 +738,12 @@ export function OpportunitiesPage() {
     'An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for service providers.',
   );
   const heroAudience = heroActions.length > 0
-    ? t('opportunities.subtitleCreator', 'Publish one and verified service providers can answer you.')
+    ? enforced
+      ? t('opportunities.subtitleCreatorAll', 'Publish one and verified companies can answer you.')
+      : t('opportunities.subtitleCreator', 'Publish one and verified service providers can answer you.')
     : enforced
       ? canAnswer
-        ? t('opportunities.subtitleSupplier', 'Express interest in an RFP or a consultation and the marina receives your company profile.')
+        ? t('opportunities.subtitleAnswerer', 'Express interest in an RFP or a consultation and the company that published it receives your company profile.')
         : ''
       : isMarinaLike
         ? t('opportunities.subtitlePending', 'You can publish one as soon as your organisation is verified.')
@@ -830,7 +851,14 @@ export function OpportunitiesPage() {
         <AdBanner placement="marketplace" className="mb-6" />
 
         {!canSee ? (
-          <LockPanel signedIn={!!user} pending={profile?.access_status === 'pending'} noCompanyRight={isVerified && enforced} />
+          <LockPanel
+            signedIn={!!user}
+            pending={profile?.access_status === 'pending'}
+            noCompanyRight={isVerified && enforced && !capabilitiesUnavailable}
+            hasCompany={organizations.length > 0}
+            unavailable={isVerified && capabilitiesUnavailable}
+            onRetry={retryCapabilities}
+          />
         ) : (
           <>
             {/* ── What this kind is, how many, and the way to publish one ── */}
@@ -881,6 +909,7 @@ export function OpportunitiesPage() {
                 createAction={currentCreate}
                 publishLabel={publishLabel(kind)}
                 audience={currentCreate ? 'creator' : enforced ? (canAnswer ? 'supplier' : 'other') : isMarinaLike ? 'marinaPending' : persona === 'partner' ? 'supplier' : 'other'}
+                answersFromAllTypes={enforced}
               />
             ) : filtered.length === 0 ? (
               <div className="rounded-card border border-rule bg-white px-6 py-12 text-center">
@@ -896,7 +925,7 @@ export function OpportunitiesPage() {
                     <OpportunityCard
                       item={item}
                       locale={locale}
-                      canAnswer={canAnswer}
+                      canAnswer={canAnswerItem(item)}
                       interestSent={hasSentInterest(item)}
                       onOpen={() => openDetail(item)}
                       onInterest={item.kind === 'projects'
@@ -918,7 +947,7 @@ export function OpportunitiesPage() {
             <DetailBody
               item={selected}
               locale={locale}
-              canAnswer={canAnswer}
+              canAnswer={canAnswerItem(selected)}
               interestSent={hasSentInterest(selected)}
               onClose={() => setDetailOpen(false)}
               onInterest={() => {
@@ -948,6 +977,12 @@ export function OpportunitiesPage() {
               <div className="rounded-field bg-page p-3 text-sm text-ink">
                 <span className="font-medium text-navy">{interestTarget.title}</span>
               </div>
+            )}
+            {/* Rights switch on, and the active company may not answer: say which one does. */}
+            {answerOrg?.name && (
+              <p className="text-sm leading-5 text-meta">
+                {t('opportunities.interestSentAs', 'Sent on behalf of {{name}}, your company that answers needs.', { name: answerOrg.name })}
+              </p>
             )}
 
             <div className="space-y-2">
@@ -1323,11 +1358,16 @@ function DetailBody({
  * on a navy panel with the three kinds of opportunity set out beside it, so a
  * visitor sees what is behind the door.
  */
-function LockPanel({ signedIn, pending, noCompanyRight = false }: {
+function LockPanel({ signedIn, pending, noCompanyRight = false, hasCompany = false, unavailable = false, onRetry }: {
   signedIn: boolean;
   pending: boolean;
   /** Verified, but (rights switch on) no validated company whose type sees needs. */
   noCompanyRight?: boolean;
+  /** With noCompanyRight: whether the person has a company at all (then its review is what is missing). */
+  hasCompany?: boolean;
+  /** Rights switch on, but the person's rights could not be read. */
+  unavailable?: boolean;
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -1352,9 +1392,13 @@ function LockPanel({ signedIn, pending, noCompanyRight = false }: {
               ? t('opportunities.verifiedOnly', 'Tenders, expert questions and projects, visible to verified companies. Sign up: once your company is verified, you can read them and, depending on your profile, answer.')
               : pending
                 ? t('opportunities.gatePending', 'Your account is being reviewed. Opportunities open as soon as it is verified.')
-                : noCompanyRight
-                  ? t('opportunities.gateNoCompany', 'Opportunities are open to members of companies the M3 team has validated: marinas, service providers, investors, developers and media. Add your company to your profile, or ask your company to invite you.')
-                  : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to verified companies. Your account status shows what is still missing.')}
+                : unavailable
+                  ? t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.')
+                  : noCompanyRight
+                    ? hasCompany
+                      ? t('opportunities.gateCompanyNotValidated', 'Opportunities are open to members of companies the M3 team has validated: marinas, service providers, investors, developers and media. Your account status shows where your company stands.')
+                      : t('opportunities.gateNoCompany', 'Opportunities are open to members of companies the M3 team has validated: marinas, service providers, investors, developers and media. Add your company to your profile, or ask your company to invite you.')
+                    : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to verified companies. Your account status shows what is still missing.')}
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
             {!signedIn ? (
@@ -1367,6 +1411,14 @@ function LockPanel({ signedIn, pending, noCompanyRight = false }: {
                   {t('opportunities.gateMarina', 'Run a marina? Publish your first need.')}
                 </UnderlineLink>
               </>
+            ) : unavailable && onRetry ? (
+              <Button variant="ctaWhite" onClick={onRetry}>
+                {t('rights.retry', 'Try again')}
+              </Button>
+            ) : noCompanyRight && !hasCompany ? (
+              <Button asChild variant="ctaWhite">
+                <Link to={memberHomeHref('company')}>{t('dash.addCompany', 'Add my company')}</Link>
+              </Button>
             ) : (
               <Button asChild variant="ctaWhite">
                 <Link to="/dashboard">{t('opportunities.viewAccountStatus', 'View account status')}</Link>
@@ -1409,12 +1461,14 @@ function LockPanel({ signedIn, pending, noCompanyRight = false }: {
  *    the directory.
  */
 function EmptyKind({
-  kind, createAction, publishLabel, audience,
+  kind, createAction, publishLabel, audience, answersFromAllTypes = false,
 }: {
   kind: Kind;
   createAction: CreateAction | null;
   publishLabel: string;
   audience: 'creator' | 'marinaPending' | 'supplier' | 'other';
+  /** Rights switch on: every company type but marinas answers, and developers publish too. */
+  answersFromAllTypes?: boolean;
 }) {
   const { t } = useTranslation();
   const meta = KIND_META[kind];
@@ -1441,12 +1495,27 @@ function EmptyKind({
     consultations: 'When a marina asks for advice, the request appears here and on your dashboard. Offer your help in one click and the marina receives your company profile.',
     projects: 'When a marina submits a project, the M3 team matches it with service providers in the relevant sectors.',
   };
+  // Once the rights switch is on, investors, developers and media answer too, and
+  // developers publish as well as marinas.
+  const creatorTextAll: Record<Kind, string> = {
+    ...creatorText,
+    rfps: 'Be the first: describe your need and set a deadline. Verified companies will see it here and can answer you.',
+  };
+  const answererText: Record<Kind, string> = {
+    rfps: 'When a company publishes an RFP, it appears here and on your dashboard. Express interest in one click and it receives your company profile.',
+    consultations: 'When a company asks for advice, the request appears here and on your dashboard. Offer your help in one click and it receives your company profile.',
+    projects: supplierText.projects,
+  };
 
   // Everyone who cannot publish this kind: what the page is for, then what it means for them.
   const explain = t('oppRefonte.empty.explain', 'Marinas publish their needs here: requests for proposals, questions for an expert and projects. The M3 team reviews each one before it appears.');
   let forYou: string | null = null;
   if (audience === 'marinaPending') forYou = t('opportunities.emptyMarinaPending', 'You can publish here as soon as your organisation is verified.');
-  else if (audience === 'supplier') forYou = t(`opportunities.emptySupplier.${kind}`, supplierText[kind]);
+  else if (audience === 'supplier') {
+    forYou = answersFromAllTypes
+      ? t(`opportunities.emptyAnswerer.${kind}`, answererText[kind])
+      : t(`opportunities.emptySupplier.${kind}`, supplierText[kind]);
+  }
 
   return (
     <div className="overflow-hidden rounded-card border border-rule bg-white">
@@ -1467,7 +1536,11 @@ function EmptyKind({
             <>
               <Eyebrow>{t('oppRefonte.empty.eyebrowFirst', 'Be the first')}</Eyebrow>
               <h3 className="mt-3 text-h2-sm text-navy md:text-[26px] md:leading-8">{t(`oppRefonte.empty.first.${kind}`, firstTitle[kind])}</h3>
-              <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">{t(`opportunities.emptyCreator.${kind}`, creatorText[kind])}</p>
+              <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">
+                {answersFromAllTypes
+                  ? t(`opportunities.emptyCreatorAll.${kind}`, creatorTextAll[kind])
+                  : t(`opportunities.emptyCreator.${kind}`, creatorText[kind])}
+              </p>
               <p className="mt-2 text-[13px] leading-[18px] text-meta">
                 {t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}
               </p>

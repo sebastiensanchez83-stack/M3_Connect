@@ -24,9 +24,9 @@ import { memberHomeHref } from '@/lib/accountNav';
  * - a project: only its author and the M3 team (the team brokers it);
  * - registering for an event: an account M3 has approved;
  * - a first message to a company, publishing: a company M3 has checked as well;
- * - proposing a webinar: verified marinas, service providers and media only
- *   (webinar_requests_insert_owner_eligible; the Create menu still offers it to
- *   investors and developers, who then get an error: reported to Victor).
+ * - proposing a webinar: any person M3 has verified, with or without a company
+ *   (since 9 Oct 2026: webinar_requests_insert_owner_eligible, and the site's
+ *   page from the rights work).
  *
  * The profile icons are the home page's (ProfileCards): marina Anchor, service
  * provider LifeBuoy, investor Compass, media Radio.
@@ -201,7 +201,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
 
     section('no-company', 'profile', UserRound, 'No company yet', 'For participants who are not linked to a company on the platform.', [
       item('no-company-can', 'I have no company on the platform. What can I do?', [
-        'You can read the public resources and browse the directory. Once M3 has approved your account, you can also register for events and webinars.',
+        'You can read the public resources and browse the directory. Once M3 has approved your account, you can also register for events and webinars, and propose a webinar.',
         'Publishing a need, the opportunities and messages need a company checked by M3.',
       ], { keywords: ['participant', 'individual', 'freelance', 'student'] }),
       item('no-company-add', 'How do I add my company?', [
@@ -265,7 +265,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'No. If M3 has already checked your company, you are in as soon as you accept the invitation.',
       ], { keywords: ['invitation', 'invite', 'pending'] }),
       item('verification-company', 'My account is approved, but my company is still being checked.', [
-        'M3 checks the company as well as the people. Until your company is approved, writing to other companies, publishing a need and proposing a webinar stay closed. There is nothing more to do: the notice on your dashboard goes away once it is approved.',
+        'M3 checks the company as well as the people. Until your company is approved, writing to other companies and publishing a need stay closed. There is nothing more to do: the notice on your dashboard goes away once it is approved.',
       ], { keywords: ['pending', 'organisation', 'organization', 'review'] }),
       item('verification-rejected', 'My account was not approved.', [
         'Your dashboard shows the reason. Press “Edit and resubmit” to correct your details, or write to the M3 team if you think it is a mistake.',
@@ -393,7 +393,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'For an event with a fee, your registration waits for the M3 team, and we e-mail you when payment is due. A question about an invoice? Write to events@m3monaco.com.',
       ], { keywords: ['price', 'cost', 'fee', 'pay', 'payment', 'ticket', 'invoice', 'receipt', 'member rate'] }),
       item('events-propose', 'Can we give a webinar?', [
-        'Yes, if you are a marina, a service provider or a media outlet and M3 has checked your company. Press “Propose a webinar” on the Events page, or in My requests on your dashboard. The M3 team looks at it with you.',
+        'Yes. Once M3 has approved your account, you can propose a webinar, with or without a company. Press “Propose a webinar” on the Events page, or in My requests on your dashboard. The M3 team looks at it with you.',
       ], { keywords: ['speak', 'speaker', 'present', 'host', 'organise', 'organize'] }),
     ]),
 

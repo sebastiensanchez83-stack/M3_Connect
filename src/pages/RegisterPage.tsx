@@ -24,6 +24,7 @@ import {
   GUEST_LIST_PAGES, getRegistrationForm, isShownRegistration, noOpenTicket, registrationErrorText, sourceFromUrl, statusPagePath, useReviewSla,
   type RegFailure, type RegForm, type RegStatus,
 } from '@/lib/registration';
+import { useRegistrationFlags } from '@/lib/flags';
 import { withSiteSuffix } from '@/lib/seoText';
 import { cn } from '@/lib/utils';
 
@@ -63,6 +64,9 @@ function RegisterContent({ slug }: { slug: string }) {
   const [done, setDone] = useState<RegistrationDone | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const source = useMemo(() => sourceFromUrl(location.search, 'deep_link'), [location.search]);
+  // M3 creates on-site accounts at confirmation only while its account creation runs (the `provisioning` switch).
+  const { flags } = useRegistrationFlags();
+  const accountsMade = flags.provisioning;
 
   // Keyed on the account id: signing in on this page fills the form in.
   useEffect(() => {
@@ -126,7 +130,7 @@ function RegisterContent({ slug }: { slug: string }) {
       </div>
     );
   } else if (done) {
-    main = <DoneView form={form} done={done} signedIn={!!user} sla={sla} eventHref={eventHref} />;
+    main = <DoneView form={form} done={done} signedIn={!!user} sla={sla} eventHref={eventHref} accountsMade={accountsMade} />;
   } else if (form.mine && isShownRegistration(form.mine.status)) {
     const mineId = form.mine.registration_id;
     main = (
@@ -201,7 +205,9 @@ function RegisterContent({ slug }: { slug: string }) {
                   : <li><NoteLine icon={Ticket}>{t('reg.page.howPass', 'Once confirmed, your entry pass comes by e-mail.')}</NoteLine></li>}
                 {!user && (isWebinar
                   ? <li><NoteLine icon={UserPlus}>{t('reg.page.howAccountWebinar', 'No account needed: your name and e-mail are enough.')}</NoteLine></li>
-                  : <li><NoteLine icon={UserPlus}>{t('reg.page.howAccount', 'No account needed. M3 creates your account once your place is confirmed.')}</NoteLine></li>)}
+                  : <li><NoteLine icon={UserPlus}>{accountsMade
+                    ? t('reg.page.howAccount', 'No account needed. M3 creates your account once your place is confirmed.')
+                    : t('reg.page.howAccountNone', 'No account needed: your personal link comes by e-mail.')}</NoteLine></li>)}
               </ul>
             </CardShell>
             <ContactCard line={t('reg.page.contact', 'A question about this event? Write to the M3 team.')} />
@@ -224,7 +230,7 @@ function RegisterContent({ slug }: { slug: string }) {
 
 /* ------------------------------------------------------------------ after sending */
 
-function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; done: RegistrationDone; signedIn: boolean; sla: string; eventHref: string | null }) {
+function DoneView({ form, done, signedIn, sla, eventHref, accountsMade }: { form: RegForm; done: RegistrationDone; signedIn: boolean; sla: string; eventHref: string | null; accountsMade: boolean }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const ev = form.event;
@@ -301,7 +307,7 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
           </Button>
         </div>
       )}
-      {!signedIn && ev.kind !== 'webinar' && !duplicate && (
+      {!signedIn && ev.kind !== 'webinar' && !duplicate && accountsMade && (
         <NoteLine icon={UserPlus}>{t('reg.status.accountOnsite', 'Once M3 confirms your place, we create your Smart Marina Connect account and e-mail you a link to set your password.')}</NoteLine>
       )}
     </div>

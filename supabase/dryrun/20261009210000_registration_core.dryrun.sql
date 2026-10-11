@@ -2984,13 +2984,13 @@ begin
      'existing profiles read signup_source legacy, no profile row rewritten (updated_at unchanged), new rows start NULL'),
     ('S14', not exists (select tbl, n, fp from _dryrun_sm26_before
                         except
-                        select 'sm_registration', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_registration x
+                        (select 'sm_registration', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_registration x
                         union all select 'sm_role_assignment', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_role_assignment x
                         union all select 'sm_attendee', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_attendee x
                         union all select 'sm_badge', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_badge x
                         union all select 'sm_payment', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_payment x
                         union all select 'sm_invoice', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_invoice x
-                        union all select 'sm_networking_pass', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_networking_pass x),
+                        union all select 'sm_networking_pass', count(*), md5(coalesce(string_agg(x::text, '|' order by x.id), '')) from public.sm_networking_pass x)),
      'SM26 core tables unchanged (counts and content fingerprints)'),
     ('S15', not exists (select * from _dryrun_access_before except select * from _dryrun_access_after)
             and not exists (select * from _dryrun_access_after except select * from _dryrun_access_before),

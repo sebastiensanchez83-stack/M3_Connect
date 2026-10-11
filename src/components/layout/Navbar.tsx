@@ -30,7 +30,7 @@ import {
   isNavItemActive, canCreate, type NavItem,
 } from '@/lib/nav';
 import { HOME_SECTIONS, accountHref, homeSectionVisible, memberHomeHref } from '@/lib/accountNav';
-import { OPEN_SIGNUP_EVENT, type OpenSignupDetail } from '@/lib/authModal';
+import { OPEN_SIGNUP_EVENT, SIGNIN_EMAIL_KEY, type OpenSignupDetail } from '@/lib/authModal';
 import type { PersonaType } from '@/types/database';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
@@ -108,7 +108,7 @@ export function Navbar() {
   // registered hero last changed): switching pages or registering a hero is instant.
   const [settledFor, setSettledFor] = useState<HTMLElement | null | undefined>(undefined);
   const settled = settledFor === hero;
-  const [emailFromConfirmation] = useState('');
+  const [emailFromConfirmation, setEmailFromConfirmation] = useState('');
   const [confirmationLanding, setConfirmationLanding] = useState<AuthLanding | null>(null);
 
   // The header must stay put while the reader is using it.
@@ -210,7 +210,14 @@ export function Navbar() {
       setSignupOpen(true);
     } else if (params.get('signin') === 'true') {
       // After "Forgot password?" (ResetPasswordPage signs out, then comes here): the
-      // sign-in window, ready for the new password. Taken out of the address.
+      // sign-in window, ready for the new password. Taken out of the address. The
+      // page leaves the account's address in sessionStorage (SIGNIN_EMAIL_KEY):
+      // read once and removed, so only the new password is left to type.
+      try {
+        const remembered = window.sessionStorage.getItem(SIGNIN_EMAIL_KEY);
+        window.sessionStorage.removeItem(SIGNIN_EMAIL_KEY);
+        if (remembered) setEmailFromConfirmation(remembered);
+      } catch { /* storage blocked: the field starts empty */ }
       setLoginOpen(true);
       params.delete('signin');
       const q = params.toString();

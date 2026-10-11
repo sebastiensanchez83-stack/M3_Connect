@@ -163,7 +163,7 @@ Errors: `raise` with SQLSTATE `42501` + message `forbidden` (wrong caller) or SQ
 | `gl_seats_held(p_gl_event_id, p_ticket_key default null)` | int |
 | `gl_event_window(p_gl_event_id)` | `(starts_at, ends_at)`; ends_at = end, else start + 1 day (full day) / + 2 h |
 | `attach_my_records_for(uid)`, `on_email_proven(uid)` | int / jsonb (any future caller of `on_email_proven`, e.g. a Phase 2 accept-invite, must follow the rule of `mark_email_proven`: proof only once a new password is chosen from an e-mailed link) |
-| `complete_signup_for(uid)` | jsonb; Phase 2 replaces the body (same signature) |
+| `complete_signup_for(uid)` | jsonb; body since Phase 2: §10.3 |
 | `invoke_registration_cron(job)` | pg_cron only |
 
 ### 4.1 `admin_save_event(p)` shape
@@ -255,7 +255,7 @@ The `registration` function checks the staff session, then calls it with `p_acto
 4. `review_log` columns `actor_id` / `created_at` instead of `by` / `at`.
 5. Added (not in the spec list): `gl_event.hidden`, `profiles.email_changed_at`, `gl_register_v2`, `gl_decide_v2`, `gl_registration_state` (+ `not_published`), `gl_seats_held`, `gl_event_window`, `gl_issue_access_token`, `gl_resolve_access_token`, `public_registration_events`, `review_log_add`, `guest_signup_rate_limits.scope`, the restrictive policy on `review_digest_recipients`, CHECK `gl_event_door_matches_engine`, the provisioning backfill, the `organization_pending_review` audit event.
 6. No auth trigger proves an address (integration review, 10 Oct 2026: a confirmation, invite, recovery or e-mail change link proves the inbox, not the password; and with Confirm email off GoTrue hands a session to a public sign-up over an unconfirmed account). `mark_email_proven` is the only proof: a link session less than 60 minutes old, after the last e-mail change, not an admin "view as user", called once a new password is saved.
-7. `complete_signup_for` is a placeholder (Phase 2).
+7. `complete_signup_for` was a placeholder in Phase 1; Phase 2 gives it its body (§10.3).
 8. `create_organization` is also revoked from anon; `admin_save_event` ignores `door_token`.
 9. `access='members'` gates registration only; `events.access_level` stays `public` (the spec's "members = verified person" differs from the catalogue's `members` = marketplace access).
 10. Publishing a core_v2 event needs flag `webinar_v2` / `onsite_v2` (DB-enforced) while the old main site is live.
@@ -265,7 +265,7 @@ The `registration` function checks the staff session, then calls it with `p_acto
 14. Registration flags are on only as JSON `true` in SQL too (the reviewed core read the text `"true"` as on in `admin_save_event` / `events_publish_guard` and cast in `invoke_registration_cron`).
 
 ## 8. Not in this migration
-Phase 2: `handle_new_user` metadata mapping, `complete_signup_for` body, `email_proof_token` + `confirm_email_proof`, organization_invitations changes, `create_organization` revoke from authenticated, `org_members_insert` owner branch, `normalize_org_name` + trigram index, legacy proof backfill, revoking `sm_autoclaim_by_email`.
+Phase 2: built in §10 (`handle_new_user` mapping, `complete_signup_for`, e-mail proof, organization_invitations, matching, legacy proof backfill; `create_organization` revoke held for go-live). `org_members_insert` owner branch: done by 20261011083257. Still open: revoking `sm_autoclaim_by_email`, dropping `trg_link_guest_registrations` (§10.9).
 Phase 3: review queue RPCs, rights (`org_type_capability`, `has_capability`...), `archived_at` / `duplicate_of`, staff choices for WYS provisioning jobs.
 December: `payment_id`, `gl_invoice`, `event-checkout`, `approved` + payment in `gl_decide_v2`.
 
@@ -295,3 +295,93 @@ December: `payment_id`, `gl_invoice`, `event-checkout`, `approved` + payment in 
 - **Help button**: the floating Help button (refonte, `helpPlaces.ts`) is not shown on `/register/<slug>` or `/registration` on purpose: the help centre still describes the old webinar sign-up. Add those pages to `helpPlaceFor` when the help answers are rewritten for the new registration (before `webinar_v2` goes on); on phones it must then keep clear of the bottom buttons (`data-help-avoid`). On `/events/<id>` it shows, and the sign-up window (a modal) covers it.
 - A company created by a verified member from the old wizard now waits for M3 (Admin > Review lists it, `admin_review_queue`), while that wizard still tells its creator "set up and live".
 - `sm_autoclaim_by_email` (kept on purpose) still links an imported SM26 registration to the account that has its e-mail, PROVEN OR NOT, and writes `sm_registration` / `sm_role_assignment`. If an SM26 fingerprint changes and nothing else did, look there first. Phase 2: have the dashboard read SM26 through `my_participations()` and revoke it.
+
+## 10. Phase 2: sign-up identity (DB lane)
+
+Source of truth: `supabase/migrations/20261012113000_signup_identity_orgs.sql` (part 1, companies and teams), then `supabase/migrations/20261012113500_signup_identity.sql` (part 2, people). Go-live only: `supabase/migrations/held/signup_identity_golive.sql`. Spec §3.8, §3.9, §4.4-4.6, §5; Victor's decisions of 6, 8 and 11 Oct.
+
+### 10.1 What changes for the live site and for the redesign with every flag off
+- **Decline on a join request works.** `organization_invitations.status` now allows `rejected`. `reject_join_request` always wrote it and the CHECK refused it (23514). Main's InboxTab and types, the redesign's `orgActions` / `InvitationStatus`, and both versions of send-notification (`join_request_rejected` looks for `status = 'rejected'`) already handle `rejected`, so the CHECK was widened and the function left as it is.
+- **A claim code never makes anyone a member of a company that already has an owner** (an owner member row or `owner_user_id`). `claim_organization` and `claim_organization_for_user` raise "This company already has an owner on Smart Marina Connect. Ask them to invite you to the team." A company with no owner is unchanged on the old client until the held file (from then on M3 decides every claim). An owner's own retry of `claim_organization_for_user` is unchanged.
+- **Invitations expire.** `accept_org_invitation` refuses a row past `expires_at` ("This invitation has expired. Ask the person who invited you to send a new one."), and it never turns a `suspended` account into `verified`. The only pending invitation in production (May 2026) is past its date. Owners cannot write an invitation that expires later than `now() + 30 days` (insert policy; both clients use the default).
+- New sign-ups get `profiles.signup_source = 'account'` (provision-person still overwrites it with `provisioned`). Everything else in a new profile is what it was, for the old metadata keys.
+- The legacy proof backfill stamps `profiles.email_proven_at`, which only the redesign reads.
+- Nothing is sent: the outbox only fills for v2 sign-ups, and there are none until `account_signup_v2` is on.
+
+### 10.2 Sign-up metadata (AUTH lane: `supabase.auth.signUp({ options: { data } })`)
+| key | stored in | rule |
+|---|---|---|
+| `first_name`, `last_name`, `job_title`, `persona` | as today | names <= 100, job title <= 200; persona whitelist `marina, partner, media_partner, developer, investor, individual` (else `individual`) |
+| `country` | `profiles.country` | text <= 80 |
+| `affiliation` | `profiles.affiliation` | the participant's free-text organisation, <= 200 |
+| `sector_ids` | `profile_interest_sectors` | array of active `sectors.id`; 5 at most are kept, unknown ids ignored |
+| `signup_intent` | `profiles.signup_intent` (cleaned) | object `{action: join\|new\|none, org_id, name, website, country, type, code}`. Its presence means "sign-up form v2". |
+| `declared_type` | `signup_intent.type`, when the intent has no `type` | `marina, partner, investor, developer, media_partner, participant` |
+
+The cleaned intent is `{v: 1, action, org_id (join only, valid uuid), name <= 200, website <= 300, country <= 80, type, has_code}`. An unknown `action` becomes `join` (valid org_id), `new` (a name) or `none`. **The claim code is never stored in profiles** (co-members read profiles). It goes to the private `signup_claim_code` table (3-40 characters, trimmed) and is checked once by `complete_signup_for`. Metadata never sets `access_status`, a staff persona, `email_proven_at` or `signup_source`. A malformed v2 key is skipped with a WARNING: a sign-up never fails because of it.
+
+### 10.3 Running the intent: `complete_signup_for(uid)` (service role; called by `on_email_proven`)
+It runs once (`signup_intent.done_at` + `result`), and only for a PROVEN account (§2 "Proven"). Otherwise it answers `{done:false, reason: no_profile | no_intent | not_proven | account_suspended | account_rejected}`. Answers: `{done:true, result}` or `{done:true, already:true, result}`.
+
+`result.path`:
+| path | when | effect |
+|---|---|---|
+| `join_requested` | company verified, with an owner | `organization_invitations` row `join_requested` (the person's auth e-mail, `invited_by_user_id` null, so the owner can approve it with `approve_join_request`, which verifies the person); outbox `team_join_request` to the owner |
+| `claim_requested` | company verified with no owner, or a matching claim code of a company with no owner (any status) | row `claim_requested` (`code_matched` true with a code). **M3 decides** (Phase 3 `admin_decide_claim`); nobody becomes a member yet |
+| `company_pending` | company not verified | nothing; M3 decides from the person's card |
+| `new_company` | `action = new` | nothing: no company row before M3 validates (§5) |
+| `none` | no company | nothing |
+| `invitation_pending` / `already_member` / `org_not_found` / `join_declined_recently` | an invitation already waits / already a member / unknown company / that owner declined this person less than 30 days ago | nothing new |
+
+`result.code`, when a code was typed: `matched`; `invalid` (one failure recorded in `org_claim_attempt`); `throttled` (10 or more failures in the hour, the same count as `claim_organization`); `refused_has_owner` (Victor, 11 Oct: the code claims nothing; the person's request goes to the owner as `join_requested` when the company is verified). A matching code decides the company.
+For a `pending` person, always: `onboarding_status` goes from `draft` to `submitted` (so the person shows in `admin_review_queue`), and ONE outbox `account_under_review` is queued (one per person, ever). A verified person gets no such e-mail. **Until the address is proven nothing runs**: a v2 sign-up stays `draft` (not in M3's list, no e-mail). With Confirm email off (production today) the AUTH lane must send the proof link right after sign-up (account-signup `send_email_proof` -> `/verify-email` -> `confirm_email_proof`); the person may open it on another device after signing in there. A verified person's `new_company` / `company_pending` is visible only in `signup_intent.result` until the Phase 3 queue reads it.
+
+### 10.4 RPCs
+| RPC | caller | returns / errors |
+|---|---|---|
+| `complete_my_signup()` | authenticated | `complete_signup_for(auth.uid())` (idempotent) |
+| `submit_signup_intent(p_intent jsonb)` | authenticated, in no company | Same shape as the metadata intent, code included. Stores it (`submitted_at`) and runs it now when the address is proven, otherwise once it is. 22023: `no_profile, account_suspended, already_in_company, request_pending` (an open join or claim request for that e-mail), `too_soon` (one a minute), `bad_input`. For "Add my company" and a claim link opened while signed in. |
+| `issue_email_proof_token(p_user_id)` | service role (account-signup `send_email_proof`) | `{ok, token (43 characters, base64url), email, expires_at (24 h)}` or `{ok:false, error: unknown_user \| already_proven \| rate_limited}` (3 an hour). Only the sha256 is stored. Link: `/verify-email?t=<token>`. |
+| `confirm_email_proof(p_token)` | authenticated (`/verify-email`) | `{proven, stamped, attached?, requeued?, signup?, reason?}`. Reasons: `invalid_token`, `wrong_account` (the link belongs to another account: sign in with that one), `email_changed`, `used`, `expired`, `impersonation`. Stamps proof through `on_email_proven` (attach, re-queue, complete_signup_for): the caller holds the password and the link reached the inbox. Never a login. |
+| `notification_outbox_claim(p_limit default 20, p_actor uuid default null, p_kinds text[] default null)` | service role | The claimed rows (unsent, fewer than 5 attempts, unclaimed or claimed more than 10 minutes ago); `attempts` + 1. |
+| `notification_outbox_done(p_id, p_error default null)` | service role | true = marked sent (or, with an error, failed: the claim is released and `last_error` kept); false = unknown or already sent |
+| `org_invitation_issue_token(p_invitation_id)` | service role (send-notification `team_invitation` / `team_invitation_reminder`) | The raw token (43 characters), for pending invitations only (22023 `not_found`, `not_pending`). The invitation stays open at least 30 days from now. |
+| `org_invitation_by_token(p_token)` | service role (accept-invite) | `{ok, invitation_id, organization_id, organization_name, organization_verified, email, first_name, last_name, inviter_name, expires_at, account_exists}` or `{ok:false, error: invalid_token \| already_accepted \| not_pending \| expired}` |
+| `accept_org_invitation_for(p_user_id, p_token)` | service role (accept-invite, for the account it has just created) | The rules of accept_org_invitation for that user: `{ok, organization_id, organization_name, verified}` or `{ok:false, error}` (the token errors, `unknown_user`, `email_mismatch`, `not_confirmed`). The person is verified only when the company is. |
+| `accept_org_invitation_by_token(p_token)` | authenticated, with the invited address | `{ok, organization_id, organization_name, verified}`. Token errors raise 22023 with the code as message, then accept_org_invitation's own messages. |
+| `company_search(p_q, p_limit default 8)` | service role (account-signup `company_search`) | `id, name, logo_url, city, country, organization_type, verified` for verified and pending companies, 8 at most, by `normalize_org_name` (trigram or substring, exact first). Nothing under 3 characters. No owner, member or claim-code information. |
+| `normalize_org_name(text)`, `immutable_unaccent(text)` | anyone | IMMUTABLE helpers. Index `organizations_name_norm_trgm_idx` (`extensions.gin_trgm_ops`). With `search_path ''`, write `operator(extensions.%)` and `extensions.similarity`. |
+
+### 10.5 Outbox (`notification_outbox`, staff read)
+Columns: `kind`, `user_id` (recipient), `actor_id` (whose action queued it), `subject_id`, `dedupe_key` (unique: queued once, ever), `data`, `claimed_at`, `attempts`, `sent_at`, `last_error`.
+- `account_under_review`: the recipient is the person; `data {path, org_name?, first_name?}`. The path (§10.3) lets the template word the join, claim and new-company cases differently. The promised delay is `platform_settings.review_sla_text`.
+- `team_join_request`: the recipient is the company's owner; `data {organization_id, org_name, invitation_id, requester_name?, requester_email}`. Same content as send-notification's `join_request_received`.
+- Sending (EDGE lane): the person's page calls send-notification right after `confirm_email_proof`, `mark_email_proven` or `submit_signup_intent`; it claims that person's rows (`p_actor` = the caller) and sends them. registration-cron's 5-minute run drains the rest (`p_actor` null). Call `notification_outbox_done` after each send. An `account_under_review` whose person is no longer `pending` is marked done without sending.
+
+### 10.6 Team invitations
+- Statuses: `pending, accepted, expired, cancelled, join_requested, rejected, claim_requested`. `code_matched` is never set on a `pending` or `join_requested` row.
+- Clients insert only `pending` rows signed by themselves and expiring within 30 days (policy `owners_can_create_invitations`, note `signup_identity <fingerprint>`), and update only `status`, to `pending` or `cancelled` (20261011083257). `join_requested` rows come from `complete_signup_for` (proven address) and, until the held file, from `request_org_join` (confirmed address). `claim_requested` rows come from `complete_signup_for` only.
+- Links: new e-mails carry `/join/<token>` (43-character token in `org_invitation_token`, sha256 only, minted by send-notification). `/join/<uuid>` (the invitation id) keeps resolving through `get_invitation_for_join` + `accept_org_invitation`. Tell them apart by their format (uuid or 43 base64url characters). **An invitation id is not a secret** (company members read invitations): accept-invite must never create an account or stamp proof from an id link, only from a token (then `createUser({email_confirm: true, password})`, `accept_org_invitation_for`, `on_email_proven`).
+
+### 10.7 Legacy proof backfill (§5)
+`auth.audit_log_entries` is empty in this project (0 rows on 11 Oct 2026: GoTrue's audit trail goes to the log service), so the spec's source cannot prove anything. The backfill reads `auth.mfa_amr_claims` (the amr of live sessions) instead. It stamps an account when a session was opened from an e-mail link (`otp, magiclink, recovery, invite, email/signup, email_change`):
+- after the account was created and after the last e-mail change;
+- to an address that is both the auth e-mail and `profiles.email`;
+- not within -5/+1 minutes of an `admin_impersonation_log` row, and not before that log existed (11 Jul 2026).
+
+`email_proven_at` = that session's time; `updated_at` is untouched. Each stamp gets one `review_log` row (`action 'email_proof_backfill'`, `details {stamped_at, method, migration}`), which the down script uses. **47 accounts on 11 Oct 2026** (41 verified, 6 pending, 0 staff), against the spec's estimate of 87-95: sessions that have ended are no longer in `mfa_amr_claims`. The others get the "Confirm your e-mail" banner (`issue_email_proof_token` / `confirm_email_proof`).
+
+### 10.8 Held for go-live (`held/signup_identity_golive.sql`)
+It refuses to run unless `registration_flags.account_signup_v2` and `front_door` are JSON `true`, a `public.admin_validate_person` exists (Phase 3: M3's way to create companies) and part 2 is applied. It then:
+- revokes EXECUTE on `create_organization` from authenticated (spec §3.9);
+- revokes EXECUTE on `claim_organization` from authenticated, anon and PUBLIC (M3 decides every claim);
+- makes `request_org_join` file a request only for a PROVEN address, and count an open claim as an open request.
+
+All three break main's OnboardingPage and OrganizationTab, and the redesign's while `account_signup_v2` is off. It ships with a down script and a dry run.
+
+### 10.9 Runbook (coordinator)
+1. Once the registration core is fully applied, and BEFORE part 2 exists, run the dry runs of part 1: `supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql` (32 PASS, 0 FAIL), `.dryrun2.sql` (12 PASS), `.down.dryrun.sql` (7 PASS). Apply part 1.
+2. Run the dry runs of part 2: `20261012113500_signup_identity.dryrun.sql` (16 PASS; S05 prints the backfill count), `.dryrun2.sql` (19 PASS), `.dryrun3.sql` (19 PASS), `.down.dryrun.sql` (6 PASS). Apply part 2. Each file is under 60 KB, goes in one call and ends with `RAISE EXCEPTION 'DRYRUN ...'`.
+3. After applying, compare `md5(replace(prosrc, chr(13), ''))` of the functions named in both preconditions with their "mine" value, and count `select count(*) from review_log where action = 'email_proof_backfill'` (47 on 11 Oct).
+4. Go-live: switch the flags, run `supabase/dryrun/signup_identity_golive.dryrun.sql` (8 PASS), then apply the held file. Undo order: the held down, the part 2 down, the part 1 down (part 1's down refuses to run while part 2 is applied).
+5. Still open: dropping `trg_link_guest_registrations` (§7 item 13) and revoking `sm_autoclaim_by_email` depend on the AUTH lane's go-live state; they are not in these files.

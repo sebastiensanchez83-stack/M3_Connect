@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
 import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -42,6 +42,11 @@ import { withSiteSuffix } from '@/lib/seoText';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import {
+  ParticipateBlock, participateBarAction, participationView, useParticipation, type ParticipateEvent,
+} from '@/components/registration/ParticipateBlock';
+import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
+import { GUEST_LIST_PAGES } from '@/lib/registration';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 // The World Yachting Summit's events row redirects to its one page (/wys26).
 import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
@@ -291,13 +296,27 @@ function EventDetailContent() {
       });
   }, [id]);
 
-  // Invitation-only events run on a guest list (e.g. /wys26) take requests there, with no account.
-  const [guestListPath, setGuestListPath] = useState<string | null>(null);
+  // Whether the event takes registrations through the registration engine (a gl_event), and
+  // its slug: gl_event_slug_for answers for every registration event, the new ones (core_v2)
+  // included. 'pending' while asking; 'none' for an old event (it keeps the card below and never
+  // calls the registration function, so an outage of that function cannot block it); 'unknown'
+  // when the read failed (the registration function decides: its not_found gives the card back).
+  const [glEvent, setGlEvent] = useState<'pending' | 'none' | 'unknown' | { slug: string }>('pending');
   useEffect(() => {
-    if (!id) { setGuestListPath(null); return; }
+    if (!id) { setGlEvent('none'); return; }
+    let alive = true;
+    setGlEvent('pending');
     supabase.rpc('gl_event_slug_for', { p_event_id: id })
-      .then(({ data }) => setGuestListPath(typeof data === 'string' && data ? `/${data}` : null));
+      .then(({ data, error }) => {
+        if (!alive) return;
+        setGlEvent(error ? 'unknown' : typeof data === 'string' && data ? { slug: data } : 'none');
+      });
+    return () => { alive = false; };
   }, [id]);
+  // Invitation-only events run on a guest list (e.g. /wys26) take requests there, with no account.
+  // A new (core_v2) event has no page at /<slug>: only a guest list with a page of its own is followed.
+  const guestListPath = typeof glEvent === 'object' ? GUEST_LIST_PAGES[glEvent.slug] ?? null : null;
+  const hasEngine = glEvent === 'unknown' || typeof glEvent === 'object';
 
   // Whether the logged-in user holds a registration for this event (their own
   // row, or a guest row made with their confirmed e-mail before they had an
@@ -305,6 +324,8 @@ function EventDetailContent() {
   // registrant or to staff. An invitation request still waiting for the
   // organisers is not a registration: the member flow below shows it as such.
   const [meetingUrl, setMeetingUrl] = useState<string | null>(null);
+  // Bumped when the registration block changed something: the access is read again.
+  const [accessVersion, setAccessVersion] = useState(0);
   useEffect(() => {
     if (!id || !userId) {
       setIsUserRegistered(false);
@@ -321,7 +342,7 @@ function EventDetailContent() {
         setMeetingUrl(access?.meeting_url ?? null);
       });
     return () => { alive = false; };
-  }, [id, userId]);
+  }, [id, userId, accessVersion]);
 
   // After registering or cancelling on this page, fetch the link again. Only
   // the link: the panel keeps showing the flow (and its confirmation) until reload.
@@ -471,6 +492,27 @@ function EventDetailContent() {
     }
   };
 
+  // ---------------------------------------------------------------- unified registration
+  // With the new event pages switched on (registration_flags), the participation
+  // card is ParticipateBlock: one block for every situation, driven by the
+  // registration function. An event that function does not know keeps the card
+  // below, unchanged; so does everything while the switches are off.
+  const { flags, ready: flagsReady } = useRegistrationFlags();
+  const v2On = flagsReady && newEventPagesOn(flags);
+  const participateEvent = useMemo<ParticipateEvent | null>(() => (event ? {
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    date_time: event.date_time,
+    end_date_time: event.end_date_time,
+    is_full_day: event.is_full_day,
+    location: event.location,
+    event_type: event.event_type,
+    replay_url: event.replay_url,
+  } : null), [event]);
+  // Smart Marina 2026 keeps its own path (an SM module edition); an old event keeps the card below.
+  const participationModel = useParticipation(participateEvent, v2On && !smRegisterPath && hasEngine);
+
   // ---------------------------------------------------------------- sticky bar plumbing
   const panelRef = useRef<HTMLDivElement>(null);
   const panelHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -605,7 +647,9 @@ function EventDetailContent() {
       : fmtShort(event.date_time) + (event.is_full_day ? '' : ` · ${fmtTime(event.date_time)}`))
     : t('eventsPage.dateTbd', 'Date to be announced');
 
-  const accessText = event.access_level === 'members'
+  // A new registration event keeps its catalogue row public: who may register is the registration's own rule.
+  const regAccess = v2On ? participationModel.form?.event.access : undefined;
+  const accessText = event.access_level === 'members' || regAccess === 'members'
     ? t('eventsPage.access.members', 'Members only')
     : event.access_level === 'marina'
       ? t('eventsPage.access.marina', 'Marinas only')
@@ -917,6 +961,14 @@ function EventDetailContent() {
       </Button>
     );
   }
+  // Unified registration switched on, for an event of the registration engine: the block
+  // decides the card and the bar. An old event, or the switches off, keep the card below.
+  const v2View = v2On && !smRegisterPath && hasEngine ? participationView(participationModel, !!user) : null;
+  const useBlock = !!v2View && v2View.k !== 'legacy';
+  // Which card applies is not known yet: the switches, or (switched on) whether the event has an engine.
+  const cardPending = !smRegisterPath && glEvent !== 'none' && (!flagsReady || (v2On && glEvent === 'pending'));
+  if (v2View && useBlock) barAction = participateBarAction(v2View, participationModel, t, scrollToPanel);
+  if (cardPending) barAction = null;
   const showBar = !!barAction && !panelInView && !endInView;
 
   const PanelIcon = panelIcon;
@@ -1374,23 +1426,42 @@ function EventDetailContent() {
       className="scroll-mt-24 transition-[top] duration-300 lg:sticky"
       style={{ top: 'calc(var(--header-h, 64px) + var(--sticky-offset, 0px) + 16px)' }}
     >
-      <div className="rounded-card border border-rule bg-white p-5 sm:p-6">
-        <div className="flex items-center gap-3">
-          <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-full', toneClasses[panelTone])}>
-            <PanelIcon className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <h2 ref={panelHeadingRef} tabIndex={-1} className="text-card-title text-navy focus:outline-none">{panelTitle}</h2>
+      {useBlock ? (
+        <ParticipateBlock
+          model={participationModel}
+          onSignIn={() => setLoginOpen(true)}
+          onSignUp={() => setSignupOpen(true)}
+          onChanged={() => setAccessVersion((v) => v + 1)}
+          headingRef={panelHeadingRef}
+        />
+      ) : cardPending ? (
+        // Which card applies is known in a moment (the registration switches): a quiet placeholder meanwhile.
+        <div role="status" aria-label={t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
+          <div className="flex items-center gap-3">
+            <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-chip motion-reduce:animate-none" />
+            <span className="h-5 w-1/2 animate-pulse rounded bg-chip motion-reduce:animate-none" />
+          </div>
+          <div className="h-12 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
         </div>
-        <div className="mt-5 space-y-4">
-          {!hasStarted && event.invitation_only && !guestListPath && !smRegisterPath && !isUserRegistered && (
-            <div className="flex items-center gap-2 rounded-field bg-chip p-3 text-sm text-ink">
-              <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{t('eventsPage.invitationOnlyNote', 'This is an invitation-only event.')}</span>
-            </div>
-          )}
-          {panelBody}
+      ) : (
+        <div className="rounded-card border border-rule bg-white p-5 sm:p-6">
+          <div className="flex items-center gap-3">
+            <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-full', toneClasses[panelTone])}>
+              <PanelIcon className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <h2 ref={panelHeadingRef} tabIndex={-1} className="text-card-title text-navy focus:outline-none">{panelTitle}</h2>
+          </div>
+          <div className="mt-5 space-y-4">
+            {!hasStarted && event.invitation_only && !guestListPath && !smRegisterPath && !isUserRegistered && (
+              <div className="flex items-center gap-2 rounded-field bg-chip p-3 text-sm text-ink">
+                <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{t('eventsPage.invitationOnlyNote', 'This is an invitation-only event.')}</span>
+              </div>
+            )}
+            {panelBody}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 

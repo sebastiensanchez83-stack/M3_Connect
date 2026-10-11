@@ -421,11 +421,18 @@ function describe(item: ReviewItem, t: TFunction, canOpen: boolean): Description
     case 'event_request': {
       const event = str(f, 'event_title') ?? str(f, 'event_slug') ?? t('adminReview.fact.anEvent', 'an event');
       const host = str(f, 'plus_one_of');
-      const what = str(f, 'source') === 'plus_one'
-        ? t('adminReview.what.plusOne', 'Plus-one of {{host}} for {{event}}', { host: host ?? t('adminReview.fact.aGuest', 'a guest'), event })
-        : t('adminReview.what.eventRequest', 'Asks for an invitation to {{event}}', { event });
-      const parts = partsLabel({ conference: bool(f, 'wants_conference') === true, gala: bool(f, 'wants_gala') === true });
-      push({ label: parts === '—' ? t('adminReview.fact.noPart', 'No part chosen') : parts, tone: parts === '—' ? 'warning' : 'navy' });
+      // A registration on the new event system (core_v2) has no conference / gala parts: its
+      // wants_* columns only keep their defaults, so they are not shown.
+      const coreV2 = str(f, 'engine') === 'core_v2';
+      const what = coreV2
+        ? t('adminReview.what.registration', 'Asks to register for {{event}}', { event })
+        : str(f, 'source') === 'plus_one'
+          ? t('adminReview.what.plusOne', 'Plus-one of {{host}} for {{event}}', { host: host ?? t('adminReview.fact.aGuest', 'a guest'), event })
+          : t('adminReview.what.eventRequest', 'Asks for an invitation to {{event}}', { event });
+      if (!coreV2) {
+        const parts = partsLabel({ conference: bool(f, 'wants_conference') === true, gala: bool(f, 'wants_gala') === true });
+        push({ label: parts === '—' ? t('adminReview.fact.noPart', 'No part chosen') : parts, tone: parts === '—' ? 'warning' : 'navy' });
+      }
       push({ label: str(f, 'country') ?? '' });
       const capacity = num(f, 'capacity');
       const held = num(f, 'seats_held');

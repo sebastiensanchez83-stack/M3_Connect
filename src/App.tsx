@@ -36,6 +36,9 @@ const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const GuestEventPage = lazyWithRetry(() => import('@/pages/GuestEventPage').then(m => ({ default: m.GuestEventPage })));
 const GuestInvitationPage = lazyWithRetry(() => import('@/pages/GuestInvitationPage').then(m => ({ default: m.GuestInvitationPage })));
+// Unified event registration: one event's form, and a registration seen from its personal link.
+const RegisterPage = lazyWithRetry(() => import('@/pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
+const RegistrationStatusPage = lazyWithRetry(() => import('@/pages/RegistrationStatusPage').then(m => ({ default: m.RegistrationStatusPage })));
 const DirectoryPage = lazyWithRetry(() => import('@/pages/DirectoryPage').then(m => ({ default: m.DirectoryPage })));
 const OpportunitiesPage = lazyWithRetry(() => import('@/pages/OpportunitiesPage').then(m => ({ default: m.OpportunitiesPage })));
 const DealFlowPage = lazyWithRetry(() => import('@/pages/DealFlowPage').then(m => ({ default: m.DealFlowPage })));
@@ -193,6 +196,11 @@ function App() {
                   every guest email: never rename either. */}
               <Route path="/wys26" element={<GuestEventPage slug="wys26" />} />
               <Route path="/wys26/guest" element={<GuestInvitationPage />} />
+              {/* Unified event registration. /register/<slug> is an event's form (no account
+                  needed; /register/wys26 goes to /wys26). /registration?t=<token> is the personal
+                  link of every registration e-mail: public, never behind sign-in, never renamed. */}
+              <Route path="/register/:slug" element={<RegisterPage />} />
+              <Route path="/registration" element={<RegistrationStatusPage />} />
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
                   pre-launch like /admin/sm26 — access is enforced server-side by
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}

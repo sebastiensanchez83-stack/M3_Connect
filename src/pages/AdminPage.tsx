@@ -1,5 +1,5 @@
 import { useEffect, useState, Suspense } from 'react';
-import { Link, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,7 +24,9 @@ const AdminOrganizationDetail = lazyWithRetry(() => import('@/components/admin/A
 const AdminResources = lazyWithRetry(() => import('@/components/admin/AdminResources').then(m => ({ default: m.AdminResources })));
 const AdminResourceDetail = lazyWithRetry(() => import('@/components/admin/AdminResourceDetail').then(m => ({ default: m.AdminResourceDetail })));
 const AdminEvents = lazyWithRetry(() => import('@/components/admin/AdminEvents').then(m => ({ default: m.AdminEvents })));
-const AdminEventDetail = lazyWithRetry(() => import('@/components/admin/AdminEventDetail').then(m => ({ default: m.AdminEventDetail })));
+// /admin/events/new and /admin/events/:id: the registration-core editor (EventEditor) for
+// core_v2 events, the old AdminEventDetail for every other event (see EventEditorRoute).
+const EventEditorRoute = lazyWithRetry(() => import('@/components/admin/events/EventEditorRoute').then(m => ({ default: m.EventEditorRoute })));
 // Sponsorship panel repurposed into the fulfilment tracker (shared with the
 // top-level /sponsorship route so Yacht Club de Monaco reaches the same hub).
 const SponsorshipHub = lazyWithRetry(() => import('@/components/sponsorship/SponsorshipHub').then(m => ({ default: m.SponsorshipHub })));
@@ -90,17 +92,6 @@ function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
 
   if (!isAdmin) return null;
   return <>{children}</>;
-}
-
-/**
- * One event editor per URL. Going from /admin/events/<id> to /admin/events/new?type=…
- * (sidebar links) would otherwise reuse the instance and carry the previous event's
- * form, pricing and cover into the new one.
- */
-function KeyedAdminEventDetail() {
-  const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  return <AdminEventDetail key={`${id}:${searchParams.get('type') ?? ''}`} />;
 }
 
 function AdminLazyFallback() {
@@ -184,7 +175,7 @@ export function AdminPage() {
             <Route path="/resources" element={<AdminResources />} />
             <Route path="/resources/:id" element={<AdminResourceDetail />} />
             <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
-            <Route path="/events/:id" element={<AdminOnlyGuard><KeyedAdminEventDetail /></AdminOnlyGuard>} />
+            <Route path="/events/:id" element={<AdminOnlyGuard><EventEditorRoute /></AdminOnlyGuard>} />
             <Route path="/sm26" element={<AdminOnlyGuard><AdminSM26 /></AdminOnlyGuard>} />
             <Route path="/sm26/evaluation" element={<AdminOnlyGuard><AdminSM26Evaluation /></AdminOnlyGuard>} />
             {/* Jury and Awards are tabs of Evaluation; their old stand-alone pages had no link left. */}

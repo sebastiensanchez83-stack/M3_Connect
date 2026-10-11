@@ -12,6 +12,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { cn, type CalendarEventInput } from '@/lib/utils';
+import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
+import { MyParticipations, REGISTRATION_TYPE_LABELS } from '@/components/registration/MyParticipations';
 import { humanize, uiLocale } from './format';
 
 /**
@@ -20,6 +22,13 @@ import { humanize, uiLocale } from './format';
  * included. Moved from the old /account?tab=registrations, reads and writes
  * unchanged. The Smart Marina 2026 participation is no longer managed here: the
  * event is over, the dashboard only marks it (SM26TookPart).
+ *
+ * Unified registration (Oct 2026): once the new event pages are switched on
+ * (registration_flags.webinar_v2 or onsite_v2), the list is every registration
+ * whatever the way it was made (my_participations: the new registrations, the
+ * World Yachting Summit guest list, the old member registrations, Smart Marina
+ * 2026 read-only) — src/components/registration/MyParticipations.tsx. Switched
+ * off, or if that list cannot be read, the list below is unchanged.
  */
 
 interface RegisteredEvent {
@@ -46,15 +55,6 @@ interface EventRegistration {
   events: RegisteredEvent | null;
 }
 
-const REGISTRATION_TYPE_LABELS: Record<string, { key: string; fallback: string }> = {
-  visitor: { key: 'accountArea.events.regType.visitor', fallback: 'Visitor' },
-  sponsor_included: { key: 'accountArea.events.regType.sponsor_included', fallback: 'Sponsor seat' },
-  member_discount: { key: 'accountArea.events.regType.member_discount', fallback: 'Member rate' },
-  package: { key: 'accountArea.events.regType.package', fallback: 'Package' },
-  marina_package: { key: 'accountArea.events.regType.marina_package', fallback: 'Marina package' },
-  invitation_request: { key: 'accountArea.events.regType.invitation_request', fallback: 'Invitation request' },
-  exhibitor: { key: 'accountArea.events.regType.exhibitor', fallback: 'Exhibitor' },
-};
 
 /** As the calendar links assume: an event without an end time lasts an hour. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;
@@ -69,7 +69,18 @@ function eventWindow(e: Pick<RegisteredEvent, 'date_time' | 'end_date_time' | 'i
   return { start, end };
 }
 
-export function MyEvents() {
+export function MyEvents({ hideSm26 = false }: { hideSm26?: boolean } = {}) {
+  const { flags, ready } = useRegistrationFlags();
+  const [unavailable, setUnavailable] = useState(false);
+  if (!ready) return <MemberPanel><RowSkeleton rows={2} /></MemberPanel>;
+  if (newEventPagesOn(flags) && !unavailable) {
+    return <MyParticipations hideSm26={hideSm26} onUnavailable={() => setUnavailable(true)} />;
+  }
+  return <LegacyMyEvents />;
+}
+
+/** The member registrations of event_registrations, as before the unified registration. */
+function LegacyMyEvents() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const uid = user?.id;

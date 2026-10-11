@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { RequestKind } from '@/lib/accountNav';
+import { isActiveStatus, statusPagePath, type Participation } from '@/lib/registration';
 
 /**
  * Everything the home dashboard's cards summarise, in one parallel load (the
@@ -75,6 +76,12 @@ export interface DashboardData {
   orgCounts: OrgCounts | null;
   references: { total: number; confirmed: number; waiting: number } | null;
   shortlistCount: number | null;
+  /**
+   * Unified registration: upcoming registrations where the M3 team asked a question
+   * (status needs_info), and where to answer (the registration's page when there is
+   * exactly one linked to the account, else null: My events).
+   */
+  eventInfo: { count: number; path: string | null };
 }
 
 export interface DashboardDataInput {
@@ -95,6 +102,12 @@ export interface DashboardDataInput {
   enabled: boolean;
   /** Bumped to load again in place (an editor was closed: its summary may have changed). */
   version: number;
+  /**
+   * The unified registration is on (registration_flags): "My events" counts every
+   * registration of my_participations (requests under review, waiting lists and
+   * questions from M3 included), as the events panel lists them.
+   */
+  unified?: boolean;
 }
 
 /** Same default as the event page when an event has no end time. */
@@ -133,6 +146,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
     uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities,
     canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version,
   } = input;
+  const unified = input.unified === true;
   const [data, setData] = useState<Omit<DashboardData, 'loading'>>({
     opportunities: [],
     requestCounts: EMPTY_COUNTS,
@@ -145,6 +159,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
     orgCounts: null,
     references: null,
     shortlistCount: null,
+    eventInfo: { count: 0, path: null },
   });
   const [loading, setLoading] = useState(true);
   const firstLoad = useRef(true);
@@ -166,7 +181,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
 
       const [
         sectorRes, rfpRes, consultRes, myRfpRes, myConsultRes, myProjRes, myWebinarRes, accessRes, resRes,
-        orgRes, memberCountRes, orgSectorCountRes, refRes, shortlistRes,
+        orgRes, memberCountRes, orgSectorCountRes, refRes, shortlistRes, partsRes,
       ] = await Promise.all([
         safe<{ sector_id: string }[]>(sectorTable && orgId ? supabase.from(sectorTable).select('sector_id').eq('organization_id', orgId) : null),
         safe<{ id: string; title: string; deadline_date: string | null; created_at: string; sector_id: string | null }[]>(isSupply && canSeeOpportunities
@@ -200,6 +215,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         safe<unknown>(meterOn ? supabase.from(orgSectorTable).select('sector_id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
         safe<{ status: string }[]>(isPartnerOrg && orgId ? supabase.from('reference_requests').select('status').eq('partner_organization_id', orgId) : null),
         safe<unknown>(hasShortlist ? supabase.from('org_bookmarks').select('id', { count: 'exact', head: true }).eq('user_id', uid) : null),
+        safe<Participation[]>(unified ? supabase.rpc('my_participations') : null),
       ]);
       if (!alive) return;
 
@@ -252,6 +268,18 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       }
       upcomingRegistered.sort((a, b) => a.date_time.localeCompare(b.date_time));
 
+      // Unified registration: the counts of the events panel (every engine; Smart Marina 2026
+      // has its own line on the tile). Unreadable, the counts above stay.
+      let eventInfo: DashboardData['eventInfo'] = { count: 0, path: null };
+      if (unified && Array.isArray(partsRes.data)) {
+        const held = partsRes.data.filter((p) => p.engine !== 'sm26' && isActiveStatus(p.status));
+        upcomingCount = held.filter((p) => !p.is_past).length;
+        pastCount = held.filter((p) => p.is_past).length;
+        const asked = held.filter((p) => !p.is_past && p.status_display === 'needs_info');
+        const only = asked.length === 1 && asked[0].engine === 'core_v2' && asked[0].linked ? asked[0] : null;
+        eventInfo = { count: asked.length, path: only ? statusPagePath(only.registration_id) : null };
+      }
+
       // Resources — sector matches first; without sectors, simply the newest (stable sort).
       const resources = (resRes.data ?? []).map((r) => ({
         id: r.id, title: r.title, summary: r.summary, type: r.type, thumbnail_url: r.thumbnail_url,
@@ -276,6 +304,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
           waiting: refs.filter((r) => r.status === 'pending' || r.status === 'sent').length,
         } : null,
         shortlistCount: hasShortlist ? shortlistRes.count ?? 0 : null,
+        eventInfo,
       });
       firstLoad.current = false;
       setLoading(false);
@@ -286,7 +315,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       if (alive) setLoading(false);
     });
     return () => { alive = false; };
-  }, [uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities, canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version]);
+  }, [uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities, canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version, unified]);
 
   return { ...data, loading: enabled ? loading : false };
 }

@@ -28,6 +28,12 @@ import { THEMES, getTheme, themesForSectors, type ThemeKey } from '@/lib/themes'
 import { accountHref } from '@/lib/accountNav';
 import { canCreate } from '@/lib/nav';
 import { cn, downloadICS } from '@/lib/utils';
+import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
+import {
+  fetchMyParticipations, fetchOpenRegistrations, isActiveStatus, isShownRegistration,
+  type OpenRegistration, type Participation,
+} from '@/lib/registration';
+import { ParticipateCardAction } from '@/components/registration/ParticipateCardAction';
 import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 
@@ -54,6 +60,13 @@ import { scrollTopUnderBars } from '@/lib/scrollTarget';
  * intake page, invitation-only events go to the event page (which knows about
  * guest lists and invitation requests), and the quick "Register" still writes
  * the same event_registrations row as before.
+ *
+ * Unified registration (Oct 2026), once registration_flags.webinar_v2 or onsite_v2
+ * is on: an event of the new registration engine (core_v2) shows the compact form
+ * of the event page's block instead (ParticipateCardAction: one-tap "Save my seat"
+ * for a signed-in member on a webinar, the member's own status, or the way to the
+ * event page), and "Registered" / "My events" count those registrations too.
+ * Every other event keeps the path above.
  */
 
 interface Event extends ListEvent {
@@ -178,6 +191,39 @@ export function EventsPage() {
     return () => { alive = false; };
   }, [userId]);
 
+  // Unified registration (switched on by registration_flags): the events that take
+  // registrations, as anyone sees them, and the member's own registrations, each
+  // read once for the whole list. Off, nothing is read and the cards are unchanged.
+  const { flags, ready: flagsReady } = useRegistrationFlags();
+  const v2On = flagsReady && newEventPagesOn(flags);
+  const [openRegs, setOpenRegs] = useState<Map<string, OpenRegistration>>(new Map());
+  const [myParts, setMyParts] = useState<Map<string, Participation>>(new Map());
+  const [partsVersion, setPartsVersion] = useState(0);
+  useEffect(() => {
+    if (!v2On) { setOpenRegs(new Map()); return; }
+    let alive = true;
+    fetchOpenRegistrations().then((rows) => {
+      if (alive) setOpenRegs(new Map(rows.filter((r) => r.event_id).map((r) => [r.event_id as string, r])));
+    });
+    return () => { alive = false; };
+  }, [v2On, reloadKey, partsVersion]);
+  useEffect(() => {
+    if (!v2On || !userId) { setMyParts(new Map()); return; }
+    let alive = true;
+    fetchMyParticipations().then(({ rows }) => {
+      if (!alive) return;
+      const m = new Map<string, Participation>();
+      // One row per event: a registration to show wins over a cancelled or declined one.
+      for (const r of rows) {
+        if (!r.event_id) continue;
+        const prev = m.get(r.event_id);
+        if (!prev || (!isShownRegistration(prev.status) && isShownRegistration(r.status))) m.set(r.event_id, r);
+      }
+      setMyParts(m);
+    });
+    return () => { alive = false; };
+  }, [v2On, userId, partsVersion]);
+
   // SM-managed events (e.g. SM26) route registration to their own intake page.
   useEffect(() => {
     if (!SM26_ENABLED) return;
@@ -255,7 +301,23 @@ export function EventsPage() {
   };
 
   // ---------------------------------------------------------------- derived
-  const registeredSet = useMemo(() => new Set(registeredEvents), [registeredEvents]);
+  // With the unified registration on, "registered" also counts the new registrations (any engine).
+  const registeredSet = useMemo(() => {
+    const set = new Set(registeredEvents);
+    for (const [eventId, p] of myParts) if (isActiveStatus(p.status)) set.add(eventId);
+    return set;
+  }, [registeredEvents, myParts]);
+  // The cards' "Registered" mark: a place held. A request still under review, or a waiting
+  // list, is not one (the card's button says where it stands). An old member registration
+  // (engine 'legacy') keeps the mark it had before, whatever its payment stage.
+  const placeSet = useMemo(() => {
+    const set = new Set(registeredEvents);
+    for (const [eventId, p] of myParts) {
+      if (p.status_display === 'confirmed') set.add(eventId);
+      else if (p.engine !== 'legacy') set.delete(eventId);
+    }
+    return set;
+  }, [registeredEvents, myParts]);
 
   const themesByEvent = useMemo(() => {
     const m: Record<string, ThemeKey[]> = {};
@@ -447,6 +509,20 @@ export function EventsPage() {
     }
 
     // Upcoming, or date still to be announced.
+    // An event of the unified registration (switched on): the compact form of the event page's block.
+    const openReg = v2On ? openRegs.get(e.id) : undefined;
+    if (openReg && openReg.engine === 'core_v2') {
+      return (
+        <ParticipateCardAction
+          reg={openReg}
+          mine={myParts.get(e.id) ?? null}
+          signedIn={signedIn}
+          verified={isVerified}
+          onNavy={onNavy}
+          onRegistered={() => setPartsVersion((v) => v + 1)}
+        />
+      );
+    }
     if (e.invitation_only) {
       // The event page knows whether invitations run on a guest list, on a
       // request, or are included in the member's sponsorship.
@@ -530,7 +606,7 @@ export function EventsPage() {
   const viewProps = (e: Event, phase: Phase) => ({
     event: e,
     phase,
-    registered: registeredSet.has(e.id),
+    registered: placeSet.has(e.id),
     themes: themesByEvent[e.id] ?? [],
     themeLabel,
     kindLabel,

@@ -23,6 +23,7 @@ import { useInboxCount } from '@/hooks/useInboxCount';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { sm26Kind, sm26TeamWent, useSm26Participation } from '@/hooks/useSm26Participation';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
 import { CREATE_ACTIONS, canCreate } from '@/lib/nav';
 import {
   accountHref, getHomeSection, homeSectionVisible, isHomePanel, legacyOpenTarget,
@@ -139,6 +140,7 @@ export default function MemberDashboard() {
   // A version bump reloads the tiles' summaries (after a change, or a panel closing).
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
+  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
   const data = useDashboardData({
     uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities,
     canProjects, canRFPs, canConsultations,
@@ -146,6 +148,7 @@ export default function MemberDashboard() {
     hasShortlist: visible('shortlist'),
     enabled: active,
     version,
+    unified: regFlagsReady && newEventPagesOn(regFlags),
   });
 
   /* ---------------------------------------------------------- the open panel */
@@ -282,6 +285,15 @@ export default function MemberDashboard() {
       hint: t('dash.todo.joinHint', { org: orgName, defaultValue: 'They say they work at {{org}}.' }),
     });
   }
+  // The M3 team asked a question about a registration: the answer is given on its page.
+  if (data.eventInfo.count > 0) {
+    todos.push({
+      key: 'event_info', urgent: true, icon: MessageSquare,
+      to: data.eventInfo.path ?? accountHref('registrations'),
+      title: t('dash.todo.eventInfo', { count: data.eventInfo.count, defaultValue_one: 'Answer the M3 team about your registration', defaultValue_other: 'Answer the M3 team about {{count}} registrations' }),
+      hint: t('dash.todo.eventInfoHint', 'They need one more detail before deciding.'),
+    });
+  }
   if (organization && isOwner && companyReady) {
     if (!brand.logo) todos.push({ key: 'logo', urgent: false, icon: ImagePlus, title: t('dash.todo.logo', 'Add your company logo'), hint: t('dash.todo.logoHint', 'Companies with a logo are easier to recognise.') });
     if (!brand.description) todos.push({ key: 'description', urgent: false, icon: PenLine, title: t('dash.todo.description', 'Add a description of your company'), hint: t('dash.todo.descriptionHint', 'A few sentences about what you do.') });
@@ -394,6 +406,7 @@ export default function MemberDashboard() {
   // My events
   {
     const parts: string[] = [];
+    if (data.eventInfo.count > 0) parts.push(t('dash.st.eventInfo', 'The M3 team needs a detail from you'));
     if (data.upcomingCount > 0) parts.push(t('dash.st.upcoming', { count: data.upcomingCount, defaultValue_one: '{{count}} upcoming event', defaultValue_other: '{{count}} upcoming events' }));
     if (sm26What === 'you') parts.push(t('dash.st.sm26You', 'You attended Smart Marina 2026'));
     else if (sm26What === 'team') parts.push(t('dash.st.sm26Team', 'Your team attended Smart Marina 2026'));
@@ -401,7 +414,7 @@ export default function MemberDashboard() {
     const status = data.loading ? loadingLine : parts.length > 0 ? parts.join(' · ')
       : data.pastCount > 0 ? t('dash.st.pastOnly', { count: data.pastCount, defaultValue_one: '{{count}} past event', defaultValue_other: '{{count}} past events' })
         : t('dash.st.noEvents', 'No registration yet');
-    tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
+    tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: data.eventInfo.count > 0 ? 'action' : sm26What ? 'done' : 'plain' });
   }
 
   // Messages: "3 unread messages · 1 request waiting" (useInboxCount, the navbar dot's count).

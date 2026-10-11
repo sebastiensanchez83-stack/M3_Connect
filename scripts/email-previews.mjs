@@ -129,6 +129,16 @@ const webRem = load("guest-webinar-reminders", ["buildReminderEmail"]);
 const sponsorInvite = load("sponsor-invite", ["buildInviteEmail"]);
 const spNotify = load("sp-notify", ["buildAssetNeededEmail"]);
 const guestList = load("guest-list", ["renderPass", "renderInvitation", "renderRequestAck", "renderReject", "renderStaffNotice"]);
+// Registration core (9 Oct 2026): registration, registration-cron, provision-person.
+const reg = load("registration", [
+  "ctxOf", "buildIcs", "checkAnswer", "renderWebinarConfirmed", "renderReceived", "renderWaitlisted", "renderAlreadyRegistered",
+  "renderOnsiteConfirmed", "renderInfoRequested", "renderNotAccepted", "renderCancelled", "renderStatusLinks",
+  "renderStaffNewRegistration", "renderStaffInfoProvided", "renderFloodAlert", "renderParityAck", "renderParityStaffNotice",
+]);
+const regCron = load("registration-cron", [
+  "ctxOf", "durationMs", "remindersOf", "renderReminder", "renderFollowup", "renderReplayAvailable", "renderEventDigest", "renderReviewDigest", "signUnsubToken",
+]);
+const provision = load("provision-person", ["renderAccountReady", "renderTeamMemberAdded"]);
 const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
 
 // A token signed by send-notification verifies in the unsubscribe function, and a
@@ -389,6 +399,83 @@ try {
   if (items.find((x) => x.id === "digest-1-messages-and-requests").subject !== "This week you received 5 messages") fail("digest-1: unexpected subject");
 }
 
+// Registration core: registration, registration-cron, provision-person (fictional data).
+const regWebinarEv = {
+  id: "00000000-0000-4000-8000-0000000000d1", slug: "shore-power-webinar", title: "Shore power webinar", legacy_event_id: webinar.id,
+  engine: "core_v2", kind: "webinar", registration_mode: "instant", hidden: false, reminders: [], settings: {},
+  meeting_url: "https://meet.example.com/j/123456", replay_url: null, notify_email: "events@m3monaco.com", staff_alert_mode: "each", standard_fields: {},
+};
+const regOnsiteEv = {
+  id: "00000000-0000-4000-8000-0000000000d2", slug: "marina-days-2027", title: "Marina Days 2027", legacy_event_id: "00000000-0000-4000-8000-0000000000d3",
+  engine: "core_v2", kind: "onsite", registration_mode: "review", hidden: false, reminders: ["P7D"],
+  settings: { practical_info: "Doors open at 08:30. Bring an ID.\nPublic parking on the quay." }, notify_email: "events@m3monaco.com", standard_fields: { company: "required" },
+};
+const regOnsiteCat = { id: "00000000-0000-4000-8000-0000000000d3", title: "Marina Days 2027", date_time: "2027-03-11T08:30:00.000Z", end_date_time: "2027-03-11T17:00:00.000Z", is_full_day: false, location: "Port Hercule, Monaco", published: true };
+const regGuest = {
+  id: "00000000-0000-4000-8000-0000000000d4", first_name: "Sam", last_name: "Rivera", email: "sam.rivera@example.com", company: "Nautic Systems",
+  job_title: "Sales manager", phone: "+33 6 00 00 00 01", country: "France", status: "confirmed", source: "registration", ticket_key: null,
+  answers: { objective: "Meet marinas renewing their shore power", sectors: ["energy"] }, info_request: "Could you tell us which marina you work with?",
+  checkin_token: "00000000-0000-4000-8000-0000000000d5", user_id: null,
+};
+const regQuestions = [
+  { key: "objective", label: "What would you like to get from the day?", kind: "textarea" },
+  { key: "sectors", label: "Sectors", kind: "sectors" },
+];
+const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_TOKEN_123`;
+{
+  const add = (id, source, to, mail, o = {}) => items.push({ id, source, to, ...mail, ...o });
+  const wctx = reg.ctxOf(regWebinarEv, { ...webinar, id: webinar.id });
+  const octx = reg.ctxOf(regOnsiteEv, regOnsiteCat);
+  const qrPreview = (html) => (wysQr ? html.replace("cid:passqr", wysQr) : html);
+  add("reg-01-webinar-confirmed", "registration · webinar registration confirmed (.ics attached)", regGuest.email, reg.renderWebinarConfirmed(wctx, regGuest, { status: STATUS_LINK, join: regWebinarEv.meeting_url }));
+  add("reg-02-received", "registration · registration received (M3 review)", regGuest.email, reg.renderReceived(octx, { ...regGuest, status: "requested" }, { status: STATUS_LINK }, "within 2 working days"));
+  add("reg-03-request-received", "registration · invitation request received", regGuest.email, reg.renderReceived(octx, { ...regGuest, status: "requested", source: "request" }, { status: STATUS_LINK }, "within 2 working days"));
+  add("reg-04-waitlisted", "registration · waiting list", regGuest.email, reg.renderWaitlisted(wctx, { ...regGuest, status: "waitlisted" }, { status: STATUS_LINK }));
+  add("reg-05-already-registered", "registration · already registered (same public answer)", regGuest.email, reg.renderAlreadyRegistered(wctx, regGuest, { status: STATUS_LINK }));
+  add("reg-06-onsite-confirmed", "registration · on-site place confirmed, entry QR (staff decision)", regGuest.email, reg.renderOnsiteConfirmed(octx, regGuest, { status: STATUS_LINK, ticket: "Visitor" }), { previewHtml: qrPreview });
+  add("reg-07-info-requested", "registration · M3 needs a detail", regGuest.email, reg.renderInfoRequested(octx, { ...regGuest, status: "needs_info" }, { status: STATUS_LINK }, regGuest.info_request));
+  add("reg-08-not-accepted", "registration · not accepted", regGuest.email, reg.renderNotAccepted(octx, { ...regGuest, status: "rejected" }));
+  add("reg-09-cancelled", "registration · cancelled by the person", regGuest.email, reg.renderCancelled(wctx, { ...regGuest, status: "cancelled" }));
+  add("reg-10-status-links", "registration · Get my links (two events)", regGuest.email, reg.renderStatusLinks("Sam", [
+    { title: wctx.title, when: "Thursday 18 February 2027, 15:00–16:00 (CET)", url: STATUS_LINK, label: "View my registration" },
+    { title: "World Yachting Summit 2026", when: "27 November 2026", url: `${SITE}/wys26/guest?t=${GUEST_TOKEN}`, label: "View my request" },
+  ]), { noButton: true });
+  add("reg-11-staff-new", "registration · staff alert, new registration", "events@m3monaco.com", reg.renderStaffNewRegistration(octx, { ...regGuest, status: "requested" }, regQuestions, "Visitor"));
+  add("reg-12-staff-info", "registration · staff alert, information provided (answer + changed details)", "events@m3monaco.com", reg.renderStaffInfoProvided(octx, { ...regGuest, status: "requested" }, regQuestions, null, { answer: "We work with Port Azur Marina, I manage their shore power project.", changed: ["Company", "What would you like to get from the day?"] }));
+  add("reg-12b-staff-info-unchanged", "registration · staff alert, information provided (details confirmed as they are)", "events@m3monaco.com", reg.renderStaffInfoProvided(octx, { ...regGuest, status: "requested" }, regQuestions, null));
+  add("reg-13-flood", "registration · staff alert, unusual activity", "events@m3monaco.com", reg.renderFloodAlert(wctx, 57));
+  add("reg-14-wys-parity-ack", "registration · wys26 request acknowledgement (parity, + View my request)", wysGuest.email, reg.renderParityAck(wys, wysGuest));
+  add("reg-15-wys-parity-staff", "registration · wys26 staff notification (parity)", "events@m3monaco.com", reg.renderParityStaffNotice(wys, wysGuest));
+
+  const unsubAccount = { label: "Unsubscribe from event e-mails", url: `${SITE}/unsubscribe?t=EXAMPLE_PAYLOAD.EXAMPLE_SIGNATURE` };
+  const unsubGuest = { label: "Stop e-mails about this event", url: `${STATUS_LINK}&reminders=off` };
+  const cw = regCron.ctxOf(regWebinarEv, { ...webinar });
+  const co = regCron.ctxOf(regOnsiteEv, regOnsiteCat);
+  add("cron-1-reminder-7-days", "registration-cron · webinar reminder 7 days before", regGuest.email, regCron.renderReminder(cw, regGuest, { key: "P7D", ms: 7 * 86400000 }, { status: STATUS_LINK, join: regWebinarEv.meeting_url, qr: false, optOut: unsubGuest }));
+  add("cron-2-reminder-1-day", "registration-cron · webinar reminder the day before (join link)", regGuest.email, regCron.renderReminder(cw, regGuest, { key: "P1D", ms: 86400000 }, { status: STATUS_LINK, join: regWebinarEv.meeting_url, qr: false, optOut: unsubAccount }));
+  add("cron-3-reminder-1-hour", "registration-cron · webinar reminder 1 hour before (join link)", regGuest.email, regCron.renderReminder(cw, regGuest, { key: "PT1H", ms: 3600000 }, { status: STATUS_LINK, join: regWebinarEv.meeting_url, qr: false, optOut: unsubGuest }));
+  add("cron-4-reminder-onsite", "registration-cron · on-site reminder 7 days before (practical information, QR)", regGuest.email, regCron.renderReminder(co, regGuest, { key: "P7D", ms: 7 * 86400000 }, { status: STATUS_LINK, join: null, qr: true, optOut: unsubGuest }), { previewHtml: qrPreview });
+  add("cron-5-followup-replay", "registration-cron · absentee follow-up with the replay", regGuest.email, regCron.renderFollowup(cw, regGuest, { replay: "https://replay.example.com/shore-power", attendanceKnown: true, optOut: unsubGuest }));
+  add("cron-6-followup-no-replay", "registration-cron · absentee follow-up, no replay yet", regGuest.email, regCron.renderFollowup(cw, regGuest, { replay: null, attendanceKnown: true, optOut: unsubAccount }));
+  add("cron-7-replay-everyone", "registration-cron · replay available (attendance not recorded)", regGuest.email, regCron.renderFollowup(cw, regGuest, { replay: "https://replay.example.com/shore-power", attendanceKnown: false, optOut: unsubGuest }));
+  add("cron-8-replay-available", "registration-cron · replay added after the follow-up", regGuest.email, regCron.renderReplayAvailable(cw, regGuest, { replay: "https://replay.example.com/shore-power", optOut: unsubGuest }));
+  add("cron-9-event-digest", "registration-cron · staff digest of new registrations (event in digest mode)", "events@m3monaco.com", regCron.renderEventDigest(co, [
+    { first_name: "Sam", last_name: "Rivera", company: "Nautic Systems", status: "requested" },
+    { first_name: "Alex", last_name: "Martin", company: "Port Azur Marina", status: "confirmed" },
+  ], 2));
+  add("cron-10-review-digest", "registration-cron · M3 daily review digest", "events@m3monaco.com", regCron.renderReviewDigest({
+    registrations: [
+      { title: "World Yachting Summit 2026", slug: "wys26", requested: 4, needs_info: 0, oldestDays: 3, url: `${SITE}/admin/guest-list/wys26` },
+      { title: "Marina Days 2027", slug: "marina-days-2027", requested: 2, needs_info: 1, oldestDays: 1, url: `${SITE}/admin/events/${regOnsiteCat.id}` },
+    ],
+    people: { pending: 5, submitted: 3, oldestDays: 6 },
+    companies: { pending: 2, byVerifiedMembers: 1, oldestDays: 9 },
+    provisioning: { failed: 1, queued: 0 },
+  }));
+  add("account-5-ready-set-password", "provision-person · account created at confirmation (set password)", regGuest.email, provision.renderAccountReady("Sam", "Marina Days 2027", `${SITE}/welcome?token_hash=EXAMPLE_TOKEN_HASH&type=invite&next=%2Fdashboard`));
+  add("account-6-team-member-added", "provision-person · FYI to the company owner", "camille.durand@example.com", provision.renderTeamMemberAdded("Camille", "Sam Rivera", regGuest.email, "Port Azur Marina & Yacht Club", "Marina Days 2027"));
+}
+
 // ---------------------------------------------------------------- checks on what was rendered
 
 for (const it of items) {
@@ -450,6 +537,125 @@ for (const it of items) {
 
   const evilAuth = auth.buildEmail({ lang: "en", greeting: "<i>Hi</i>", ...auth.COPY.en.emailChangeNew("<s>x</s>@example.com", false), buttonUrl: `${SITE}/?a=1&b="2"` });
   if (/<s>x|<i>Hi/.test(evilAuth)) fail("escaping: auth e-mail values reached the HTML as markup");
+}
+
+// ---------------------------------------------------------------- registration core checks
+{
+  // The unsubscribe token block pasted in registration-cron is identical to the
+  // unsubscribe function's, and a token it signs verifies there.
+  const T_START = "// ---- SMC unsubscribe token v1";
+  const T_END = "// ---- end SMC unsubscribe token ----";
+  const blockOf = (fn) => {
+    const src = fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
+    const a = src.indexOf(T_START);
+    const b = src.indexOf(T_END);
+    return a < 0 || b < 0 ? null : src.slice(a, b + T_END.length);
+  };
+  for (const fn of ["registration-cron"]) {
+    const block = blockOf(fn);
+    if (!block) fail(`${fn}: the unsubscribe token block is missing`);
+    else if (block !== blockOf("unsubscribe")) fail(`${fn}: the unsubscribe token block differs from the unsubscribe function`);
+  }
+  const checker = load("unsubscribe", ["verifyUnsubToken"]);
+  const key = "example-service-role-key";
+  const uid = "00000000-0000-4000-8000-000000000009";
+  const tok = await regCron.signUnsubToken(key, uid, "events");
+  const ok = await checker.verifyUnsubToken(key, tok);
+  if (!ok || ok.userId !== uid || ok.category !== "events") fail("registration-cron: its unsubscribe token does not verify in the unsubscribe function");
+
+  // wys26 parity: the staff notice is guest-list's, byte for byte; the acknowledgement is
+  // guest-list's plus the "View my request" button to the personal link.
+  const glNotice = guestList.renderStaffNotice(wys, wysGuest);
+  const pNotice = reg.renderParityStaffNotice(wys, wysGuest);
+  if (glNotice.subject !== pNotice.subject || glNotice.html !== pNotice.html || glNotice.text !== pNotice.text) fail("registration: the wys26 staff notice differs from guest-list's");
+  const plusHost = { ...wysGuest, first_name: "Alex" };
+  const plusRow = { ...wysGuest, first_name: "Sam", last_name: "Rivera", email: "sam.rivera@example.com", motivation: "" };
+  if (guestList.renderStaffNotice(wys, plusRow, plusHost).html !== reg.renderParityStaffNotice(wys, plusRow, plusHost).html) fail("registration: the wys26 plus-one staff notice differs from guest-list's");
+  const glAck = guestList.renderRequestAck(wys, wysGuest);
+  const pAck = reg.renderParityAck(wys, wysGuest);
+  const personal = `${SITE}/wys26/guest?t=${GUEST_TOKEN}`;
+  if (glAck.subject !== pAck.subject) fail("registration: the wys26 acknowledgement subject differs from guest-list's");
+  if (pAck.text.replace(`View my request: ${personal}\n\n`, "") !== glAck.text) fail("registration: the wys26 acknowledgement text differs from guest-list's (apart from the button)");
+  if (!pAck.html.includes(`href="${personal}"`)) fail("registration: the wys26 acknowledgement has no View my request link");
+
+  // The staff alert of an answered question carries the answer and what changed.
+  {
+    const it = items.find((i) => i.id === "reg-12-staff-info");
+    if (!it || !it.html.includes("Port Azur Marina, I manage") || !it.text.includes("Their answer:") || !it.text.includes("Details changed: Company")) fail("reg-12-staff-info: the answer or the changed details are missing");
+    const un = items.find((i) => i.id === "reg-12b-staff-info-unchanged");
+    if (!un || !un.text.includes("No details were changed.")) fail("reg-12b-staff-info-unchanged: no 'No details were changed.' line");
+  }
+
+  // No status token, QR or personal link in a subject line.
+  for (const it of items.filter((i) => /^(reg|cron|account-5|account-6)-/.test(i.id))) {
+    if (/registration\?t=|guest\?t=|token|EXAMPLE_/i.test(it.subject)) fail(`${it.id}: a link or token in the subject`);
+  }
+  // Reminders and follow-ups carry an opt-out link; transactional mails do not.
+  for (const it of items.filter((i) => i.id.startsWith("cron-") && !/digest/.test(i.id))) {
+    if (!/Unsubscribe from event e-mails|Stop e-mails about this event/.test(it.html) || !/unsubscribe|reminders=off/.test(it.text)) fail(`${it.id}: no opt-out link`);
+  }
+  for (const id of ["reg-06-onsite-confirmed", "cron-4-reminder-onsite"]) {
+    const it = items.find((i) => i.id === id);
+    if (it && !it.html.includes('src="cid:passqr"')) fail(`${id}: the inline QR reference (cid:passqr) is gone`);
+  }
+  for (const id of ["reg-01-webinar-confirmed", "cron-2-reminder-1-day", "cron-3-reminder-1-hour"]) {
+    const it = items.find((i) => i.id === id);
+    if (it && !it.html.includes("https://meet.example.com/j/123456")) fail(`${id}: the join link is missing`);
+  }
+
+  // Durations of gl_event.reminders, default reminders, answers, calendar file.
+  const D = 86400000;
+  const durations = { P7D: 7 * D, P1D: D, PT1H: 3600000, PT30M: 1800000, P1W: 7 * D, P1DT2H: D + 7200000 };
+  for (const [k, v] of Object.entries(durations)) if (regCron.durationMs(k) !== v) fail(`registration-cron: duration ${k} read as ${regCron.durationMs(k)}`);
+  for (const bad of ["1D", "P", "PXD", "P-1D", "PT"]) if (regCron.durationMs(bad) !== null) fail(`registration-cron: invalid duration ${bad} accepted`);
+  const keys = (ev) => regCron.remindersOf(regCron.ctxOf(ev, null)).map((r) => r.key).join(",");
+  if (keys({ ...regWebinarEv, reminders: [] }) !== "PT1H,P1D,P7D") fail("registration-cron: default webinar reminders are not 7 days, 1 day, 1 hour");
+  if (keys({ ...regOnsiteEv, reminders: [] }) !== "P7D") fail("registration-cron: default on-site reminder is not 7 days");
+  if (keys({ ...regWebinarEv, reminders: ["P1D"] }) !== "P1D") fail("registration-cron: gl_event.reminders is not followed");
+  if (keys({ ...regWebinarEv, settings: { no_reminders: true } }) !== "") fail("registration-cron: settings.no_reminders is not followed");
+  const q = (kind, extra = {}) => ({ key: "k", kind, ...extra });
+  const opts = [{ value: "a", label: "A" }, "b"];
+  const cases = [
+    [q("text"), "", "empty"], [q("checkbox"), false, "empty"], [q("checkbox"), "yes", "bad"], [q("consent"), true, "value"],
+    [q("select", { options: opts }), "b", "value"], [q("select", { options: opts }), "c", "bad"],
+    [q("multiselect", { options: opts }), ["a", "b"], "value"], [q("multiselect", { options: opts }), ["z"], "bad"],
+    [q("sectors"), ["anything"], "value"], [q("parts", { options: opts }), "a", "bad"], [q("text"), 12, "bad"],
+  ];
+  for (const [question, value, want] of cases) {
+    const r = reg.checkAnswer(question, value);
+    const got = r.bad ? "bad" : r.empty ? "empty" : "value";
+    if (got !== want) fail(`registration: answer ${JSON.stringify(value)} to a ${question.kind} question gave ${got}, expected ${want}`);
+  }
+  if (reg.checkAnswer(q("text", { max_length: 5 }), "abcdefgh").value !== "abcde") fail("registration: max_length is not applied");
+  const ics = reg.buildIcs(reg.ctxOf({ ...regWebinarEv, title: "Marées, quais; et pontons" }, { ...webinar, title: "Marées, quais; et pontons" }), "https://meet.example.com/j/1");
+  if (!ics || !ics.includes("SUMMARY:Marées\\, quais\\; et pontons") || /[^\r]\n/.test(ics) || !ics.startsWith("BEGIN:VCALENDAR")) fail("registration: the calendar file is malformed");
+
+  // Untrusted values never turn into markup.
+  const bad = '"><b id=x>';
+  const evilImg = "<img src=x onerror=alert(1)>";
+  const spoiled = (html) => /<img src=x|<b id=x|<script|<s>x/.test(html.replace(/<style[\s\S]*?<\/style>/, ""));
+  const evilEv = { ...regOnsiteEv, title: evilImg, settings: { practical_info: evilImg, venue: bad } };
+  const evilCtx = reg.ctxOf(evilEv, { ...regOnsiteCat, title: `${evilImg} Days`, location: bad });
+  const evilG = { ...regGuest, first_name: bad, last_name: evilImg, company: evilImg, job_title: bad, info_request: evilImg, answers: { objective: evilImg, sectors: [bad] } };
+  const evilQ = [{ key: "objective", label: evilImg, kind: "textarea" }, { key: "sectors", label: bad, kind: "sectors" }];
+  const evilCron = regCron.ctxOf(evilEv, { ...regOnsiteCat, title: `${evilImg} Days` });
+  const regEvils = {
+    "registration webinar": reg.renderWebinarConfirmed(evilCtx, evilG, { status: `${SITE}/?a=1&b="${bad}"`, join: `https://x.example.com/?q="${bad}"` }).html,
+    "registration received": reg.renderReceived(evilCtx, evilG, { status: STATUS_LINK }, evilImg).html,
+    "registration onsite": reg.renderOnsiteConfirmed(evilCtx, evilG, { status: STATUS_LINK, ticket: evilImg }).html,
+    "registration info": reg.renderInfoRequested(evilCtx, evilG, { status: STATUS_LINK }, evilImg).html,
+    "registration links": reg.renderStatusLinks(bad, [{ title: evilImg, when: bad, url: `${SITE}/?a="${bad}"`, label: evilImg }]).html,
+    "registration staff": reg.renderStaffNewRegistration(evilCtx, evilG, evilQ, evilImg).html + reg.renderStaffInfoProvided(evilCtx, evilG, evilQ, bad, { answer: evilImg, changed: [bad, evilImg] }).html,
+    "registration cancelled": reg.renderCancelled(evilCtx, evilG).html + reg.renderNotAccepted(evilCtx, evilG).html + reg.renderWaitlisted(evilCtx, evilG, { status: null }).html,
+    "registration-cron reminder": regCron.renderReminder(evilCron, evilG, { key: "P7D", ms: 7 * D }, { status: STATUS_LINK, join: null, qr: true, optOut: { label: evilImg, url: `${SITE}/?a="${bad}"` } }).html,
+    "registration-cron follow-up": regCron.renderFollowup(evilCron, evilG, { replay: null, attendanceKnown: true, optOut: { label: "x", url: SITE } }).html,
+    "registration-cron digests": regCron.renderEventDigest(evilCron, [evilG], 1).html + regCron.renderReviewDigest({
+      registrations: [{ title: evilImg, slug: "x", requested: 1, needs_info: 0, oldestDays: 0, url: `${SITE}/?a="${bad}"` }],
+      people: { pending: 0, submitted: 0, oldestDays: 0 }, companies: { pending: 0, byVerifiedMembers: 0, oldestDays: 0 }, provisioning: { failed: 0, queued: 0 },
+    }).html,
+    "provision-person": provision.renderAccountReady(bad, evilImg, `${SITE}/?a="${bad}"`).html + provision.renderTeamMemberAdded(bad, evilImg, bad, evilImg, evilImg).html,
+  };
+  for (const [fn, html] of Object.entries(regEvils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
 }
 
 // Sign-up activation links always open /welcome (forced password step), whatever page

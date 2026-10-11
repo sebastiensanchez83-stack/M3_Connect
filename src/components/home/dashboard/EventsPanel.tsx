@@ -1,4 +1,4 @@
-import { Suspense, useId, useState } from 'react';
+import { Suspense, useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -85,13 +85,29 @@ export function Sm26Block({ sm26 }: { sm26: Sm26Participation }) {
   );
 }
 
-/** My events: Smart Marina 2026 first when it applies, then every registration (MyEvents, unchanged). */
+/**
+ * My events: Smart Marina 2026 first when it applies, then every registration
+ * (MyEvents). With the unified registration on, the list also holds the SM26
+ * rows: they are left out while the mark above says it, so the edition never
+ * shows twice. While the mark is still loading they wait a few seconds; a mark
+ * that never comes (its read failed) leaves them in the list, so the
+ * participation is never lost from view.
+ */
+const SM26_WAIT_MS = 4000;
+
 export function EventsPanel({ sm26 }: { sm26: Sm26Participation | null }) {
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    if (sm26 !== null) return;
+    const id = window.setTimeout(() => setWaited(true), SM26_WAIT_MS);
+    return () => window.clearTimeout(id);
+  }, [sm26]);
+  const hideSm26 = sm26 === null ? !waited : !!sm26Kind(sm26);
   return (
     <div className="space-y-4">
       {sm26 && <Sm26Block sm26={sm26} />}
       <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={2} /></div>}>
-        <MyEvents />
+        <MyEvents hideSm26={hideSm26} />
       </Suspense>
     </div>
   );

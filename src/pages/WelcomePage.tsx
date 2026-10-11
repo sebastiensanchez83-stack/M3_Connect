@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { markEmailProven } from '@/lib/emailProof';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { toast } from '@/hooks/use-toast';
@@ -313,6 +314,20 @@ export function WelcomePage() {
       // signed in. Best effort: the password itself is saved already.
       const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
       if (othersError) console.error('Other sessions could not be ended:', othersError);
+    }
+    if (redeemedType && !confirmed) {
+      // This visit redeemed an e-mailed link and the password is now one the mailbox owner
+      // chose: the database records the address as proven (registrations sent to it join
+      // the account). Only now, not when the link opened: until this save the password may
+      // have been someone else's (an account made with this address by another person).
+      // Their sessions end with the change (GoTrue; signed out here too, best effort).
+      setBusy(true);
+      if (!mustSetPassword) {
+        const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+        if (othersError) console.error('Other sessions could not be ended:', othersError);
+      }
+      await markEmailProven();
+      setBusy(false);
     }
     toast({
       title: confirmed

@@ -24,12 +24,19 @@ const REFUSAL: Record<string, string> = {
   status_declined: 'Declined the invitation',
   status_rejected: 'Request was refused',
   status_cancelled: 'Invitation cancelled',
+  // New registration system (engine core_v2)
+  status_needs_info: 'Registration waiting for information — not confirmed yet',
+  status_waitlisted: 'On the waiting list — not confirmed',
+  status_approved: 'Approved, payment not received yet',
 };
 
 export function AdminGuestCheckin() {
   const { slug = '' } = useParams();
   const [params, setParams] = useSearchParams();
   const [eventId, setEventId] = useState<string | null>(null);
+  // Events of the new registration system have their own door code (gl_event.door_token
+  // 'separate'): gl_checkin_v2 reads it. Every other event (wys26) keeps gl_checkin.
+  const [rpc, setRpc] = useState<'gl_checkin' | 'gl_checkin_v2'>('gl_checkin');
   const [title, setTitle] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -38,9 +45,11 @@ export function AdminGuestCheckin() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const { data: e } = await supabase.from('gl_event').select('id, title').eq('slug', slug).maybeSingle();
+    // select * : door_token exists only once the registration core is installed.
+    const { data: e } = await supabase.from('gl_event').select('*').eq('slug', slug).maybeSingle();
     if (!e) return;
     setEventId(e.id); setTitle(e.title);
+    setRpc((e as { door_token?: string }).door_token === 'separate' ? 'gl_checkin_v2' : 'gl_checkin');
     const { data } = await supabase.from('gl_guest')
       .select('id, first_name, last_name, company, status, conference, gala, checked_in_at, plus_one_of')
       .eq('event_id', e.id).in('status', ['confirmed', 'invited']).order('last_name');
@@ -51,7 +60,7 @@ export function AdminGuestCheckin() {
   const checkin = useCallback(async (args: { token?: string; guestId?: string }) => {
     if (!eventId) return;
     setBusy(true);
-    const { data, error } = await supabase.rpc('gl_checkin', {
+    const { data, error } = await supabase.rpc(rpc, {
       p_event_id: eventId, p_token: args.token || null, p_guest_id: args.guestId || null, p_undo: false,
     });
     setBusy(false);
@@ -59,7 +68,7 @@ export function AdminGuestCheckin() {
     setVerdict(v);
     try { doorSignal(!v.ok ? 'refused' : v.already ? 'already' : 'admitted'); } catch { /* sound is a nicety */ }
     load();
-  }, [eventId, load]);
+  }, [eventId, load, rpc]);
 
   // Arrived from a phone camera scanning the QR: admit straight away, then
   // drop the token from the address so a refresh does not re-scan.
@@ -70,7 +79,7 @@ export function AdminGuestCheckin() {
 
   const undo = async (guestId: string) => {
     if (!eventId) return;
-    await supabase.rpc('gl_checkin', { p_event_id: eventId, p_token: null, p_guest_id: guestId, p_undo: true });
+    await supabase.rpc(rpc, { p_event_id: eventId, p_token: null, p_guest_id: guestId, p_undo: true });
     setVerdict(null); load();
   };
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Check, X, Send, Mail, QrCode, ExternalLink, Download, Search, Copy, Ban, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import { guestList, partsLabel, type GuestEventSettings, type GuestStatus } from
 // Anything that emails someone goes through the guest-list edge function;
 // plain reads and settings are direct table access (RLS: moderators).
 
-interface GlEvent { id: string; slug: string; title: string; capacity: number | null; notify_email: string | null; requests_open: boolean; settings: GuestEventSettings; legacy_event_id: string | null }
+interface GlEvent { id: string; slug: string; title: string; capacity: number | null; notify_email: string | null; requests_open: boolean; settings: GuestEventSettings; legacy_event_id: string | null; engine?: string }
 interface Guest {
   id: string; source: 'request' | 'invitation' | 'plus_one'; status: GuestStatus;
   first_name: string; last_name: string; email: string; phone: string | null; company: string | null; job_title: string | null;
@@ -48,6 +49,7 @@ function parsePaste(text: string) {
 function csvEscape(v: unknown) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 
 export function AdminGuestList() {
+  const { t } = useTranslation();
   const { slug = '' } = useParams();
   const [ev, setEv] = useState<GlEvent | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -61,7 +63,8 @@ export function AdminGuestList() {
   const load = useCallback(async () => {
     const { data: e } = await supabase.from('gl_event').select('*').eq('slug', slug).maybeSingle();
     setEv(e as GlEvent | null);
-    if (e) {
+    // A registration-core event (core_v2) is not run from here: see the note below.
+    if (e && (e as GlEvent).engine !== 'core_v2') {
       const { data: g } = await supabase.from('gl_guest').select('*').eq('event_id', (e as GlEvent).id).order('created_at', { ascending: false });
       setGuests((g || []) as Guest[]);
     }
@@ -123,6 +126,20 @@ export function AdminGuestList() {
 
   if (loading) return <div className="flex justify-center py-20"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!ev) return <p className="text-gray-500">No guest-list event “{slug}”.</p>;
+  // The new registration system (engine core_v2) is never run from this page: the guest-list
+  // function would e-mail a pass carrying the personal token, which that event's door refuses.
+  if (ev.engine === 'core_v2') {
+    return (
+      <Card className="max-w-2xl"><CardContent className="pt-6 space-y-3">
+        <h1 className="text-xl font-bold">{ev.title}</h1>
+        <p className="text-sm text-gray-600">{t('adminGuestList.coreV2', 'This event uses the new registration system. Manage its registrations from its page in Events.')}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" asChild><Link to={`/admin/events/${ev.legacy_event_id ?? ev.id}`}>{t('adminGuestList.openEvent', 'Open the event')}</Link></Button>
+          <Button variant="outline" size="sm" asChild><Link to={`/admin/guest-list/${ev.slug}/checkin`}><QrCode className="h-4 w-4 mr-1" /> {t('adminGuestList.checkin', 'Check-in')}</Link></Button>
+        </div>
+      </CardContent></Card>
+    );
+  }
 
   const publicUrl = `${window.location.origin}/${ev.slug}`;
   const filtered = guests.filter(g => g.status !== 'requested')

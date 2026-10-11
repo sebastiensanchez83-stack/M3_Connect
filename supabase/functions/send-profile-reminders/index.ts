@@ -23,9 +23,9 @@
 //   Always excluded: accounts made by the registration flows (profiles.signup_source
 //   webinar / onsite / invitation / provisioned) and sign-ups that chose "No company"
 //   (signup_intent.action = 'none'). None exists before those flows are switched on.
-//   Excluded once registration flag account_signup_v2 is on: every persona
-//   'individual' account (the new sign-up makes "individual" mean "participant").
-//   Until then the live behaviour of this job is unchanged.
+//   Also excluded: every persona 'individual' account (the new sign-up makes
+//   "individual" mean "participant"). Victor, 11 Oct 2026: stop the "add your
+//   company" reminders for these accounts now, without waiting for the new sign-up.
 //   If the profile columns of the registration core are not there yet, only the
 //   persona rule applies.
 
@@ -127,7 +127,7 @@ const PARTICIPANT_SOURCES = new Set(["webinar", "onsite", "invitation", "provisi
 
 /** The participant accounts among these users (never throws: on error, nobody is excluded). */
 // deno-lint-ignore no-explicit-any
-async function participantIds(supabase: any, userIds: string[], individualsToo: boolean): Promise<Set<string>> {
+async function participantIds(supabase: any, userIds: string[]): Promise<Set<string>> {
   const out = new Set<string>();
   const ids = [...new Set(userIds)];
   for (let i = 0; i < ids.length; i += 200) {
@@ -149,17 +149,11 @@ async function participantIds(supabase: any, userIds: string[], individualsToo: 
       const participant =
         PARTICIPANT_SOURCES.has(String(p.signup_source ?? "")) ||
         intent?.action === "none" ||
-        (individualsToo && p.persona === "individual");
+        p.persona === "individual";
       if (participant) out.add(String(p.user_id));
     }
   }
   return out;
-}
-
-async function accountSignupV2On(supabase: any): Promise<boolean> {
-  const { data } = await supabase.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
-  const v = data?.value;
-  return !!v && typeof v === "object" && (v as Record<string, unknown>).account_signup_v2 === true;
 }
 
 interface RunResult {
@@ -351,8 +345,7 @@ Deno.serve(async (req: Request) => {
   {
     const companyIds = candidates.filter((c) => COMPANY_REMINDERS.has(c.type)).map((c) => c.user_id);
     if (companyIds.length) {
-      const individualsToo = await accountSignupV2On(supabase).catch(() => false);
-      const participants = await participantIds(supabase, companyIds, individualsToo);
+      const participants = await participantIds(supabase, companyIds);
       if (participants.size) {
         const before = candidates.length;
         for (let i = candidates.length - 1; i >= 0; i--) {

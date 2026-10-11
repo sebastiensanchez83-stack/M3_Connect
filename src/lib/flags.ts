@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 /**
- * The unified-registration switches (platform_settings.registration_flags).
+ * The unified-registration switches (platform_settings.registration_flags), the
+ * rights switch capabilities_enforced included: the site's ONE reader of that row.
  *
  * Every switch is OFF until M3 turns it on in the database, and a missing key,
  * a failed read or a value of the wrong type all count as off: with the flags
@@ -12,8 +13,18 @@ import { supabase } from '@/lib/supabase';
  * The value is read once per page load and kept for five minutes, shared by
  * every component that asks (one request, however many callers).
  *
+ *  - A failed read is never kept: the next caller asks again.
+ *  - A read gives up after four seconds (the auth lock after a tab comes back, a
+ *    bad connection), so a page waiting on `ready` never stays on its loader.
+ *  - After a failed read, useRegistrationFlags reads again when the tab regains
+ *    focus, and every component using it gets the value once a read brings it.
+ *
  *   const { flags, ready } = useRegistrationFlags();
  *   if (ready && newEventPagesOn(flags)) …
+ *
+ * readRegistrationFlags() tells "off" from "could not be read" (null). The rights
+ * switch needs that: a screen then says "could not load your rights" rather than
+ * "not for you" (AuthContext).
  */
 
 export const REGISTRATION_FLAG_KEYS = [
@@ -29,9 +40,13 @@ export const DEFAULT_REGISTRATION_FLAGS: RegistrationFlags = Object.freeze(
 );
 
 const TTL_MS = 5 * 60 * 1000;
+/** How long a caller waits for the row before giving up (the defaults, or null). */
+const READ_TIMEOUT_MS = 4000;
 
 let cached: { at: number; flags: RegistrationFlags } | null = null;
-let inflight: Promise<RegistrationFlags> | null = null;
+let inflight: Promise<RegistrationFlags | null> | null = null;
+/** The mounted useRegistrationFlags, told when a read brings a different value. */
+const listeners = new Set<(flags: RegistrationFlags) => void>();
 
 /**
  * Only a literal `true` in a JSON object turns a switch on; anything else (missing, "true", 1,
@@ -47,41 +62,102 @@ function parseFlags(value: unknown): RegistrationFlags {
   return out;
 }
 
-/** The switches as stored now (cached five minutes). Never rejects: an error gives the defaults. */
-export function loadRegistrationFlags(force = false): Promise<RegistrationFlags> {
+const sameFlags = (a: RegistrationFlags, b: RegistrationFlags) =>
+  REGISTRATION_FLAG_KEYS.every((k) => a[k] === b[k]);
+
+/** `p`, or `fallback` once `ms` have passed or when it fails. Never rejects. */
+function withTimeout<T>(p: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    Promise.resolve(p).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
+
+/**
+ * The switches as stored now (cached five minutes), or null when they could not be
+ * read: an error, or no answer within four seconds. Never rejects. A read that
+ * answers after its callers gave up still fills the cache (and tells the hooks).
+ */
+export function readRegistrationFlags(force = false): Promise<RegistrationFlags | null> {
   if (!force && cached && Date.now() - cached.at < TTL_MS) return Promise.resolve(cached.flags);
   if (inflight) return inflight;
-  inflight = (async () => {
+  const read = (async (): Promise<RegistrationFlags | null> => {
     try {
       const { data, error } = await supabase
         .from('platform_settings')
         .select('value')
         .eq('key', 'registration_flags')
         .maybeSingle();
-      const flags = error ? { ...DEFAULT_REGISTRATION_FLAGS } : parseFlags((data as { value?: unknown } | null)?.value);
-      // A failed read is not remembered: the next page asks again.
-      if (!error) cached = { at: Date.now(), flags };
+      // A failed read is not remembered: the next caller asks again.
+      if (error) return null;
+      const flags = parseFlags((data as { value?: unknown } | null)?.value);
+      const changed = !cached || !sameFlags(cached.flags, flags);
+      cached = { at: Date.now(), flags };
+      if (changed) listeners.forEach((fn) => fn(flags));
       return flags;
     } catch {
-      return { ...DEFAULT_REGISTRATION_FLAGS };
-    } finally {
-      inflight = null;
+      return null;
     }
   })();
-  return inflight;
+  // Given up after four seconds, the request is forgotten too: the next caller sends
+  // a fresh one rather than queue behind a read that may never answer.
+  const pending = withTimeout(read, READ_TIMEOUT_MS, null).finally(() => {
+    if (inflight === pending) inflight = null;
+  });
+  inflight = pending;
+  return pending;
 }
 
-/** The switches for a component. `ready` is false until the first answer (the defaults meanwhile). */
-export function useRegistrationFlags(): { flags: RegistrationFlags; ready: boolean } {
+/** The switches as stored now (cached five minutes). Never rejects: an error or a timeout gives the defaults. */
+export async function loadRegistrationFlags(force = false): Promise<RegistrationFlags> {
+  return (await readRegistrationFlags(force)) ?? { ...DEFAULT_REGISTRATION_FLAGS };
+}
+
+type FlagsState = { flags: RegistrationFlags; ready: boolean; failed: boolean };
+
+/**
+ * The switches for a component. `ready` is false until the first answer (the defaults
+ * meanwhile). `failed` is true while the last read failed: what was shown stays (the
+ * defaults at first), and the row is read again when the tab regains focus.
+ */
+export function useRegistrationFlags(): FlagsState {
   const fresh = cached && Date.now() - cached.at < TTL_MS ? cached.flags : null;
-  const [state, setState] = useState<{ flags: RegistrationFlags; ready: boolean }>(
-    () => ({ flags: fresh ?? DEFAULT_REGISTRATION_FLAGS, ready: !!fresh }),
+  const [state, setState] = useState<FlagsState>(
+    () => ({ flags: fresh ?? DEFAULT_REGISTRATION_FLAGS, ready: !!fresh, failed: false }),
   );
+  const [attempt, setAttempt] = useState(0);
+
+  const show = (flags: RegistrationFlags) =>
+    setState((prev) => (prev.ready && !prev.failed && sameFlags(prev.flags, flags) ? prev : { flags, ready: true, failed: false }));
+
   useEffect(() => {
     let alive = true;
-    loadRegistrationFlags().then((flags) => { if (alive) setState({ flags, ready: true }); });
+    readRegistrationFlags().then((flags) => {
+      if (!alive) return;
+      if (flags) show(flags);
+      else setState((prev) => ({ flags: prev.flags, ready: true, failed: true }));
+    });
     return () => { alive = false; };
+  }, [attempt]);
+
+  // Another component's read brought a different value: show it here too.
+  useEffect(() => {
+    listeners.add(show);
+    return () => { listeners.delete(show); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // After a failed read, try again when the person comes back to the tab.
+  useEffect(() => {
+    if (!state.failed) return;
+    const retry = () => setAttempt((n) => n + 1);
+    window.addEventListener('focus', retry);
+    return () => window.removeEventListener('focus', retry);
+  }, [state.failed]);
+
   return state;
 }
 

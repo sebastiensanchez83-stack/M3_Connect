@@ -28,6 +28,16 @@ import { memberHomeHref } from '@/lib/accountNav';
  *   (since 9 Oct 2026: webinar_requests_insert_owner_eligible, and the site's
  *   page from the rights work).
  *
+ * The rights per company type (src/lib/capabilities.ts) switch on the day the
+ * refonte goes live (docs/rights-switch-runbook.md). The answers they change are
+ * written twice, sw('today', 'after the switch'), and buildHelpSections picks
+ * one with opts.rightsEnforced (useAuth().capabilitiesEnforced). After the switch:
+ * tenders and expert questions are read by members of validated marinas,
+ * developers, service providers, investors and media, and answered by all of
+ * them but marinas; marinas can still send a message to the company that
+ * published one (Victor, 11 Oct 2026); Deal flow is open to members of validated
+ * investor companies and to investors confirmed at Smart Marina 2026.
+ *
  * The profile icons are the home page's (ProfileCards): marina Anchor, service
  * provider LifeBuoy, investor Compass, media Radio.
  *
@@ -90,11 +100,26 @@ export const PERSONA_SECTION: Record<string, string> = {
 
 type Extra = { steps?: string[]; links?: HelpLink[]; keywords?: string[] };
 
-export function buildHelpSections(t: TFunction): HelpSection[] {
-  const item = (id: string, q: string, a: string[], extra: Extra = {}): HelpItem => ({
+/** A paragraph that depends on the rights switch: today's words, and the words once it is on. */
+type Para = string | { today: string; switched: string };
+const sw = (today: string, switched: string): Para => ({ today, switched });
+
+export interface HelpOptions {
+  /** registration_flags.capabilities_enforced: the rights per company type are on. */
+  rightsEnforced?: boolean;
+}
+
+export function buildHelpSections(t: TFunction, opts: HelpOptions = {}): HelpSection[] {
+  // Each version has its own key: ".aN" today, ".aNr" once the rights switch is on.
+  const para = (id: string, i: number, p: Para): string => (typeof p === 'string'
+    ? t(`help.q.${id}.a${i + 1}`, p)
+    : opts.rightsEnforced
+      ? t(`help.q.${id}.a${i + 1}r`, p.switched)
+      : t(`help.q.${id}.a${i + 1}`, p.today));
+  const item = (id: string, q: string, a: Para[], extra: Extra = {}): HelpItem => ({
     id,
     q: t(`help.q.${id}.q`, q),
-    a: a.map((p, i) => t(`help.q.${id}.a${i + 1}`, p)),
+    a: a.map((p, i) => para(id, i, p)),
     steps: extra.steps?.map((s, i) => t(`help.q.${id}.s${i + 1}`, s)),
     links: extra.links?.map((l, i) => ({ ...l, label: t(`help.q.${id}.l${i + 1}`, l.label) })),
     keywords: extra.keywords,
@@ -112,8 +137,10 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
     /* ─────────────────────────── profiles ─────────────────────────── */
     section('marina', 'profile', Anchor, 'Marinas', 'For marinas and ports.', [
       item('marina-can', 'What can my marina do here?', [
-        'Publish your needs: a tender, an expert question or a project. Service providers answer tenders and expert questions. For a project, the M3 team puts you in touch with the right service providers.',
-        'Find service providers by theme and country in the directory, send a message to any company and propose a webinar. You can also read the tenders and expert questions other marinas publish, without answering them.',
+        sw(
+          'Publish your needs: a tender, an expert question or a project. Service providers answer tenders and expert questions. For a project, the M3 team puts you in touch with the right service providers.',
+          'Publish your needs: a tender, an expert question or a project. Service providers, developers, investors and media answer tenders and expert questions. For a project, the M3 team puts you in touch with the right service providers.'),
+        'Find service providers by theme and country in the directory, send a message to any company and propose a webinar. You can also read the tenders and expert questions other marinas publish. You do not answer them, but you can send a message to the company that published one.',
       ], { keywords: ['port', 'harbour', 'harbor'] }),
       item('marina-listed', 'Our marina is already in the directory. How do we take it over?', [
         'Many marinas are listed already. Open your marina’s page and press “Claim this page”, or press “Claim my marina” in the directory. The M3 team checks the request and links the page to your account.',
@@ -121,7 +148,9 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
       ], { links: [{ label: 'Open the directory', to: '/directory' }], keywords: ['claim', 'code', 'organization code', 'connect link', 'duplicate'] }),
       item('marina-publish', 'How do we publish a need?', [
         'Open My requests on your dashboard and press “Publish a new need”, or use Create at the top of the page. Then choose “Submit an RFP” (a tender), “Request a consultation” (an expert question) or “Submit a project”.',
-        'The M3 team reads it first, usually within one business day. A tender or an expert question is then shown to verified marinas, developers, service providers and media, and service providers can answer it. A project stays between you and the M3 team.',
+        sw(
+          'The M3 team reads it first, usually within one business day. A tender or an expert question is then shown to verified marinas, developers, service providers and media, and service providers can answer it. A project stays between you and the M3 team.',
+          'The M3 team reads it first, usually within one business day. A tender or an expert question is then shown to the members of the marinas, developers, service providers, investors and media M3 has validated, and all of them but marinas can answer it. A project stays between you and the M3 team.'),
       ], { links: [{ label: 'Which kind of need to choose', to: '#publishing-kinds' }], keywords: ['rfp', 'tender', 'consultation', 'post'] }),
       item('marina-details', 'Who sees our marina’s details?', [
         'Everyone can see your marina’s page: name, place, logo and description.',
@@ -135,7 +164,9 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'You can also ask marinas you worked with for a reference, and sponsor one of our events for more visibility.',
       ], { keywords: ['supplier', 'partner', 'vendor', 'expert'] }),
       item('provider-answer', 'How do I answer a tender or an expert question?', [
-        'Your interest goes to the marina’s team as a message from your company, in their Messages. Their answer shows in your Messages. The opportunities open once M3 has approved your account.',
+        sw(
+          'Your interest goes to the marina’s team as a message from your company, in their Messages. Their answer shows in your Messages. The opportunities open once M3 has approved your account.',
+          'Your interest goes to the marina’s team as a message from your company, in their Messages. Their answer shows in your Messages. The opportunities open once M3 has approved your account and your company.'),
       ], {
         steps: [
           'Open Opportunities.',
@@ -157,11 +188,15 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
 
     section('investor', 'profile', Compass, 'Investors', 'For funds, family offices and strategic investors.', [
       item('investor-can', 'What can an investor do here?', [
-        'See the companies that are raising capital in Deal flow, publish your investment thesis, find companies in the directory and send a message to any company.',
+        sw(
+          'See the companies that are raising capital in Deal flow, publish your investment thesis, find companies in the directory and send a message to any company.',
+          'See the companies that are raising capital in Deal flow, read and answer the tenders and expert questions members publish, publish your investment thesis, find companies in the directory and send a message to any company.'),
       ], { keywords: ['fund', 'investment', 'capital'] }),
       item('investor-deal-flow', 'What is Deal flow?', [
         'Deal flow lists the marinas, developers and service providers that say they are raising capital, with the amount, the stage and the use of funds when they gave them. Tick “Only show members in my focus sectors” to keep the ones in your sectors.',
-        'It is open to verified investors, from the menu at the top of the page.',
+        sw(
+          'It is open to verified investors, from the menu at the top of the page.',
+          'It is open to the members of investor companies M3 has validated, and to investors confirmed at Smart Marina 2026, from the menu at the top of the page.'),
       ], { links: [{ label: 'Open Deal flow', to: '/investments', members: true }], keywords: ['raising', 'funding', 'capital'] }),
       item('investor-thesis', 'How do we publish our investment thesis?', [
         'Only the company owner can do it.',
@@ -178,7 +213,9 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
 
     section('developer', 'profile', HardHat, 'Developers', 'For marina developers, real-estate groups and builders.', [
       item('developer-can', 'What can a developer do here?', [
-        'Publish the needs of your marina projects (tenders, expert questions and projects), find service providers, read the tenders and expert questions other members publish, and send a message to any company.',
+        sw(
+          'Publish the needs of your marina projects (tenders, expert questions and projects), find service providers, read the tenders and expert questions other members publish, and send a message to any company.',
+          'Publish the needs of your marina projects (tenders, expert questions and projects), find service providers, read and answer the tenders and expert questions other members publish, and send a message to any company.'),
       ], { keywords: ['real estate', 'builder', 'construction'] }),
       item('developer-or-marina', 'Developer or marina: which profile should I choose?', [
         'Choose Developer if you design, build or own marina projects. Choose Marina if you run or represent a marina or a port.',
@@ -188,7 +225,9 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
 
     section('media', 'profile', Radio, 'Media', 'For journalists and publications covering marinas and yachting.', [
       item('media-can', 'What can a media outlet do here?', [
-        'Follow the sector’s articles, the tenders and expert questions members publish, and the replays. Send a message to any company and propose a webinar.',
+        sw(
+          'Follow the sector’s articles, the tenders and expert questions members publish, and the replays. Send a message to any company and propose a webinar.',
+          'Follow the sector’s articles and the replays, and read and answer the tenders and expert questions members publish. Send a message to any company and propose a webinar.'),
         'For our events, you can ask the M3 team for a press accreditation.',
       ], { keywords: ['press', 'journalist', 'magazine'] }),
       item('media-accreditation', 'How do I get a press accreditation?', [
@@ -355,14 +394,18 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'A project is not published: the M3 team gets back to you.',
       ], { keywords: ['review', 'approval', 'pending', 'published', 'online'] }),
       item('publishing-visible', 'Who sees what I publish?', [
-        'Tenders and expert questions: marinas, developers, service providers and media whose account M3 has approved. Service providers can answer; the others can only read.',
+        sw(
+          'Tenders and expert questions: marinas, developers, service providers and media whose account M3 has approved. Service providers can answer; the others can only read.',
+          'Tenders and expert questions: the members of the marinas, developers, service providers, investors and media M3 has validated. All of them can answer with “Express interest”, except marinas: they read them, and can still send a message to the company that published one.'),
         'Projects: only you and the M3 team.',
       ], { keywords: ['visible', 'public', 'private', 'confidential'] }),
       item('publishing-project', 'What happens to a project?', [
         'A project is not published for other members. The M3 team reads it, usually within one business day, and puts you in touch with service providers that fit. Only you and the M3 team see it.',
       ], { keywords: ['project', 'private', 'introduction'] }),
       item('publishing-answers', 'How do I see the answers?', [
-        'When a service provider presses “Express interest” on a tender or an expert question, it arrives in your Messages, as a message from their company. Anyone in your team can read it and answer.',
+        sw(
+          'When a service provider presses “Express interest” on a tender or an expert question, it arrives in your Messages, as a message from their company. Anyone in your team can read it and answer.',
+          'When a service provider, a developer, an investor or a media company presses “Express interest” on a tender or an expert question, it arrives in your Messages, as a message from their company. Anyone in your team can read it and answer.'),
         'For a project, the M3 team puts you in touch with suitable service providers.',
       ], { keywords: ['replies', 'responses', 'proposals', 'interest'] }),
       item('publishing-change', 'Can I change or close it?', [

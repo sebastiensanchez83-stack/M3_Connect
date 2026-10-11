@@ -7,6 +7,7 @@ import { CardLink } from '@/components/home/dashboard/DashboardKit';
 import { ROW_FOCUS } from '@/components/member/MemberUI';
 import { cn } from '@/lib/utils';
 import { buildHelpSections, helpHref, PERSONA_SECTION, type HelpItem, type HelpSection } from './helpContent';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * "Need help?" at the end of the member's home dashboard (Victor, 10 Oct
@@ -43,7 +44,9 @@ export const PROFILE_QUESTIONS: Record<HelpProfile, string[]> = {
 
 export function NeedHelpCard({ hasOrganization, persona, orgType }: { hasOrganization: boolean; persona?: string | null; orgType?: string | null }) {
   const { t } = useTranslation();
-  const sections = useMemo(() => buildHelpSections(t), [t]);
+  // The answers the rights switch changes follow it (src/lib/capabilities.ts).
+  const { capabilitiesEnforced } = useAuth();
+  const sections = useMemo(() => buildHelpSections(t, { rightsEnforced: capabilitiesEnforced }), [t, capabilitiesEnforced]);
   const profile = helpProfileOf(hasOrganization, persona, orgType);
   const questions = useMemo(() => {
     const byId = new Map<string, { item: HelpItem; section: HelpSection }>();

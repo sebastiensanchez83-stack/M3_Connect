@@ -1,4 +1,5 @@
--- UNDO of supabase/migrations/20261010200000_capabilities_shadow.sql
+-- UNDO of supabase/migrations/20261011090000_capabilities_shadow.sql
+-- (first written as 20261010200000; renamed before anything was applied)
 --
 -- Refuses to run while the switch (supabase/migrations/held/capabilities_enforce.sql)
 -- is applied: its policies and its trigger guard call has_capability. Undo the
@@ -40,4 +41,5 @@ drop function if exists public.capability_shadow_report();
 drop function if exists public.my_capabilities();
 drop function if exists public.has_capability(text, uuid);
 drop function if exists public.capability_set(uuid, uuid);
+drop function if exists public.capability_sm26_investor(uuid);
 drop table if exists public.org_type_capability;

@@ -10,8 +10,8 @@ import {
   CAPABILITY_ORG_TYPE_LABELS,
   type Capability,
   type CapabilityOrgType,
-  loadCapabilitiesEnforced,
 } from '@/lib/capabilities';
+import { readRegistrationFlags } from '@/lib/flags';
 import {
   ADMIN_BTN,
   AdminEmpty,
@@ -31,9 +31,13 @@ import {
  *  - What the switch would change: capability_shadow_report() compares, for every
  *    person who is not M3 staff, their rights today with the rights the table gives
  *    them. Only counts are shown here (the report itself carries ids only).
- *  - Whether the site enforces the table (registration_flags.capabilities_enforced),
- *    which the held migration supabase/migrations/held/capabilities_enforce.sql
- *    turns on together with the database policies.
+ *  - Whether the site enforces the table (registration_flags.capabilities_enforced,
+ *    read by src/lib/flags.ts), which the held migration
+ *    supabase/migrations/held/capabilities_enforce.sql turns on together with the
+ *    database policies, on the day the refonte goes live (docs/rights-switch-runbook.md).
+ *  - The one person-level exception (Victor, 11 Oct 2026): a verified person who is
+ *    an SM26-confirmed investor sees Deal flow, company or not (sm26_investor in
+ *    the report).
  */
 
 interface ShadowRow {
@@ -46,6 +50,8 @@ interface ShadowRow {
   new_caps: string[] | null;
   gained: string[] | null;
   lost: string[] | null;
+  /** An SM26-confirmed investor: sees Deal flow whatever their company (11 Oct 2026). */
+  sm26_investor: boolean | null;
 }
 
 /** The six columns of the table (pending has no right and is said in a sentence). */
@@ -60,7 +66,8 @@ export function AdminRights() {
   const [matrix, setMatrix] = useState<Set<string>>(new Set());
   const [rows, setRows] = useState<ShadowRow[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
-  const [enforced, setEnforced] = useState(false);
+  // null = the switch could not be read (src/lib/flags.ts gives up after four seconds).
+  const [enforced, setEnforced] = useState<boolean | null>(false);
   // Validated companies with no type give their members no right but proposing a
   // webinar: M3 should never validate one (null = could not be counted).
   const [untyped, setUntyped] = useState<number | null>(null);
@@ -71,11 +78,11 @@ export function AdminRights() {
     const [table, report, flag, untypedCount] = await Promise.all([
       supabase.from('org_type_capability').select('org_type, capability'),
       supabase.rpc('capability_shadow_report'),
-      loadCapabilitiesEnforced(true),
+      readRegistrationFlags(true),
       supabase.from('organizations').select('id', { count: 'exact', head: true })
         .eq('access_status', 'verified').is('organization_type', null),
     ]);
-    setEnforced(flag);
+    setEnforced(flag ? flag.capabilities_enforced : null);
     setUntyped(untypedCount.error ? null : untypedCount.count ?? 0);
     if (table.error) {
       // 42P01 / PGRST205: the shadow migration is not applied yet.
@@ -106,6 +113,9 @@ export function AdminRights() {
     const unchanged = verified.length - verified.filter((r) => (r.gained ?? []).length > 0 || (r.lost ?? []).length > 0).length;
     const notVerified = rows.length - verified.length;
     const notVerifiedChanged = rows.filter((r) => r.person_status !== 'verified' && ((r.gained ?? []).length > 0 || (r.lost ?? []).length > 0)).length;
+    // SM26-confirmed investors, and those who see Deal flow through that exception alone.
+    const sm26 = verified.filter((r) => r.sm26_investor === true);
+    const sm26Only = sm26.filter((r) => !(r.company_types ?? []).includes('investor')).length;
 
     const byCap = CAPABILITIES.map((cap) => ({
       cap,
@@ -131,7 +141,7 @@ export function AdminRights() {
     }
     const byType = [...groups.entries()].sort((a, b) => b[1].people - a[1].people);
 
-    return { verified: verified.length, gainers: gainers.length, losers: losers.length, unchanged, notVerified, notVerifiedChanged, byCap, byType };
+    return { verified: verified.length, gainers: gainers.length, losers: losers.length, unchanged, notVerified, notVerifiedChanged, sm26: sm26.length, sm26Only, byCap, byType };
   }, [rows, t]);
 
   if (loading) return <AdminLoading />;
@@ -140,7 +150,11 @@ export function AdminRights() {
     <AdminPageHeader
       title={t('adminRights.title', 'Rights')}
       description={t('adminRights.description', 'What each type of company can do on the platform, and what the switch would change. Read-only for now.')}
-      meta={enforced ? (
+      meta={enforced === null ? (
+        <AdminStatusPill tone="neutral" title={t('adminRights.switchUnknownHint', 'registration_flags could not be read. Press Refresh to try again.')}>
+          {t('adminRights.switchUnknown', 'Switch state unknown')}
+        </AdminStatusPill>
+      ) : enforced ? (
         <AdminStatusPill tone="success" icon={ShieldCheck}>{t('adminRights.enforced', 'Enforced by the site and the database')}</AdminStatusPill>
       ) : (
         <AdminStatusPill tone="warning" title={t('adminRights.shadowHint', 'registration_flags.capabilities_enforced is off: the site and the database keep today\'s rules.')}>
@@ -164,7 +178,7 @@ export function AdminRights() {
           <AdminEmpty
             icon={ShieldCheck}
             title={t('adminRights.missingTitle', 'The rights table is not in the database yet')}
-            body={t('adminRights.missingBody', 'It arrives with the migration 20261010200000_capabilities_shadow. Until then, today\'s rules apply everywhere.')}
+            body={t('adminRights.missingBody', 'It arrives with the migration 20261011090000_capabilities_shadow. Until then, today\'s rules apply everywhere.')}
           />
         </AdminPanel>
       </div>
@@ -235,6 +249,9 @@ export function AdminRights() {
             </tbody>
           </table>
         </AdminTableCard>
+        <p className="max-w-3xl text-[13px] leading-5 text-meta">
+          {t('adminRights.sm26Exception', 'One exception, for a person rather than a company: anyone M3 verified who is a confirmed investor at Smart Marina 2026 also sees Deal flow, with or without a company. Nothing else comes with it.')}
+        </p>
       </section>
 
       {/* ── What the switch changes ── */}
@@ -267,6 +284,16 @@ export function AdminRights() {
                 defaultValue: '{{count}} people not verified yet: {{changed}} of them change.',
               })}
             </p>
+            {stats.sm26 > 0 && (
+              <p className="text-[13px] leading-5 text-meta">
+                {t('adminRights.sm26Line', {
+                  count: stats.sm26,
+                  only: stats.sm26Only,
+                  defaultValue_one: '{{count}} verified person is a confirmed investor at Smart Marina 2026; {{only}} of them sees Deal flow through that exception alone.',
+                  defaultValue_other: '{{count}} verified people are confirmed investors at Smart Marina 2026; {{only}} of them see Deal flow through that exception alone.',
+                })}
+              </p>
+            )}
 
             <div className="grid gap-6 2xl:grid-cols-2">
               <AdminPanel title={t('adminRights.byRightTitle', 'By right')} description={t('adminRights.byRightDesc', 'Verified people who have it today and after the switch')} padded={false}>

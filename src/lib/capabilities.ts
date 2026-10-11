@@ -18,18 +18,26 @@ import { supabase } from '@/lib/supabase';
  *   media_partner   no       yes        yes     yes        yes      no
  *   participant     no       no         no      no         yes      no
  *
+ * One person-level exception (Victor, 11 Oct 2026): a verified person who is a
+ * confirmed investor at Smart Marina 2026 also has see_dealflow, company or not,
+ * and nothing else from it. The database decides who that is
+ * (capability_sm26_investor); my_capabilities().caps carries it.
+ *
  * SHADOW MODE. The switch platform_settings.registration_flags.capabilities_enforced
  * is off: every screen keeps today's checks (persona, active company) and nothing
- * here is read. When M3 applies the held migration
- * (supabase/migrations/held/capabilities_enforce.sql), the database enforces the
+ * here is read. On the day the refonte goes live (Victor, 11 Oct 2026; steps in
+ * docs/rights-switch-runbook.md), M3 applies the held migration
+ * (supabase/migrations/held/capabilities_enforce.sql): the database enforces the
  * table and turns the switch on in the same step; the screens then ask can().
+ * Nobody is e-mailed about the change (Victor, 11 Oct 2026).
  *
  * One exception is live already: proposing a webinar is open to every person M3
  * verified, company or not (Victor, 9 Oct 2026; the database allows it since then).
  *
- * The flag is read here rather than in src/lib/flags.ts, which the registration
- * work adds on its own branch: same row, same reading (only a literal true turns it
- * on; a missing row, a failed read or another value means off).
+ * The switch is read by src/lib/flags.ts (readRegistrationFlags), the one reader of
+ * registration_flags: only a literal true turns it on; a missing row or another
+ * value means off; a failed read is never kept, gives up after four seconds, and
+ * AuthContext tries again when the tab regains focus.
  */
 
 export const CAPABILITIES = [
@@ -142,17 +150,7 @@ export function capabilityAllows(snapshot: CapabilitySnapshot | null, cap: Capab
   return snapshot.caps.includes(cap);
 }
 
-/* ------------------------------------------------------------------ the switch */
-
-const FLAG_TTL_MS = 5 * 60 * 1000;
-/**
- * How long a page waits for the switch before deciding it is off. A read that
- * hangs (the auth lock after a tab comes back, a bad connection) must never keep
- * a page on its loader: while the switch is off, nothing depends on it.
- */
-const FLAG_TIMEOUT_MS = 4000;
-let flagCache: { at: number; value: boolean } | null = null;
-let flagInflight: Promise<boolean | null> | null = null;
+/* ------------------------------------------------------------------ helpers */
 
 /** `p`, or `fallback` once `ms` have passed or when it fails. Never rejects. */
 function withTimeout<T>(p: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
@@ -163,45 +161,6 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, fallback: T): Promise<T> 
       () => { clearTimeout(timer); resolve(fallback); },
     );
   });
-}
-
-/**
- * registration_flags.capabilities_enforced: true or false, or null when it could
- * not be read (error, or no answer within four seconds). Only a successful read
- * is kept, five minutes (as src/lib/flags.ts of the registration work): after a
- * failure the next caller asks again. Only a literal true is on; a missing row
- * or any other value is off.
- */
-export function readCapabilitiesEnforced(force = false): Promise<boolean | null> {
-  if (!force && flagCache && Date.now() - flagCache.at < FLAG_TTL_MS) return Promise.resolve(flagCache.value);
-  if (flagInflight) return flagInflight;
-  const read = (async (): Promise<boolean | null> => {
-    try {
-      const { data, error } = await supabase
-        .from('platform_settings')
-        .select('value')
-        .eq('key', 'registration_flags')
-        .maybeSingle();
-      if (error) return null;
-      const v = (data as { value?: unknown } | null)?.value;
-      const on = !!v && typeof v === 'object' && !Array.isArray(v)
-        && (v as Record<string, unknown>).capabilities_enforced === true;
-      flagCache = { at: Date.now(), value: on };
-      return on;
-    } catch {
-      return null;
-    }
-  })();
-  const inflight = withTimeout(read, FLAG_TIMEOUT_MS, null).finally(() => {
-    if (flagInflight === inflight) flagInflight = null;
-  });
-  flagInflight = inflight;
-  return inflight;
-}
-
-/** The switch, a failed read counting as off. Never rejects. */
-export async function loadCapabilitiesEnforced(force = false): Promise<boolean> {
-  return (await readCapabilitiesEnforced(force)) === true;
 }
 
 /* ------------------------------------------------------------------ outside React */

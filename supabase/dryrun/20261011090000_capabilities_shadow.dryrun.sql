@@ -1,5 +1,5 @@
--- DRY RUN of supabase/migrations/20261010200000_capabilities_shadow.sql
---        and of its down script supabase/migrations/down/20261010200000_capabilities_shadow.down.sql
+-- DRY RUN of supabase/migrations/20261011090000_capabilities_shadow.sql
+--        and of its down script supabase/migrations/down/20261011090000_capabilities_shadow.down.sql
 -- NOT A MIGRATION: never apply it. NOTHING IS KEPT.
 -- (Generated: the migration and the down script below are verbatim copies; if
 -- either file changes, rebuild this one.)
@@ -14,6 +14,11 @@
 -- to_regclass('public.org_type_capability') at once, and run the down script if
 -- it is there.
 --
+-- Works on production as it is on 11 Oct 2026: the registration_flags row is
+-- there (20261009200000_registration_prereqs, applied), with
+-- capabilities_enforced already false; the migration leaves the row as it is
+-- (T06), and the down script keeps it (D3).
+--
 -- Layout
 --   A. helpers (pg_temp) and the snapshot of every public policy, function,
 --      trigger, constraint and table, plus registration_flags;
@@ -25,21 +30,30 @@
 --      each type (or none, an untyped, suspended or pending one, two companies),
 --      or is made pending / rejected / suspended, and asked as P
 --      (set local role authenticated + request.jwt.claims); a verified admin;
---      anonymous; the table's own rights; the shadow report;
+--      anonymous; the table's own rights; the shadow report; then S19-S24, the
+--      SM26 investor exception (Victor, 11 Oct 2026): a real SM26-confirmed
+--      investor I is given no company, then a validated marina, is made pending,
+--      then suspended; the exception matches its definition on all of today's
+--      people; the report flags I;
 --   D. the down script, verbatim;
 --   E. D1-D3: the objects are gone, everything else is as in A; the report.
 --
 -- Callers, looked up AT RUN TIME (read-only, as postgres), so no account id is
 -- written in this public repository: P = the first verified non-staff profile
--- (by id), A = the first verified admin.
+-- (by id) who is NOT an SM26-confirmed investor, I = the first verified
+-- non-staff profile who IS one, A = the first verified admin. The sm_* tables
+-- are only read: I is reshaped through organization_members and profiles, as P.
 --
--- Expected: "42 PASS, 0 FAIL", and the INFO line
---   "shadow report: 128 verified people, 32 gain, 15 lose" (10 Oct 2026 data;
---   these figures move with the data, the PASS lines do not).
+-- Expected: "50 PASS, 0 FAIL", and the INFO lines
+--   "shadow report: 128 verified people, 32 gain, 15 lose" and
+--   "SM26-confirmed investors: 12 (12 verified), 1 of them without a validated
+--    investor company" (11 Oct 2026 data; these figures move with the data, the
+--   PASS lines do not).
 --
 -- Locks: creating the table and functions takes no lock on existing tables; the
 -- scenarios write fixture rows (organizations, organization_members, profiles of
--- P) inside sub-transactions. Run at a quiet hour; it gives up after 5 s waiting.
+-- P and I) inside sub-transactions. Run at a quiet hour; it gives up after 5 s
+-- waiting.
 
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -220,15 +234,20 @@ select set_config('smc_dryrun.before', 'yes', true);
 
 
 -- ════════════════════════════════════════════════════════════════════════════
--- B. The migration, verbatim: supabase/migrations/20261010200000_capabilities_shadow.sql
+-- B. The migration, verbatim: supabase/migrations/20261011090000_capabilities_shadow.sql
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- Rights per company type, in SHADOW mode: the table, the functions and the
 -- report. Nothing here changes what anyone can do today.
 --
--- Victor's decisions: the table of 6-7 Oct 2026 and the answers of 9 Oct 2026
--- (memory "registration-harmonisation-decisions"; report "Droits par type
--- d'entreprise - qui gagne, qui perd - 9 octobre 2026"; spec regspec-en.md §9).
+-- Victor's decisions: the table of 6-7 Oct 2026, the answers of 9 Oct 2026 and
+-- those of 11 Oct 2026 (memory "registration-harmonisation-decisions"; report
+-- "Droits par type d'entreprise - qui gagne, qui perd - 9 octobre 2026"; spec
+-- regspec-en.md §9).
+--
+-- Version 20261011090000. It was first written as 20261010200000, the version of
+-- the security lane's org_members_no_forced_join too; renamed before anything was
+-- applied.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- The rule
@@ -256,6 +275,25 @@ select set_config('smc_dryrun.before', 'yes', true);
 --  (9 Oct; the insert policy already says so since 20261009204234). The deal-flow
 --  page follows the company type (report §7). Sponsor tiers give no right.
 --
+--  ONE person-level exception (Victor, 11 Oct 2026): a verified person who is an
+--  SM26-CONFIRMED INVESTOR also has see_dealflow, company or not, and nothing else
+--  comes with it. SM26-confirmed investor = the person's own Smart Marina 2026
+--  registration (sm_registration.user_id, event slug 'sm26') is confirmed and
+--  carries a confirmed 'investor' role (sm_role_assignment):
+--      exists (select 1
+--                from public.sm_registration r
+--                join public.sm_event e on e.id = r.event_id
+--                join public.sm_role_assignment ra on ra.registration_id = r.id
+--               where r.user_id = <the person>
+--                 and e.slug = 'sm26'
+--                 and r.status = 'confirmed'
+--                 and ra.role = 'investor'
+--                 and ra.status = 'confirmed')
+--  (the Deal flow page's own check before the switch, plus the registration
+--  status). On 11 Oct 2026: 12 people, all verified, 11 of them in a validated
+--  investor company; the exception keeps Deal flow, with its data, for the one
+--  who is not. The sm_* tables are only read.
+--
 -- ════════════════════════════════════════════════════════════════════════════
 -- What this migration adds (and nothing else)
 -- ════════════════════════════════════════════════════════════════════════════
@@ -263,9 +301,11 @@ select set_config('smc_dryrun.before', 'yes', true);
 --     (23 rows). RLS: any signed-in person reads it; verified admins write it.
 --  2. public.capability_set(p_user, p_org default null) returns text[]: the rule
 --     above for one person (one company when p_org is given: then the person must
---     be a member of it and the participant set is not added). Internal: no
---     EXECUTE for anon or authenticated (it would tell anyone whether someone is
---     pending or suspended).
+--     be a member of it, and neither the participant set nor the SM26 investor
+--     exception is added). Internal: no EXECUTE for anon or authenticated (it
+--     would tell anyone whether someone is pending or suspended).
+--     public.capability_sm26_investor(p_user) returns boolean: the SM26-confirmed
+--     investor test above. Internal too (it reads sm_* rows the caller may not).
 --  3. public.has_capability(p_cap, p_org default null) returns boolean, for the
 --     caller (auth.uid()). STABLE, SECURITY DEFINER, search_path ''. Verified staff:
 --     true for any capability. EXECUTE for anon too: a policy that applies to
@@ -275,8 +315,9 @@ select set_config('smc_dryrun.before', 'yes', true);
 --        "companies": [{"id", "name", "type", "status", "caps": [...]}, ...],
 --        "caps": [...]}
 --  5. public.capability_shadow_report(): one row per non-staff person (ids only:
---     no name, no e-mail), their rights today and under the new rule, and what
---     they gain and lose. Staff only (or the service role / SQL console).
+--     no name, no e-mail), their rights today and under the new rule, what they
+--     gain and lose, and whether they are an SM26-confirmed investor. Staff only
+--     (or the service role / SQL console).
 --     "Today" = what both live sites and the database allow on 10 Oct 2026:
 --       publish_needs      verified, persona marina or developer, member of a
 --                          verified company (the pages; the type is not read)
@@ -291,14 +332,16 @@ select set_config('smc_dryrun.before', 'yes', true);
 --       see_dealflow       verified, persona investor (oci_select_verified_investors)
 --     Read-only run of the same rule on 10 Oct 2026: 128 verified people, 32 gain,
 --     15 lose, 81 unchanged; nobody both gains and loses; the 21 pending or
---     rejected people do not change.
+--     rejected people do not change. The SM26 investor exception (11 Oct) changes
+--     none of these counts: the one person it covers keeps see_dealflow but still
+--     loses message_companies (no validated company).
 --  6. platform_settings.registration_flags.capabilities_enforced = false. The row
 --     is created with every switch of spec §13 at false (the same row, label and
 --     description as 20261009200000_registration_prereqs, which then finds it in
 --     place) or, when it exists, only the missing key is added.
 --
---  NO existing policy, function, trigger or row changes. Nothing reads the new
---  objects until the separate switch migration
+--  NO existing policy, function, trigger or row changes (the sm_* tables are only
+--  read). Nothing reads the new objects until the separate switch migration
 --  (supabase/migrations/held/capabilities_enforce.sql) is applied and the flag is
 --  on. Both sites keep working exactly as before.
 --
@@ -314,9 +357,13 @@ select set_config('smc_dryrun.before', 'yes', true);
 --   select has_function_privilege('anon', 'public.has_capability(text, uuid)', 'execute');           -> true
 --   select count(*), count(*) filter (where cardinality(gained) > 0), count(*) filter (where cardinality(lost) > 0)
 --     from public.capability_shadow_report() where person_status = 'verified';
+--                                                    -> 11 Oct 2026: 128 / 32 / 15 (moves with the data)
+--   select count(*), count(*) filter (where not ('investor' = any (company_types)))
+--     from public.capability_shadow_report() where person_status = 'verified' and sm26_investor;
+--                                                    -> 11 Oct 2026: 12 / 1
 --
--- UNDO: supabase/migrations/down/20261010200000_capabilities_shadow.down.sql
--- Dry run: supabase/dryrun/20261010200000_capabilities_shadow.dryrun.sql
+-- UNDO: supabase/migrations/down/20261011090000_capabilities_shadow.down.sql
+-- Dry run: supabase/dryrun/20261011090000_capabilities_shadow.dryrun.sql
 
 -- ─── 0. Precondition: the columns the rule reads are there ───────────────────
 do $pre$
@@ -331,6 +378,14 @@ begin
   if exists (select 1 from public.platform_settings
               where key = 'registration_flags' and jsonb_typeof(value) <> 'object') then
     raise exception 'capabilities shadow: platform_settings.registration_flags is not a JSON object';
+  end if;
+  -- The SM26 investor exception reads these (read-only).
+  if (select count(*) from information_schema.columns
+       where table_schema = 'public'
+         and ((table_name = 'sm_event' and column_name in ('id', 'slug'))
+           or (table_name = 'sm_registration' and column_name in ('id', 'event_id', 'user_id', 'status'))
+           or (table_name = 'sm_role_assignment' and column_name in ('registration_id', 'role', 'status')))) <> 9 then
+    raise exception 'capabilities shadow: sm_event / sm_registration / sm_role_assignment changed shape; re-read them before applying';
   end if;
 end
 $pre$;
@@ -397,6 +452,33 @@ insert into public.org_type_capability (org_type, capability) values
 on conflict (org_type, capability) do nothing;
 
 -- ─── 3. capability_set: the rule, for one person ────────────────────────────
+-- First the SM26 investor test it uses (Victor, 11 Oct 2026; see the header).
+create or replace function public.capability_sm26_investor(p_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select p_user is not null
+     and exists (
+       select 1
+         from public.sm_registration r
+         join public.sm_event e on e.id = r.event_id
+         join public.sm_role_assignment ra on ra.registration_id = r.id
+        where r.user_id = p_user
+          and e.slug = 'sm26'
+          and r.status = 'confirmed'
+          and ra.role = 'investor'
+          and ra.status = 'confirmed');
+$function$;
+
+comment on function public.capability_sm26_investor(uuid) is
+  'Whether a person is an SM26-confirmed investor: their own Smart Marina 2026 registration (event slug sm26) is confirmed and has a confirmed investor role. Gives see_dealflow in capability_set (Victor, 11 Oct 2026). Reads sm_* only. Internal (no EXECUTE for anon/authenticated). 2026-10-11.';
+
+revoke all on function public.capability_sm26_investor(uuid) from public, anon, authenticated;
+grant execute on function public.capability_sm26_investor(uuid) to service_role;
+
 create or replace function public.capability_set(p_user uuid, p_org uuid default null)
 returns text[]
 language plpgsql
@@ -456,16 +538,24 @@ begin
     v_types := v_types || 'participant'::text;
   end if;
 
+  -- 6. For the person as a whole, the one person-level exception (Victor, 11 Oct
+  --    2026): an SM26-confirmed investor sees Deal flow, company or not. Only
+  --    see_dealflow, and never through a company (p_org given).
   return array(
-    select distinct c.capability
-      from public.org_type_capability c
-     where c.org_type = any (v_types)
+    select distinct u.capability
+      from (select c.capability
+              from public.org_type_capability c
+             where c.org_type = any (v_types)
+            union all
+            select 'see_dealflow'::text
+             where p_org is null
+               and public.capability_sm26_investor(p_user)) u
      order by 1);
 end
 $function$;
 
 comment on function public.capability_set(uuid, uuid) is
-  'Rights of one person (p_org given: of that one company of theirs, without the participant set): staff everything, suspended nothing, not verified the pending set, else the participant set plus the org_type_capability rows of every validated (verified, typed, not archived, not duplicate) company they belong to. Internal (no EXECUTE for anon/authenticated). 2026-10-10.';
+  'Rights of one person (p_org given: of that one company of theirs, without the participant set or the SM26 exception): staff everything, suspended nothing, not verified the pending set, else the participant set plus the org_type_capability rows of every validated (verified, typed, not archived, not duplicate) company they belong to, plus see_dealflow for an SM26-confirmed investor (capability_sm26_investor; Victor, 11 Oct 2026). Internal (no EXECUTE for anon/authenticated). 2026-10-11.';
 
 revoke all on function public.capability_set(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.capability_set(uuid, uuid) to service_role;
@@ -485,7 +575,7 @@ as $function$
 $function$;
 
 comment on function public.has_capability(text, uuid) is
-  'Whether the caller has a capability (org_type_capability), for themselves or, with p_org, through that one company of theirs. Verified staff: always true. Anonymous: false. Used by the policies of supabase/migrations/held/capabilities_enforce.sql once applied. 2026-10-10.';
+  'Whether the caller has a capability (org_type_capability, and see_dealflow for a verified SM26-confirmed investor), for themselves or, with p_org, through that one company of theirs. Verified staff: always true. Anonymous: false. Used by the policies of supabase/migrations/held/capabilities_enforce.sql once applied. 2026-10-11.';
 
 revoke all on function public.has_capability(text, uuid) from public;
 grant execute on function public.has_capability(text, uuid) to anon, authenticated, service_role;
@@ -524,7 +614,7 @@ end
 $function$;
 
 comment on function public.my_capabilities() is
-  'The caller''s rights for the site: person_status, is_staff, companies [{id, name, type, status, caps}], caps (the person as a whole). 2026-10-10.';
+  'The caller''s rights for the site: person_status, is_staff, companies [{id, name, type, status, caps}], caps (the person as a whole, the SM26 investor exception included). 2026-10-11.';
 
 revoke all on function public.my_capabilities() from public, anon;
 grant execute on function public.my_capabilities() to authenticated, service_role;
@@ -540,7 +630,8 @@ returns table (
   current_caps   text[],
   new_caps       text[],
   gained         text[],
-  lost           text[]
+  lost           text[],
+  sm26_investor  boolean
 )
 language plpgsql
 stable
@@ -600,14 +691,15 @@ begin
          array(select c.cap from compared c where c.cap = any (r.cur) order by c.ord),
          array(select c.cap from compared c where c.cap = any (r.nxt) order by c.ord),
          array(select c.cap from compared c where c.cap = any (r.nxt) and not c.cap = any (r.cur) order by c.ord),
-         array(select c.cap from compared c where c.cap = any (r.cur) and not c.cap = any (r.nxt) order by c.ord)
+         array(select c.cap from compared c where c.cap = any (r.cur) and not c.cap = any (r.nxt) order by c.ord),
+         public.capability_sm26_investor(r.uid)
     from rows_ r
    order by r.uid;
 end
 $function$;
 
 comment on function public.capability_shadow_report() is
-  'Rights today (both live sites and the database, 10 Oct 2026) versus the company-type rule, per non-staff person: ids, statuses and capability lists only. Staff only. 2026-10-10.';
+  'Rights today (both live sites and the database, 10 Oct 2026) versus the company-type rule, per non-staff person: ids, statuses, capability lists and whether they are an SM26-confirmed investor (the see_dealflow exception) only. Staff only. 2026-10-11.';
 
 revoke all on function public.capability_shadow_report() from public, anon;
 grant execute on function public.capability_shadow_report() to authenticated, service_role;
@@ -635,6 +727,7 @@ declare
   r text := '';
   v_p uuid;            -- a verified member, not staff (reshaped in each scenario)
   v_a uuid;            -- a verified admin (M3 staff)
+  v_i uuid;            -- a verified SM26-confirmed investor, not staff (reshaped in S19-S22)
   v_o1 uuid;
   v_o2 uuid;
   v_caps text[];
@@ -654,11 +747,33 @@ declare
   c_developer constant text[] := array['publish_needs', 'see_opportunities', 'answer_needs', 'message_companies', 'propose_webinar'];
   c_media constant text[] := array['see_opportunities', 'answer_needs', 'message_companies', 'propose_webinar'];
   c_participant constant text[] := array['propose_webinar'];
+  c_sm26_solo constant text[] := array['propose_webinar', 'see_dealflow'];
   c_none constant text[] := '{}'::text[];
 begin
   -- Callers, looked up at run time (no account id in this public repository).
   select p.user_id into v_p from public.profiles p
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
+     and not exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed')
+   order by p.user_id limit 1;
+  select p.user_id into v_i from public.profiles p
+   where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
+     and exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed')
    order by p.user_id limit 1;
   select p.user_id into v_a from public.profiles p
    where p.access_status = 'verified' and p.persona = 'admin'
@@ -684,16 +799,19 @@ begin
      and policyname in ('org_type_capability_read', 'org_type_capability_admin_write');
   r := r || nl || pg_temp.dr_line(v_b and v_n = 2, 'T02 org_type_capability: RLS on, read and admin-write policies');
 
-  -- T03 the four functions: SECURITY DEFINER, STABLE, search_path ''
+  -- T03 the five functions: SECURITY DEFINER, STABLE, search_path ''
   select count(*) into v_n from pg_proc p
    where p.oid in ('public.capability_set(uuid, uuid)'::regprocedure, 'public.has_capability(text, uuid)'::regprocedure,
-                   'public.my_capabilities()'::regprocedure, 'public.capability_shadow_report()'::regprocedure)
+                   'public.my_capabilities()'::regprocedure, 'public.capability_shadow_report()'::regprocedure,
+                   'public.capability_sm26_investor(uuid)'::regprocedure)
      and p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=""'];
-  r := r || nl || pg_temp.dr_line(v_n = 4, 'T03 the four functions are SECURITY DEFINER, STABLE, search_path ''''', v_n || ' of 4');
+  r := r || nl || pg_temp.dr_line(v_n = 5, 'T03 the five functions are SECURITY DEFINER, STABLE, search_path ''''', v_n || ' of 5');
 
   -- T04 privileges
   v_b := not has_function_privilege('anon', 'public.capability_set(uuid, uuid)', 'execute')
      and not has_function_privilege('authenticated', 'public.capability_set(uuid, uuid)', 'execute')
+     and not has_function_privilege('anon', 'public.capability_sm26_investor(uuid)', 'execute')
+     and not has_function_privilege('authenticated', 'public.capability_sm26_investor(uuid)', 'execute')
      and has_function_privilege('anon', 'public.has_capability(text, uuid)', 'execute')
      and has_function_privilege('authenticated', 'public.has_capability(text, uuid)', 'execute')
      and not has_function_privilege('anon', 'public.my_capabilities()', 'execute')
@@ -702,7 +820,7 @@ begin
      and has_function_privilege('authenticated', 'public.capability_shadow_report()', 'execute')
      and not has_table_privilege('anon', 'public.org_type_capability', 'select')
      and has_table_privilege('authenticated', 'public.org_type_capability', 'select');
-  r := r || nl || pg_temp.dr_line(v_b, 'T04 privileges: capability_set internal; has_capability for anon and signed-in; my_capabilities and the report for signed-in only; the table not for anon');
+  r := r || nl || pg_temp.dr_line(v_b, 'T04 privileges: capability_set and capability_sm26_investor internal; has_capability for anon and signed-in; my_capabilities and the report for signed-in only; the table not for anon');
 
   -- T05 nothing that existed changed (policies, functions, triggers, constraints, tables)
   select count(*) into v_n from (
@@ -719,9 +837,10 @@ begin
     select b.k from _dr_before b where b.k <> 'flags') x
    where not (x.k like '%org_type_capability%'
            or x.k in ('function capability_set(uuid,uuid)', 'function has_capability(text,uuid)',
-                      'function my_capabilities()', 'function capability_shadow_report()'));
+                      'function my_capabilities()', 'function capability_shadow_report()',
+                      'function capability_sm26_investor(uuid)'));
   r := r || nl || pg_temp.dr_line(v_n = 0 and v_n3 = 0,
-         'T05 no existing policy, function, trigger, constraint or table changed; only new objects added',
+         'T05 no existing policy, function, trigger, constraint or table changed (sm_* included); only new objects added',
          v_n || ' changed or missing, ' || v_n3 || ' unexpected new; new: ' || coalesce(v_t, '-'));
 
   -- T06 the flag: capabilities_enforced false, every other switch as it was
@@ -1053,7 +1172,7 @@ begin
     select string_agg(a.attname, ',' order by a.attnum) into v_t
       from pg_proc p, unnest(p.proargnames) with ordinality a(attname, attnum)
      where p.oid = 'public.capability_shadow_report()'::regprocedure;
-    r := r || nl || pg_temp.dr_line(v_t = 'user_id,person_status,persona,company_ids,company_types,current_caps,new_caps,gained,lost',
+    r := r || nl || pg_temp.dr_line(v_t = 'user_id,person_status,persona,company_ids,company_types,current_caps,new_caps,gained,lost,sm26_investor',
            'S18 the report has ids, statuses and capability lists only (no name, no e-mail)', v_t);
     -- The figures, as postgres (no JWT: allowed), for the record.
     select count(*) filter (where q.person_status = 'verified'),
@@ -1062,7 +1181,7 @@ begin
       into v_n, v_n2, v_n3
       from public.capability_shadow_report() q;
     r := r || nl || 'INFO shadow report: ' || v_n || ' verified people, ' || v_n2 || ' gain, ' || v_n3
-              || ' lose (expected on 10 Oct 2026: 128, 32, 15)';
+              || ' lose (expected on 11 Oct 2026: 128, 32, 15)';
     select string_agg(x.line, '; ' order by x.line) into v_t from (
       select 'gain ' || g || ' ' || count(*) as line from public.capability_shadow_report() q, unnest(q.gained) g group by g
       union all
@@ -1075,16 +1194,189 @@ begin
     when others then r := r || nl || 'FAIL S18 report: ' || sqlstate || ' ' || sqlerrm;
   end;
 
+  -- ── The SM26 investor exception (Victor, 11 Oct 2026): I is a real SM26-confirmed
+  --    investor, reshaped as postgres and asked as I; the sm_* rows are only read. ──
+  if v_i is null then
+    r := r || nl || 'FAIL S19-S24 no verified SM26-confirmed investor to test with';
+  else
+    -- S19 no company: the participant set plus Deal flow, nothing else
+    begin
+      perform pg_temp.dr_solo(v_i);
+      v_o2 := pg_temp.dr_org('marina', 'verified');      -- a company I is NOT in
+      v_caps := pg_temp.dr_caps_as(v_i);
+      v_caps2 := pg_temp.dr_caps_as(v_i, v_o2);
+      r := r || nl || pg_temp.dr_line(pg_temp.dr_same(v_caps, c_sm26_solo) and pg_temp.dr_same(v_caps2, c_none),
+             'S19 SM26-confirmed investor without a company: propose a webinar and Deal flow only (no publishing, no answering, no messaging); nothing through a company not theirs',
+             array_to_string(v_caps, ',') || ' / ' || array_to_string(v_caps2, ','));
+      perform set_config('request.jwt.claims', json_build_object('sub', v_i, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      v_j := public.my_capabilities();
+      reset role;
+      perform set_config('request.jwt.claims', '', true);
+      r := r || nl || pg_temp.dr_line(
+             v_j ->> 'person_status' = 'verified' and v_j -> 'companies' = '[]'::jsonb
+               and v_j -> 'caps' = '["propose_webinar", "see_dealflow"]'::jsonb,
+             'S19 my_capabilities says the same: no company, caps propose_webinar and see_dealflow (the site shows Deal flow)',
+             left(coalesce(v_j::text, 'null'), 300));
+      raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then r := r || nl || 'FAIL S19 SM26 investor, no company: ' || sqlstate || ' ' || sqlerrm;
+    end;
+
+    -- S20 in a validated marina: the marina's rights plus Deal flow; through the
+    --     marina, the marina's rights only (the exception is the person's)
+    begin
+      perform pg_temp.dr_solo(v_i);
+      v_o1 := pg_temp.dr_org('marina', 'verified');
+      perform pg_temp.dr_join(v_o1, v_i);
+      v_caps := pg_temp.dr_caps_as(v_i);
+      v_caps2 := pg_temp.dr_caps_as(v_i, v_o1);
+      r := r || nl || pg_temp.dr_line(pg_temp.dr_same(v_caps, c_marina || 'see_dealflow'::text),
+             'S20 SM26-confirmed investor in a validated marina: the marina''s rights plus Deal flow (publishing comes from the marina; still no answering)',
+             array_to_string(v_caps, ','));
+      r := r || nl || pg_temp.dr_line(pg_temp.dr_same(v_caps2, c_marina),
+             'S20 through the marina (p_org): the marina''s rights only, no Deal flow', array_to_string(v_caps2, ','));
+      raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then r := r || nl || 'FAIL S20 SM26 investor in a marina: ' || sqlstate || ' ' || sqlerrm;
+    end;
+
+    -- S21 pending review: nothing, Deal flow included (the exception needs a verified person)
+    begin
+      perform pg_temp.dr_solo(v_i);
+      update public.profiles set access_status = 'pending' where user_id = v_i;
+      v_caps := pg_temp.dr_caps_as(v_i);
+      r := r || nl || pg_temp.dr_line(pg_temp.dr_same(v_caps, c_none),
+             'S21 SM26-confirmed investor pending review: no right, no Deal flow', array_to_string(v_caps, ','));
+      raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then r := r || nl || 'FAIL S21 SM26 investor pending: ' || sqlstate || ' ' || sqlerrm;
+    end;
+
+    -- S22 suspended: nothing
+    begin
+      perform pg_temp.dr_solo(v_i);
+      update public.profiles set access_status = 'suspended' where user_id = v_i;
+      v_caps := pg_temp.dr_caps_as(v_i);
+      r := r || nl || pg_temp.dr_line(pg_temp.dr_same(v_caps, c_none),
+             'S22 SM26-confirmed investor suspended: no right, no Deal flow', array_to_string(v_caps, ','));
+      raise exception 'dryrun: scenario rolled back' using errcode = 'P0D01';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then r := r || nl || 'FAIL S22 SM26 investor suspended: ' || sqlstate || ' ' || sqlerrm;
+    end;
+  end if;
+
+  -- S23 capability_sm26_investor is exactly the definition, on every person today:
+  --     a confirmed investor role on a confirmed sm26 registration of their own. Who
+  --     has an unconfirmed role, or a registration not confirmed, is not covered.
+  begin
+    select count(*) into v_n from public.profiles p
+     where public.capability_sm26_investor(p.user_id) is distinct from exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed');
+    select count(*) into v_n2 from public.profiles p
+     where public.capability_sm26_investor(p.user_id)
+       and not exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed');
+    select count(distinct r2.user_id) into v_n3
+      from public.sm_registration r2
+      join public.sm_role_assignment ra2 on ra2.registration_id = r2.id
+     where ra2.role = 'investor' and (ra2.status <> 'confirmed' or r2.status <> 'confirmed')
+       and r2.user_id is not null
+       and public.capability_sm26_investor(r2.user_id)
+       and not exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = r2.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed');
+    r := r || nl || pg_temp.dr_line(v_n = 0 and v_n2 = 0 and v_n3 = 0 and public.capability_sm26_investor(null) = false,
+           'S23 capability_sm26_investor matches its definition for every person (unconfirmed roles and registrations not covered; no person: false)',
+           v_n || ' differ, ' || v_n2 || ' extra, ' || v_n3 || ' unconfirmed covered');
+    select count(*) filter (where exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed')),
+           count(*) filter (where p.access_status = 'verified' and exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed')),
+           count(*) filter (where p.access_status = 'verified' and exists (select 1
+                   from public.sm_registration sr
+                   join public.sm_event se on se.id = sr.event_id
+                   join public.sm_role_assignment sra on sra.registration_id = sr.id
+                  where sr.user_id = p.user_id
+                    and se.slug = 'sm26'
+                    and sr.status = 'confirmed'
+                    and sra.role = 'investor'
+                    and sra.status = 'confirmed')
+                              and not exists (select 1 from public.organization_members m
+                                                join public.organizations o on o.id = m.organization_id
+                                               where m.user_id = p.user_id and o.access_status = 'verified'
+                                                 and o.organization_type = 'investor'))
+      into v_n, v_n2, v_n3
+      from public.profiles p;
+    r := r || nl || 'INFO SM26-confirmed investors: ' || v_n || ' (' || v_n2 || ' verified), ' || v_n3
+              || ' of them without a validated investor company (expected on 11 Oct 2026: 12 (12 verified), 1)';
+  exception
+    when others then r := r || nl || 'FAIL S23 the SM26 definition: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- S24 the shadow report flags I (as they are) as an SM26 investor with Deal flow
+  --     after the switch, and P as not one
+  begin
+    v_n := pg_temp.dr_count(v_a, format(
+      'select count(*) from public.capability_shadow_report() q where q.user_id = %L and q.sm26_investor and ''see_dealflow'' = any (q.new_caps) and not ''see_dealflow'' = any (q.lost)', v_i));
+    v_n2 := pg_temp.dr_count(v_a, format(
+      'select count(*) from public.capability_shadow_report() q where q.user_id = %L and not q.sm26_investor', v_p));
+    r := r || nl || pg_temp.dr_line(v_n = 1 and v_n2 = 1,
+           'S24 the report: the SM26 investor keeps Deal flow after the switch and is flagged; P is not flagged',
+           v_n || ' / ' || v_n2);
+  exception
+    when others then r := r || nl || 'FAIL S24 report flag: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
   insert into _dr_report (line) values (r);
 end
 $tests$;
 
 
 -- ════════════════════════════════════════════════════════════════════════════
--- D. The down script, verbatim: supabase/migrations/down/20261010200000_capabilities_shadow.down.sql
+-- D. The down script, verbatim: supabase/migrations/down/20261011090000_capabilities_shadow.down.sql
 -- ════════════════════════════════════════════════════════════════════════════
 
--- UNDO of supabase/migrations/20261010200000_capabilities_shadow.sql
+-- UNDO of supabase/migrations/20261011090000_capabilities_shadow.sql
+-- (first written as 20261010200000; renamed before anything was applied)
 --
 -- Refuses to run while the switch (supabase/migrations/held/capabilities_enforce.sql)
 -- is applied: its policies and its trigger guard call has_capability. Undo the
@@ -1126,6 +1418,7 @@ drop function if exists public.capability_shadow_report();
 drop function if exists public.my_capabilities();
 drop function if exists public.has_capability(text, uuid);
 drop function if exists public.capability_set(uuid, uuid);
+drop function if exists public.capability_sm26_investor(uuid);
 drop table if exists public.org_type_capability;
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -1152,8 +1445,9 @@ begin
      and to_regprocedure('public.capability_set(uuid, uuid)') is null
      and to_regprocedure('public.has_capability(text, uuid)') is null
      and to_regprocedure('public.my_capabilities()') is null
-     and to_regprocedure('public.capability_shadow_report()') is null;
-  r := r || nl || pg_temp.dr_line(v_b, 'D1 down script: the table and the four functions are gone');
+     and to_regprocedure('public.capability_shadow_report()') is null
+     and to_regprocedure('public.capability_sm26_investor(uuid)') is null;
+  r := r || nl || pg_temp.dr_line(v_b, 'D1 down script: the table and the five functions are gone');
 
   -- D2 everything else exactly as before the migration
   select count(*) into v_n from (

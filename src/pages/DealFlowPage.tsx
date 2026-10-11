@@ -29,6 +29,7 @@ import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { formatCapitalRange, formatCapitalAmount } from '@/components/capital/InvestmentThesisSection';
 import { CAPITAL_TYPES, CAPITAL_STAGES } from '@/types/database';
 import { routeToExistingConversation } from '@/components/messages/messagesApi';
+import { memberHomeHref } from '@/lib/accountNav';
 
 interface DealFlowOrg {
   id: string;
@@ -92,10 +93,12 @@ export function DealFlowPage() {
 
   // Access guard — unified investor accreditation: a verified platform investor
   // (persona) OR someone with a confirmed SM26 investor role can see the deal-flow.
-  // Once the rights switch is on (src/lib/capabilities.ts) the board follows the
-  // company type, as the database does (oci_select_dealflow): members of a
-  // validated investor company, and M3 staff. The SM26 investor role then gives no
-  // access (the database never let it read the board).
+  // Once the rights switch is on (src/lib/capabilities.ts) the board follows
+  // see_dealflow, as the database does (oci_select_dealflow): members of a
+  // validated investor company, M3 staff, and a verified SM26-confirmed investor
+  // whatever their company (Victor, 11 Oct 2026: they keep Deal flow, with its
+  // data). The database decides who that is (capability_sm26_investor), so the
+  // page asks can() and no longer reads sm_registration itself.
   const personaInvestor = !!user && profile?.persona === 'investor' && isVerified;
   const [smInvestor, setSmInvestor] = useState<boolean | null>(null); // null = still checking
   useEffect(() => {
@@ -116,6 +119,10 @@ export function DealFlowPage() {
     ? isVerified && can('see_dealflow')
     : personaInvestor || smInvestor === true);
   const checkingAccess = !!user && (!capabilitiesReady || (!capabilitiesEnforced && !personaInvestor && smInvestor === null));
+  // Writing to a company (Express interest) needs message_companies once the switch is
+  // on: an SM26 investor without a validated company reads the board but does not write
+  // from it (the database would refuse the request).
+  const canContact = !capabilitiesEnforced || can('message_companies');
 
   const loadData = async (showSpinner = true) => {
     if (!user || !accessOK) return;
@@ -370,7 +377,7 @@ export function DealFlowPage() {
               body={capabilitiesEnforced
                 ? capabilitiesUnavailable
                   ? t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.')
-                  : t('rights.dealflow.companyType', 'The deal-flow board is open to members of investor companies the M3 team has validated.')
+                  : t('rights.dealflow.companyType', 'The deal-flow board is open to members of investor companies the M3 team has validated, and to investors confirmed at Smart Marina 2026.')
                 : profile?.persona !== 'investor'
                   ? 'The deal-flow board is reserved for verified investor accounts.'
                   : 'Your investor account is pending verification.'}
@@ -477,7 +484,18 @@ export function DealFlowPage() {
                 </label>
               </div>
             )}
-            {!hasFocusSectors && (
+            {!canContact && (
+              <p className="mt-3 text-[13px] leading-5 text-meta">
+                {t('rights.dealflow.noContact', 'You see Deal flow as an investor confirmed at Smart Marina 2026. Writing to these companies needs a company the M3 team has validated.')}
+                {!organization && (
+                  <>
+                    {' '}
+                    <UnderlineLink to={memberHomeHref('company')} arrow={false} className="!text-[13px] !font-medium">{t('dash.addCompany', 'Add my company')}</UnderlineLink>
+                  </>
+                )}
+              </p>
+            )}
+            {!hasFocusSectors && !!organization && (
               <p className="mt-3 text-[13px] leading-5 text-meta">
                 Tip: configure your focus sectors in your{' '}
                 <UnderlineLink to="/account?tab=organization" arrow={false} className="!text-[13px] !font-medium">organization profile</UnderlineLink>{' '}
@@ -592,9 +610,11 @@ export function DealFlowPage() {
 
                         {/* Actions */}
                         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
-                          <Button size="sm" variant="ctaNavy" onClick={() => openInterest(o)}>
-                            Express interest
-                          </Button>
+                          {canContact && (
+                            <Button size="sm" variant="ctaNavy" onClick={() => openInterest(o)}>
+                              Express interest
+                            </Button>
+                          )}
                           <UnderlineLink to={`/organizations/${o.slug}`} className="!text-[14px] !leading-5">
                             View profile
                           </UnderlineLink>

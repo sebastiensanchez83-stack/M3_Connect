@@ -1,12 +1,16 @@
 -- HELD FOR THE SWITCH. Do not apply with the other migrations, and keep this file
 -- out of supabase/migrations/ (where `supabase db push` would pick it up) until
--- Victor has signed off the shadow report and chosen the date. On the day: give
--- it a timestamp (YYYYMMDDHHMMSS_capabilities_enforce.sql), move it to
--- supabase/migrations/, run its dry run (supabase/dryrun/capabilities_enforce.dryrun.sql),
--- then apply it.
+-- the day. The day is the GO-LIVE of the refonte (Victor, 11 Oct 2026): the day the
+-- refonte replaces main as the live site, never before (the old site's buttons
+-- follow the persona). The steps, the expected counts and the rollback are in
+-- docs/rights-switch-runbook.md. In short: deploy the refonte as the live site,
+-- give this file a timestamp (YYYYMMDDHHMMSS_capabilities_enforce.sql) and move it
+-- to supabase/migrations/, run its dry run (supabase/dryrun/capabilities_enforce.dryrun.sql),
+-- then apply it. No e-mail goes to the people who gain or lose a right (Victor,
+-- 11 Oct 2026): nothing here or in the site sends one.
 --
 -- Rights per company type, ENFORCED: the database applies the rule of
--- 20261010200000_capabilities_shadow.sql (which must be applied first), and the
+-- 20261011090000_capabilities_shadow.sql (which must be applied first), and the
 -- site's switch registration_flags.capabilities_enforced turns on in the same
 -- transaction, so the screens and the database change together.
 --
@@ -64,9 +68,14 @@
 --  webinar_requests
 --    webinar_requests_insert_owner_eligible: has_capability('propose_webinar')
 --    (every verified person has it through the participant set: same people as today)
---  org_capital_intents
+--  org_capital_intents (Deal flow: the only table the board reads that is not public)
 --    oci_select_verified_investors (persona investor) becomes oci_select_dealflow:
---    has_capability('see_dealflow') (members of a validated investor company, and staff)
+--    has_capability('see_dealflow'): members of a validated investor company, staff,
+--    and a verified SM26-confirmed investor whatever their company (the one
+--    person-level exception of the shadow migration, capability_sm26_investor;
+--    Victor, 11 Oct 2026: they keep Deal flow WITH its data). The exception gives
+--    see_dealflow only: no other policy here reads it, so it opens this one read
+--    path and nothing else (no publishing, no answering, no messaging).
 --  platform_settings.registration_flags.capabilities_enforced := true
 --
 -- NOT changed, on purpose:
@@ -109,11 +118,13 @@ do $pre$
 declare
   v_fp text;
 begin
-  -- a. The shadow migration is applied.
+  -- a. The shadow migration is applied, in its version with the SM26 investor
+  --    exception (11 Oct 2026).
   if to_regclass('public.org_type_capability') is null
      or to_regprocedure('public.has_capability(text, uuid)') is null
+     or to_regprocedure('public.capability_sm26_investor(uuid)') is null
      or not exists (select 1 from public.org_type_capability) then
-    raise exception 'capabilities switch: apply 20261010200000_capabilities_shadow.sql first';
+    raise exception 'capabilities switch: apply 20261011090000_capabilities_shadow.sql first';
   end if;
   if not exists (select 1 from public.platform_settings
                   where key = 'registration_flags' and jsonb_typeof(value) = 'object') then
@@ -355,6 +366,9 @@ create policy webinar_requests_insert_owner_eligible on public.webinar_requests
   );
 
 -- ─── 8. org_capital_intents (Deal flow) ──────────────────────────────────────
+-- has_capability('see_dealflow') is true for members of a validated investor
+-- company, for staff, and for a verified SM26-confirmed investor (capability_set's
+-- exception), so those keep reading the board's rows after the switch.
 drop policy if exists oci_select_verified_investors on public.org_capital_intents;
 
 create policy oci_select_dealflow on public.org_capital_intents

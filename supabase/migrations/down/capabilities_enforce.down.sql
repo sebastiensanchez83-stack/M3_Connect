@@ -6,7 +6,7 @@
 -- (guard_need_publish_right and its two triggers). Rows written while the switch
 -- was on stay; Express interest rows (origin 'interest') go back to origin null,
 -- which is what they would have been without the switch. The shadow objects stay
--- (undo them with down/20261010200000_capabilities_shadow.down.sql if wanted).
+-- (undo them with down/20261011090000_capabilities_shadow.down.sql if wanted).
 -- Idempotent: safe to run twice.
 --
 -- It refuses to run when the policies or the guard the switch created were changed

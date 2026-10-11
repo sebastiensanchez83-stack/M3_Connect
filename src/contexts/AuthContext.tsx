@@ -10,9 +10,9 @@ import {
   type CapabilitySnapshot,
   capabilityAllows,
   fetchMyCapabilities,
-  readCapabilitiesEnforced,
   setCapabilityGate,
 } from '@/lib/capabilities'
+import { readRegistrationFlags } from '@/lib/flags'
 
 interface AuthContextType {
   user: User | null
@@ -381,7 +381,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // user/profile objects: auth-js hands over a new user object on every tab
   // refocus. Re-read when the person's status or companies change (refreshProfile
   // after M3 validates or types a company).
-  // Both reads give up after a few seconds (src/lib/capabilities.ts), so a page
+  // Both reads give up after a few seconds (src/lib/flags.ts, src/lib/capabilities.ts), so a page
   // waiting on capabilitiesReady never stays on its loader. A failed read is tried
   // again when the person comes back to the tab (focus), without blanking the page:
   // capabilitiesReady stays true and the rights already known are kept meanwhile.
@@ -409,7 +409,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCapsFailed(false)
     }
     ;(async () => {
-      const flag = await readCapabilitiesEnforced()
+      // The one reader of registration_flags (src/lib/flags.ts): null = could not be read.
+      const flags = await readRegistrationFlags()
+      const flag = flags ? flags.capabilities_enforced : null
       // A failed read of the switch keeps what was known (off, at first).
       const enforced = flag ?? capsEnforcedRef.current
       const snapshot = enforced && capsUid ? await fetchMyCapabilities() : null

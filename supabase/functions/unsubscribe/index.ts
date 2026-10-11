@@ -44,8 +44,9 @@
 // { <category>: boolean }, a missing key meaning ON, false meaning OFF. That is what
 // send-notification reads (TYPE_TO_CATEGORY[type], skipped when prefs[cat] === false).
 //
-// Optional and service categories. send-notification has no "always sent" list of
-// its own (it skips any category set to false), so the line is drawn here, from the
+// Optional and service categories. send-notification skips any category set to
+// false, except two types it always sends (ALWAYS_SENT_TYPES: payment_confirmed and
+// payment_failed, the payment receipts), so the line is drawn here, from the
 // preferences page: the categories it offers are optional, except
 //   account   approval, rejection, organisation claim codes (the tab marks it
 //             "Recommended on": the platform cannot be used without them)

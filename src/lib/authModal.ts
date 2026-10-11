@@ -19,3 +19,10 @@ export function openSignup(persona?: PersonaType): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<OpenSignupDetail>(OPEN_SIGNUP_EVENT, { detail: { persona } }));
 }
+
+/**
+ * The address the sign-in window starts with after /reset-password signs a person
+ * out and opens /?signin=true: kept in this tab's sessionStorage (never in the URL),
+ * read once and removed by the Navbar.
+ */
+export const SIGNIN_EMAIL_KEY = 'smc_signin_email';

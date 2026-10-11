@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -8,6 +8,26 @@ import { cn } from '@/lib/utils';
 import { registerAuthRefonteStrings } from '@/i18n/refonte-auth';
 
 registerAuthRefonteStrings();
+
+/** Lets the form inside replace the window's title for one of its steps (see useAuthDialogTitle). */
+const AuthDialogTitleContext = createContext<((title: string | null) => void) | null>(null);
+
+/**
+ * Inside an AuthDialog: show `title` as the window's heading while it is not null
+ * (e.g. LoginForm's "Get a link to set your password" step), so the window never
+ * reads "Sign in" above another title. Returns whether the form is inside an
+ * AuthDialog, i.e. whether it should leave out its own heading. A layout effect, so
+ * the new heading is in place before the step is painted (no "Sign in" frame).
+ */
+export function useAuthDialogTitle(title: string | null): boolean {
+  const setTitle = useContext(AuthDialogTitleContext);
+  useLayoutEffect(() => {
+    if (!setTitle) return;
+    setTitle(title);
+    return () => setTitle(null);
+  }, [setTitle, title]);
+  return !!setTitle;
+}
 
 /**
  * The one window for signing in and signing up, wherever it opens (header,
@@ -51,8 +71,9 @@ export function AuthDialog({
   className?: string;
 }) {
   const { t } = useTranslation();
+  const [stepTitle, setStepTitle] = useState<string | null>(null);
   const image = photo === undefined ? (mode === 'login' ? SITE_IMAGES.homeHero : SITE_IMAGES.joinHero) : photo;
-  const heading = title ?? (mode === 'login' ? t('auth.login', 'Sign in') : t('auth.signup', 'Sign up'));
+  const heading = stepTitle ?? title ?? (mode === 'login' ? t('auth.login', 'Sign in') : t('auth.signup', 'Sign up'));
   const prompt = switchTo?.prompt ?? (mode === 'login' ? t('auth.noAccount', "Don't have an account?") : t('auth.haveAccount', 'Already have an account?'));
   const action = switchTo?.label ?? (mode === 'login' ? t('auth.signup', 'Sign up') : t('auth.login', 'Sign in'));
 
@@ -61,6 +82,10 @@ export function AuthDialog({
       <DialogContent
         className={cn(
           'max-h-[92vh] w-[calc(100%-2rem)] max-w-lg gap-0 overflow-y-auto rounded-card border-0 bg-white p-0 shadow-drawer sm:rounded-card',
+          // The close (x), the content's last child (ui/dialog): a 44 px target, on a
+          // white disc so that it shows on any photo (a dark x vanished on dark ones).
+          '[&>button:last-child]:right-2 [&>button:last-child]:top-2 [&>button:last-child]:grid [&>button:last-child]:h-11 [&>button:last-child]:w-11 [&>button:last-child]:place-items-center',
+          '[&>button:last-child]:rounded-full [&>button:last-child]:bg-white/85 [&>button:last-child]:text-navy [&>button:last-child]:opacity-100',
           className,
         )}
       >
@@ -85,11 +110,13 @@ export function AuthDialog({
             // Radix wants a description; an empty one keeps screen readers quiet.
             <DialogDescription className="sr-only">{heading}</DialogDescription>
           )}
-          <div className="mt-6">{children}</div>
+          <div className="mt-6">
+            <AuthDialogTitleContext.Provider value={setStepTitle}>{children}</AuthDialogTitleContext.Provider>
+          </div>
           {switchTo && (
             <p className="mt-6 border-t border-rule pt-5 text-center text-sm leading-6 text-meta">
               {prompt}{' '}
-              <UnderlineLink arrow={false} onClick={switchTo.onClick} className="!text-sm">
+              <UnderlineLink arrow={false} onClick={switchTo.onClick} className="min-h-11 !text-sm">
                 {action}
               </UnderlineLink>
             </p>

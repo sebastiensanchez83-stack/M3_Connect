@@ -507,6 +507,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // error message lost. A successful sign-in still turns it on: supabase-js announces
   // SIGNED_IN (the listener above sets loading and loads the profile) before
   // signInWithPassword returns.
+  // Supabase Auth CAPTCHA must stay OFF: only the sign-up form sends a Turnstile
+  // token. Sign-in, every password link (resetPasswordForEmail) and every resend
+  // send none, so turning CAPTCHA on would lock everyone out (captcha_failed).
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error: error ?? null }

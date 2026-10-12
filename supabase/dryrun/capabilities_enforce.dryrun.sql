@@ -6,9 +6,15 @@
 -- if any of them changes, rebuild this file.)
 --
 -- Once the shadow migration is applied in production, its section B below runs
--- again (IF NOT EXISTS, OR REPLACE, ON CONFLICT). T05 then checks that it changed
--- nothing (functions, policies, table rows): if production's shadow objects were
--- edited since, T05 fails and this file must be rebuilt from production.
+-- again (IF NOT EXISTS, OR REPLACE, ON CONFLICT; its seed of the person-level
+-- grants adds nothing once any SM26 row is there). T05 then checks that it changed
+-- nothing (functions, policies, the rows of both tables): if production's shadow
+-- objects were edited since, T05 fails and this file must be rebuilt from
+-- production. Grants M3 added or deleted by hand since are kept as they are (the
+-- seed adds nothing); only if every SM26 grant was deleted does section B seed
+-- them again, and T05 says so. (The switch's own precondition pins has_capability and capability_set by md5:
+-- section B rewrites them here, so that check passes in this run and T05 is the
+-- one that compares them with production.)
 --
 -- How to run: the WHOLE file in ONE execute_sql call (one implicit transaction).
 -- Do not add BEGIN/COMMIT and do not run it statement by statement. The last
@@ -79,15 +85,18 @@
 -- Expected: "32 PASS, 0 FAIL" (T00, 4 x T01, T02, 2 x T03, T04, T05, M01-M18, E1-E4).
 --
 -- Callers, looked up AT RUN TIME (read-only): P and Q = the first two verified
--- non-staff profiles (by id) that are NOT SM26-confirmed investors, I = the first
--- verified non-staff SM26-confirmed investor, A = the first verified admin. The
+-- non-staff profiles (by id) without a person-level grant, I = the first
+-- verified non-staff profile with the SM26 investor grant (capability_person_grant,
+-- seeded from the SM26-confirmed investors), A = the first verified admin. The
 -- sm_* tables are only read: I is reshaped through organization_members and
 -- profiles, as P.
 --
--- When to run it: on the day of the switch, after the refonte is the live site
--- and before applying the switch (docs/rights-switch-runbook.md). The shadow
--- migration must be in production by then (its version 20261011090000, with the
--- SM26 investor exception): T05 checks that section B changed nothing.
+-- When to run it: the day before the go-live, after any migration that touches
+-- rfps, consultations, marina_projects, partner_requests, webinar_requests or
+-- org_capital_intents, and on the day of the switch, after the refonte is the
+-- live site and before applying the switch (docs/rights-switch-runbook.md). The
+-- shadow migration must be in production by then (its version 20261011090000,
+-- with the frozen SM26 investor grants): T05 checks that section B changed nothing.
 --
 -- Locks: the switch replaces policies on rfps, consultations, marina_projects,
 -- partner_requests, webinar_requests and org_capital_intents, adds triggers on
@@ -272,17 +281,23 @@ create temp table _dr_report (n serial, line text) on commit drop;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snapshot();
 select set_config('smc_dryrun.before', 'yes', true);
 
--- The rights table as production has it (when the shadow migration is already
--- there), for T05.
+-- The rights table and the person-level grants as production has them (when the
+-- shadow migration is already there), for T05.
 do $otc$
 declare
   v text;
+  v_g text;
 begin
   if to_regclass('public.org_type_capability') is not null then
     execute 'select coalesce(string_agg(c.org_type || '':'' || c.capability, '','' order by c.org_type collate "C", c.capability collate "C"), '''') from public.org_type_capability c'
       into v;
   end if;
+  if to_regclass('public.capability_person_grant') is not null then
+    execute 'select coalesce(string_agg(g.user_id::text || '':'' || g.capability || '':'' || g.reason, '','' order by g.user_id, g.capability), '''') from public.capability_person_grant g'
+      into v_g;
+  end if;
   perform set_config('smc_dryrun.otc_before', coalesce(v, '<none>'), true);
+  perform set_config('smc_dryrun.cpg_before', coalesce(v_g, '<none>'), true);
 end
 $otc$;
 
@@ -348,18 +363,30 @@ $otc$;
 --  investor company; the exception keeps Deal flow, with its data, for the one
 --  who is not. The sm_* tables are only read.
 --
+--  The list is FROZEN when this migration runs: section 3 copies those people
+--  into public.capability_person_grant (reason 'sm26_investor'), and the rule
+--  reads that table, never the sm_* tables. So the policies of the switch do not
+--  depend on the shape or the life of the sm_* tables (an SM26 archive cannot
+--  break them), and a registration attached to an account later (by e-mail
+--  auto-claim, a claim code or staff) gives nothing. The edition is over and its
+--  registrations are locked, so the copy is the list Victor meant. M3 removes a
+--  person's Deal flow by deleting their row (or by suspending the person: the
+--  status of their company does not matter), and adds one the same way.
+--
 -- ════════════════════════════════════════════════════════════════════════════
 -- What this migration adds (and nothing else)
 -- ════════════════════════════════════════════════════════════════════════════
 --  1. public.org_type_capability (org_type, capability), seeded with the table above
 --     (23 rows). RLS: any signed-in person reads it; verified admins write it.
+--     public.capability_person_grant (user_id, capability, reason): the person-level
+--     exception, seeded once with the SM26-confirmed investors (see above); only
+--     'see_dealflow' can be granted (check constraint). RLS: verified admins only.
+--     Neither table gives TRUNCATE, REFERENCES or TRIGGER to anon or authenticated.
 --  2. public.capability_set(p_user, p_org default null) returns text[]: the rule
 --     above for one person (one company when p_org is given: then the person must
---     be a member of it, and neither the participant set nor the SM26 investor
---     exception is added). Internal: no EXECUTE for anon or authenticated (it
---     would tell anyone whether someone is pending or suspended).
---     public.capability_sm26_investor(p_user) returns boolean: the SM26-confirmed
---     investor test above. Internal too (it reads sm_* rows the caller may not).
+--     be a member of it, and neither the participant set nor the person's own
+--     grants are added). Internal: no EXECUTE for anon or authenticated (it would
+--     tell anyone whether someone is pending or suspended).
 --  3. public.has_capability(p_cap, p_org default null) returns boolean, for the
 --     caller (auth.uid()). STABLE, SECURITY DEFINER, search_path ''. Verified staff:
 --     true for any capability. EXECUTE for anon too: a policy that applies to
@@ -370,7 +397,7 @@ $otc$;
 --        "caps": [...]}
 --  5. public.capability_shadow_report(): one row per non-staff person (ids only:
 --     no name, no e-mail), their rights today and under the new rule, what they
---     gain and lose, and whether they are an SM26-confirmed investor. Staff only
+--     gain and lose, and whether they hold the SM26 investor grant. Staff only
 --     (or the service role / SQL console).
 --     "Today" = what both live sites and the database allow on 10 Oct 2026:
 --       publish_needs      verified, persona marina or developer, member of a
@@ -395,7 +422,8 @@ $otc$;
 --     place) or, when it exists, only the missing key is added.
 --
 --  NO existing policy, function, trigger or row changes (the sm_* tables are only
---  read). Nothing reads the new objects until the separate switch migration
+--  read, once, by the seed of section 3). Nothing reads the new objects until the
+--  separate switch migration
 --  (supabase/migrations/held/capabilities_enforce.sql) is applied and the flag is
 --  on. Both sites keep working exactly as before.
 --
@@ -405,10 +433,13 @@ $otc$;
 --
 -- Checks after applying (read-only):
 --   select count(*) from public.org_type_capability;                         -> 23
+--   select count(*) from public.capability_person_grant
+--    where capability = 'see_dealflow' and reason = 'sm26_investor';         -> 11 Oct 2026: 12
 --   select value -> 'capabilities_enforced' from public.platform_settings
 --    where key = 'registration_flags';                                       -> false
 --   select has_function_privilege('authenticated', 'public.capability_set(uuid, uuid)', 'execute');  -> false
 --   select has_function_privilege('anon', 'public.has_capability(text, uuid)', 'execute');           -> true
+--   select has_table_privilege('authenticated', 'public.org_type_capability', 'truncate');           -> false
 --   select count(*), count(*) filter (where cardinality(gained) > 0), count(*) filter (where cardinality(lost) > 0)
 --     from public.capability_shadow_report() where person_status = 'verified';
 --                                                    -> 11 Oct 2026: 128 / 32 / 15 (moves with the data)
@@ -433,7 +464,7 @@ begin
               where key = 'registration_flags' and jsonb_typeof(value) <> 'object') then
     raise exception 'capabilities shadow: platform_settings.registration_flags is not a JSON object';
   end if;
-  -- The SM26 investor exception reads these (read-only).
+  -- The seed of the SM26 investor exception (section 3) reads these, once (read-only).
   if (select count(*) from information_schema.columns
        where table_schema = 'public'
          and ((table_name = 'sm_event' and column_name in ('id', 'slug'))
@@ -474,7 +505,10 @@ create policy org_type_capability_admin_write on public.org_type_capability
   using (public.is_admin())
   with check (public.is_admin());
 
-revoke all on public.org_type_capability from public, anon;
+-- Every privilege is taken back first, authenticated's included: the project's
+-- default privileges hand anon and authenticated TRUNCATE, REFERENCES and TRIGGER
+-- on a new table too, and RLS does not stop a TRUNCATE.
+revoke all on public.org_type_capability from public, anon, authenticated;
 grant select, insert, update, delete on public.org_type_capability to authenticated;
 grant all on public.org_type_capability to service_role;
 
@@ -505,34 +539,55 @@ insert into public.org_type_capability (org_type, capability) values
   ('participant',   'propose_webinar')
 on conflict (org_type, capability) do nothing;
 
--- ─── 3. capability_set: the rule, for one person ────────────────────────────
--- First the SM26 investor test it uses (Victor, 11 Oct 2026; see the header).
-create or replace function public.capability_sm26_investor(p_user uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $function$
-  select p_user is not null
-     and exists (
-       select 1
-         from public.sm_registration r
-         join public.sm_event e on e.id = r.event_id
-         join public.sm_role_assignment ra on ra.registration_id = r.id
-        where r.user_id = p_user
-          and e.slug = 'sm26'
-          and r.status = 'confirmed'
-          and ra.role = 'investor'
-          and ra.status = 'confirmed');
-$function$;
+-- ─── 3. The person-level exception, frozen (Victor, 11 Oct 2026) ─────────────
+-- One row per person and capability. Only see_dealflow can be granted: widening
+-- it is a decision (replace the check constraint), never a data entry.
+create table if not exists public.capability_person_grant (
+  user_id    uuid not null,
+  capability text not null
+    constraint capability_person_grant_capability_check
+    check (capability = 'see_dealflow'),
+  reason     text not null
+    constraint capability_person_grant_reason_check
+    check (reason ~ '^[a-z][a-z0-9_]{1,62}$'),
+  created_at timestamptz not null default now(),
+  primary key (user_id, capability)
+);
 
-comment on function public.capability_sm26_investor(uuid) is
-  'Whether a person is an SM26-confirmed investor: their own Smart Marina 2026 registration (event slug sm26) is confirmed and has a confirmed investor role. Gives see_dealflow in capability_set (Victor, 11 Oct 2026). Reads sm_* only. Internal (no EXECUTE for anon/authenticated). 2026-10-11.';
+comment on table public.capability_person_grant is
+  'Rights given to a person rather than through a company (Victor, 11 Oct 2026): see_dealflow only, for a verified person (capability_set). Seeded once by 20261011090000_capabilities_shadow with the SM26-confirmed investors (reason sm26_investor); the sm_* tables are not read afterwards. Delete a row to take the right back. Admins only. 2026-10-11.';
 
-revoke all on function public.capability_sm26_investor(uuid) from public, anon, authenticated;
-grant execute on function public.capability_sm26_investor(uuid) to service_role;
+alter table public.capability_person_grant enable row level security;
 
+drop policy if exists capability_person_grant_admin on public.capability_person_grant;
+create policy capability_person_grant_admin on public.capability_person_grant
+  for all
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+revoke all on public.capability_person_grant from public, anon, authenticated;
+grant select, insert, update, delete on public.capability_person_grant to authenticated;
+grant all on public.capability_person_grant to service_role;
+
+-- The seed: the SM26-confirmed investors as they are now (the definition in the
+-- header; the sm_* tables are only read). Once only: when any sm26_investor row
+-- is already there (a second run, or the dry run of the switch on production), it
+-- adds nothing, so a row M3 deleted stays deleted.
+insert into public.capability_person_grant (user_id, capability, reason)
+select distinct r.user_id, 'see_dealflow', 'sm26_investor'
+  from public.sm_registration r
+  join public.sm_event e on e.id = r.event_id
+  join public.sm_role_assignment ra on ra.registration_id = r.id
+ where r.user_id is not null
+   and e.slug = 'sm26'
+   and r.status = 'confirmed'
+   and ra.role = 'investor'
+   and ra.status = 'confirmed'
+   and not exists (select 1 from public.capability_person_grant g where g.reason = 'sm26_investor')
+on conflict (user_id, capability) do nothing;
+
+-- ─── 4. capability_set: the rule, for one person ────────────────────────────
 create or replace function public.capability_set(p_user uuid, p_org uuid default null)
 returns text[]
 language plpgsql
@@ -592,29 +647,30 @@ begin
     v_types := v_types || 'participant'::text;
   end if;
 
-  -- 6. For the person as a whole, the one person-level exception (Victor, 11 Oct
-  --    2026): an SM26-confirmed investor sees Deal flow, company or not. Only
-  --    see_dealflow, and never through a company (p_org given).
+  -- 6. For the person as a whole, their own grants (capability_person_grant: the
+  --    SM26-confirmed investors' see_dealflow; Victor, 11 Oct 2026), company or
+  --    not. Never through a company (p_org given).
   return array(
     select distinct u.capability
       from (select c.capability
               from public.org_type_capability c
              where c.org_type = any (v_types)
             union all
-            select 'see_dealflow'::text
+            select g.capability
+              from public.capability_person_grant g
              where p_org is null
-               and public.capability_sm26_investor(p_user)) u
+               and g.user_id = p_user) u
      order by 1);
 end
 $function$;
 
 comment on function public.capability_set(uuid, uuid) is
-  'Rights of one person (p_org given: of that one company of theirs, without the participant set or the SM26 exception): staff everything, suspended nothing, not verified the pending set, else the participant set plus the org_type_capability rows of every validated (verified, typed, not archived, not duplicate) company they belong to, plus see_dealflow for an SM26-confirmed investor (capability_sm26_investor; Victor, 11 Oct 2026). Internal (no EXECUTE for anon/authenticated). 2026-10-11.';
+  'Rights of one person (p_org given: of that one company of theirs, without the participant set or the person''s grants): staff everything, suspended nothing, not verified the pending set, else the participant set plus the org_type_capability rows of every validated (verified, typed, not archived, not duplicate) company they belong to, plus their capability_person_grant rows (see_dealflow for the SM26-confirmed investors; Victor, 11 Oct 2026). Internal (no EXECUTE for anon/authenticated). 2026-10-11.';
 
 revoke all on function public.capability_set(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.capability_set(uuid, uuid) to service_role;
 
--- ─── 4. has_capability: the caller ───────────────────────────────────────────
+-- ─── 5. has_capability: the caller ───────────────────────────────────────────
 create or replace function public.has_capability(p_cap text, p_org uuid default null)
 returns boolean
 language sql
@@ -629,12 +685,12 @@ as $function$
 $function$;
 
 comment on function public.has_capability(text, uuid) is
-  'Whether the caller has a capability (org_type_capability, and see_dealflow for a verified SM26-confirmed investor), for themselves or, with p_org, through that one company of theirs. Verified staff: always true. Anonymous: false. Used by the policies of supabase/migrations/held/capabilities_enforce.sql once applied. 2026-10-11.';
+  'Whether the caller has a capability (org_type_capability, and their capability_person_grant rows: see_dealflow for a verified SM26-confirmed investor), for themselves or, with p_org, through that one company of theirs. Verified staff: always true. Anonymous: false. Used by the policies of supabase/migrations/held/capabilities_enforce.sql once applied. 2026-10-11.';
 
 revoke all on function public.has_capability(text, uuid) from public;
 grant execute on function public.has_capability(text, uuid) to anon, authenticated, service_role;
 
--- ─── 5. my_capabilities: what the site reads ─────────────────────────────────
+-- ─── 6. my_capabilities: what the site reads ─────────────────────────────────
 create or replace function public.my_capabilities()
 returns jsonb
 language plpgsql
@@ -668,12 +724,12 @@ end
 $function$;
 
 comment on function public.my_capabilities() is
-  'The caller''s rights for the site: person_status, is_staff, companies [{id, name, type, status, caps}], caps (the person as a whole, the SM26 investor exception included). 2026-10-11.';
+  'The caller''s rights for the site: person_status, is_staff, companies [{id, name, type, status, caps}], caps (the person as a whole, their capability_person_grant rows included). 2026-10-11.';
 
 revoke all on function public.my_capabilities() from public, anon;
 grant execute on function public.my_capabilities() to authenticated, service_role;
 
--- ─── 6. capability_shadow_report: today versus the new rule ──────────────────
+-- ─── 7. capability_shadow_report: today versus the new rule ──────────────────
 create or replace function public.capability_shadow_report()
 returns table (
   user_id        uuid,
@@ -746,19 +802,20 @@ begin
          array(select c.cap from compared c where c.cap = any (r.nxt) order by c.ord),
          array(select c.cap from compared c where c.cap = any (r.nxt) and not c.cap = any (r.cur) order by c.ord),
          array(select c.cap from compared c where c.cap = any (r.cur) and not c.cap = any (r.nxt) order by c.ord),
-         public.capability_sm26_investor(r.uid)
+         exists (select 1 from public.capability_person_grant g
+                  where g.user_id = r.uid and g.reason = 'sm26_investor')
     from rows_ r
    order by r.uid;
 end
 $function$;
 
 comment on function public.capability_shadow_report() is
-  'Rights today (both live sites and the database, 10 Oct 2026) versus the company-type rule, per non-staff person: ids, statuses, capability lists and whether they are an SM26-confirmed investor (the see_dealflow exception) only. Staff only. 2026-10-11.';
+  'Rights today (both live sites and the database, 10 Oct 2026) versus the company-type rule, per non-staff person: ids, statuses, capability lists and whether they hold the SM26 investor grant (capability_person_grant, the see_dealflow exception) only. Staff only. 2026-10-11.';
 
 revoke all on function public.capability_shadow_report() from public, anon;
 grant execute on function public.capability_shadow_report() to authenticated, service_role;
 
--- ─── 7. The switch, off ──────────────────────────────────────────────────────
+-- ─── 8. The switch, off ──────────────────────────────────────────────────────
 insert into public.platform_settings (key, value, label, description)
 values (
   'registration_flags',
@@ -853,9 +910,10 @@ create temp table _dr_mid on commit drop as select * from pg_temp.dr_snapshot();
 --    oci_select_verified_investors (persona investor) becomes oci_select_dealflow:
 --    has_capability('see_dealflow'): members of a validated investor company, staff,
 --    and a verified SM26-confirmed investor whatever their company (the one
---    person-level exception of the shadow migration, capability_sm26_investor;
---    Victor, 11 Oct 2026: they keep Deal flow WITH its data). The exception gives
---    see_dealflow only: no other policy here reads it, so it opens this one read
+--    person-level exception of the shadow migration: the frozen list in
+--    capability_person_grant; Victor, 11 Oct 2026: they keep Deal flow WITH its
+--    data). The exception gives see_dealflow only (check constraint, and
+--    precondition a): no other policy here reads it, so it opens this one read
 --    path and nothing else (no publishing, no answering, no messaging).
 --  platform_settings.registration_flags.capabilities_enforced := true
 --
@@ -899,13 +957,29 @@ do $pre$
 declare
   v_fp text;
 begin
-  -- a. The shadow migration is applied, in its version with the SM26 investor
-  --    exception (11 Oct 2026).
+  -- a. The shadow migration is applied, in its version with the frozen SM26
+  --    investor grants (11 Oct 2026), and the two functions every policy below
+  --    trusts are still that file's, byte for byte (carriage returns ignored): a
+  --    later CREATE OR REPLACE of either (a wider exception, say) must be reviewed
+  --    before the database enforces it. The person-level grants give Deal flow
+  --    and nothing else.
   if to_regclass('public.org_type_capability') is null
+     or to_regclass('public.capability_person_grant') is null
      or to_regprocedure('public.has_capability(text, uuid)') is null
-     or to_regprocedure('public.capability_sm26_investor(uuid)') is null
+     or to_regprocedure('public.capability_set(uuid, uuid)') is null
      or not exists (select 1 from public.org_type_capability) then
     raise exception 'capabilities switch: apply 20261011090000_capabilities_shadow.sql first';
+  end if;
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p
+       where p.oid = 'public.has_capability(text, uuid)'::regprocedure)
+       is distinct from 'daf27d08a67378c38b65d0dd9c0f3239'
+     or (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p
+          where p.oid = 'public.capability_set(uuid, uuid)'::regprocedure)
+       is distinct from '569dd9530f7c3c2818100c09006a16cc' then
+    raise exception 'capabilities switch: has_capability or capability_set is not the one of 20261011090000_capabilities_shadow.sql any more; re-read them and rebuild this file';
+  end if;
+  if exists (select 1 from public.capability_person_grant where capability <> 'see_dealflow') then
+    raise exception 'capabilities switch: capability_person_grant gives more than see_dealflow; review it first';
   end if;
   if not exists (select 1 from public.platform_settings
                   where key = 'registration_flags' and jsonb_typeof(value) = 'object') then
@@ -1148,8 +1222,9 @@ create policy webinar_requests_insert_owner_eligible on public.webinar_requests
 
 -- ─── 8. org_capital_intents (Deal flow) ──────────────────────────────────────
 -- has_capability('see_dealflow') is true for members of a validated investor
--- company, for staff, and for a verified SM26-confirmed investor (capability_set's
--- exception), so those keep reading the board's rows after the switch.
+-- company, for staff, and for a verified SM26-confirmed investor (their
+-- capability_person_grant row), so those keep reading the board's rows after the
+-- switch.
 drop policy if exists oci_select_verified_investors on public.org_capital_intents;
 
 create policy oci_select_dealflow on public.org_capital_intents
@@ -1424,39 +1499,16 @@ declare
 begin
   select p.user_id into v_p from public.profiles p
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
-     and not exists (select 1
-                   from public.sm_registration sr
-                   join public.sm_event se on se.id = sr.event_id
-                   join public.sm_role_assignment sra on sra.registration_id = sr.id
-                  where sr.user_id = p.user_id
-                    and se.slug = 'sm26'
-                    and sr.status = 'confirmed'
-                    and sra.role = 'investor'
-                    and sra.status = 'confirmed')
+     and not exists (select 1 from public.capability_person_grant g where g.user_id = p.user_id)
    order by p.user_id limit 1;
   select p.user_id into v_q from public.profiles p
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator') and p.user_id <> v_p
-     and not exists (select 1
-                   from public.sm_registration sr
-                   join public.sm_event se on se.id = sr.event_id
-                   join public.sm_role_assignment sra on sra.registration_id = sr.id
-                  where sr.user_id = p.user_id
-                    and se.slug = 'sm26'
-                    and sr.status = 'confirmed'
-                    and sra.role = 'investor'
-                    and sra.status = 'confirmed')
+     and not exists (select 1 from public.capability_person_grant g where g.user_id = p.user_id)
    order by p.user_id limit 1;
   select p.user_id into v_i from public.profiles p
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
-     and exists (select 1
-                   from public.sm_registration sr
-                   join public.sm_event se on se.id = sr.event_id
-                   join public.sm_role_assignment sra on sra.registration_id = sr.id
-                  where sr.user_id = p.user_id
-                    and se.slug = 'sm26'
-                    and sr.status = 'confirmed'
-                    and sra.role = 'investor'
-                    and sra.status = 'confirmed')
+     and exists (select 1 from public.capability_person_grant g
+                  where g.user_id = p.user_id and g.reason = 'sm26_investor')
    order by p.user_id limit 1;
   select p.user_id into v_a from public.profiles p
    where p.access_status = 'verified' and p.persona = 'admin'
@@ -1554,26 +1606,32 @@ begin
       (select b.k, b.v from _dr_before b
         where starts_with(b.k, 'function capability_set(') or starts_with(b.k, 'function has_capability(')
            or starts_with(b.k, 'function my_capabilities(') or starts_with(b.k, 'function capability_shadow_report(')
-           or starts_with(b.k, 'function capability_sm26_investor(')
            or starts_with(b.k, 'policy org_type_capability.') or starts_with(b.k, 'constraint org_type_capability.')
            or b.k = 'table org_type_capability'
+           or starts_with(b.k, 'policy capability_person_grant.') or starts_with(b.k, 'constraint capability_person_grant.')
+           or b.k = 'table capability_person_grant'
        except
        select m.k, m.v from _dr_mid m)
       union all
       (select m.k, m.v from _dr_mid m
         where starts_with(m.k, 'function capability_set(') or starts_with(m.k, 'function has_capability(')
            or starts_with(m.k, 'function my_capabilities(') or starts_with(m.k, 'function capability_shadow_report(')
-           or starts_with(m.k, 'function capability_sm26_investor(')
            or starts_with(m.k, 'policy org_type_capability.') or starts_with(m.k, 'constraint org_type_capability.')
            or m.k = 'table org_type_capability'
+           or starts_with(m.k, 'policy capability_person_grant.') or starts_with(m.k, 'constraint capability_person_grant.')
+           or m.k = 'table capability_person_grant'
        except
        select b.k, b.v from _dr_before b)) x;
     select coalesce(string_agg(c.org_type || ':' || c.capability, ',' order by c.org_type collate "C", c.capability collate "C"), '')
       into v_t2 from public.org_type_capability c;
     v_b := v_t2 = current_setting('smc_dryrun.otc_before', true);
+    -- The person-level grants too: section B's seed adds nothing once any SM26 row is there.
+    select coalesce(string_agg(g.user_id::text || ':' || g.capability || ':' || g.reason, ',' order by g.user_id, g.capability), '')
+      into v_t2 from public.capability_person_grant g;
+    v_b := v_b and v_t2 = current_setting('smc_dryrun.cpg_before', true);
     r := r || nl || pg_temp.dr_line(v_t is null and v_b,
            'T05 the shadow migration in production is the file''s: section B changed no function, policy or table row',
-           'differs: ' || coalesce(v_t, '-') || case when v_b then '' else ' + the org_type_capability rows' end
+           'differs: ' || coalesce(v_t, '-') || case when v_b then '' else ' + the org_type_capability or capability_person_grant rows' end
              || ' (rebuild this dry run from production)');
   end if;
 
@@ -1984,10 +2042,10 @@ begin
 
   -- E4 the shadow objects are still there (only the switch was undone)
   v_b := to_regclass('public.org_type_capability') is not null
+     and to_regclass('public.capability_person_grant') is not null
      and to_regprocedure('public.has_capability(text, uuid)') is not null
      and to_regprocedure('public.my_capabilities()') is not null
-     and to_regprocedure('public.capability_shadow_report()') is not null
-     and to_regprocedure('public.capability_sm26_investor(uuid)') is not null;
+     and to_regprocedure('public.capability_shadow_report()') is not null;
   r := r || nl || pg_temp.dr_line(v_b, 'E4 the shadow table and functions stay after undoing the switch');
 
   select count(*) filter (where l like 'PASS %'), count(*) filter (where l like 'FAIL %')

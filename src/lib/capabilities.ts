@@ -20,8 +20,9 @@ import { supabase } from '@/lib/supabase';
  *
  * One person-level exception (Victor, 11 Oct 2026): a verified person who is a
  * confirmed investor at Smart Marina 2026 also has see_dealflow, company or not,
- * and nothing else from it. The database decides who that is
- * (capability_sm26_investor); my_capabilities().caps carries it.
+ * and nothing else from it. The database decides who that is: a frozen list
+ * (capability_person_grant), copied once from the SM26 registrations by the shadow
+ * migration; my_capabilities().caps carries it.
  *
  * SHADOW MODE. The switch platform_settings.registration_flags.capabilities_enforced
  * is off: every screen keeps today's checks (persona, active company) and nothing
@@ -37,7 +38,9 @@ import { supabase } from '@/lib/supabase';
  * The switch is read by src/lib/flags.ts (readRegistrationFlags), the one reader of
  * registration_flags: only a literal true turns it on; a missing row or another
  * value means off; a failed read is never kept, gives up after four seconds, and
- * AuthContext tries again when the tab regains focus.
+ * AuthContext tries again when the tab regains focus. An open tab follows the switch
+ * (or its rollback) when the person comes back to it, the row being read again at
+ * most once per five minutes; a reload follows at once.
  */
 
 export const CAPABILITIES = [

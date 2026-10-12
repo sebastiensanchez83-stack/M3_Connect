@@ -36,8 +36,9 @@ import {
  *    supabase/migrations/held/capabilities_enforce.sql turns on together with the
  *    database policies, on the day the refonte goes live (docs/rights-switch-runbook.md).
  *  - The one person-level exception (Victor, 11 Oct 2026): a verified person who is
- *    an SM26-confirmed investor sees Deal flow, company or not (sm26_investor in
- *    the report).
+ *    an SM26-confirmed investor sees Deal flow, company or not: a frozen list
+ *    (capability_person_grant, copied once from the SM26 registrations; sm26_investor
+ *    in the report).
  */
 
 interface ShadowRow {
@@ -250,7 +251,7 @@ export function AdminRights() {
           </table>
         </AdminTableCard>
         <p className="max-w-3xl text-[13px] leading-5 text-meta">
-          {t('adminRights.sm26Exception', 'One exception, for a person rather than a company: anyone M3 verified who is a confirmed investor at Smart Marina 2026 also sees Deal flow, with or without a company. Nothing else comes with it.')}
+          {t('adminRights.sm26Exception', 'One exception, for a person rather than a company: the people M3 verified who were confirmed investors at Smart Marina 2026 also see Deal flow, with or without a company. Nothing else comes with it. The list was copied once from the event registrations and does not grow by itself. Their company does not affect it: to take Deal flow back from one of them, suspend the person or remove their row from capability_person_grant.')}
         </p>
       </section>
 
@@ -289,8 +290,8 @@ export function AdminRights() {
                 {t('adminRights.sm26Line', {
                   count: stats.sm26,
                   only: stats.sm26Only,
-                  defaultValue_one: '{{count}} verified person is a confirmed investor at Smart Marina 2026; {{only}} of them sees Deal flow through that exception alone.',
-                  defaultValue_other: '{{count}} verified people are confirmed investors at Smart Marina 2026; {{only}} of them see Deal flow through that exception alone.',
+                  defaultValue_one: '{{count}} verified person is a confirmed investor at Smart Marina 2026. People who see Deal flow through that exception alone: {{only}}.',
+                  defaultValue_other: '{{count}} verified people are confirmed investors at Smart Marina 2026. For {{only}} of them, Deal flow comes from that exception alone.',
                 })}
               </p>
             )}

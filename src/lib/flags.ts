@@ -160,7 +160,8 @@ export function useRegistrationFlags(): FlagsState & { retry: () => void } {
     return () => { alive = false; };
   }, [attempt]);
 
-  // Another component's read brought a different value: show it here too.
+  // Any successful read, whoever made it: show its value here too (show() keeps the
+  // state as it is when nothing changed).
   useEffect(() => {
     listeners.add(show);
     return () => { listeners.delete(show); };

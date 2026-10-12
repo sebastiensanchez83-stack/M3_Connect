@@ -122,7 +122,8 @@ export default function MemberDashboard() {
   const isDemand = DEMAND_PERSONAS.includes(persona ?? '');
   const isSupply = SUPPLY_PERSONAS.includes(persona ?? '');
   // Today: the investor persona, and a verified company. Once the rights switch is on
-  // (src/lib/capabilities.ts): the company types, as the database.
+  // (src/lib/capabilities.ts): the company types, as the database (Deal flow also for
+  // the verified SM26-confirmed investors: capability_person_grant).
   const showDealFlow = capabilitiesEnforced ? isVerified && can('see_dealflow') : persona === 'investor';
   const canSeeOpportunities = capabilitiesEnforced ? isVerified && can('see_opportunities') : isVerified && orgVerified;
   const canProjects = isDemand || isFeatureEnabled('submit_project');

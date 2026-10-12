@@ -12,7 +12,7 @@ import {
   fetchMyCapabilities,
   setCapabilityGate,
 } from '@/lib/capabilities'
-import { readRegistrationFlags } from '@/lib/flags'
+import { onRegistrationFlagsChange, readRegistrationFlags } from '@/lib/flags'
 
 interface AuthContextType {
   user: User | null
@@ -392,6 +392,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [capsRetry, setCapsRetry] = useState(0)
   const capsUidRef = useRef<string | null | undefined>(undefined)
   const capsEnforcedRef = useRef(false)
+  // A run of the effect below is under way (it applies the flag value it reads).
+  const capsLoadingRef = useRef(false)
+  // The switch as the last successful read of the row said it (null: none yet).
+  const capsLatestFlagRef = useRef<boolean | null>(null)
   const capsUid = user?.id ?? null
   const capsPersonKey = profile ? `${profile.access_status}:${profile.persona}` : ''
   const capsCompaniesKey = organizations
@@ -408,6 +412,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCapSnapshot(null)
       setCapsFailed(false)
     }
+    capsLoadingRef.current = true
     ;(async () => {
       // The one reader of registration_flags (src/lib/flags.ts): null = could not be read.
       const flags = await readRegistrationFlags()
@@ -416,6 +421,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const enforced = flag ?? capsEnforcedRef.current
       const snapshot = enforced && capsUid ? await fetchMyCapabilities() : null
       if (!alive) return
+      capsLoadingRef.current = false
       capsEnforcedRef.current = enforced
       setCapsEnforced(enforced)
       const snapshotFailed = enforced && !!capsUid && !snapshot
@@ -423,6 +429,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!snapshotFailed) setCapSnapshot(snapshot)
       setCapsFailed(flag === null || snapshotFailed)
       setCapsReady(true)
+      // The switch moved while this run was reading the rights: once more.
+      if (capsLatestFlagRef.current !== null && capsLatestFlagRef.current !== enforced) setCapsRetry(n => n + 1)
     })()
     return () => { alive = false }
   }, [capsUid, capsPersonKey, capsCompaniesKey, capsRetry])
@@ -433,6 +441,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('focus', retry)
     return () => window.removeEventListener('focus', retry)
   }, [capsFailed])
+
+  // An open tab follows the switch without a reload. Every successful read of the
+  // row, whoever made it, says whether it is on; when that differs from what this
+  // tab applies, the rights are read again. The row is read again whenever the
+  // person comes back to the tab (focus, or the tab shown again): at most one
+  // request per five minutes (the cache of src/lib/flags.ts). So a tab follows the
+  // switch, or its rollback, the first time it is used again five minutes or more
+  // after the last read; a reload follows at once.
+  useEffect(() => {
+    const off = onRegistrationFlagsChange((flags) => {
+      capsLatestFlagRef.current = flags.capabilities_enforced
+      if (!capsLoadingRef.current && flags.capabilities_enforced !== capsEnforcedRef.current) {
+        setCapsRetry(n => n + 1)
+      }
+    })
+    const reread = () => { void readRegistrationFlags() }
+    const onVisible = () => { if (document.visibilityState === 'visible') reread() }
+    window.addEventListener('focus', reread)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      off()
+      window.removeEventListener('focus', reread)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
   const retryCapabilities = useCallback(() => setCapsRetry(n => n + 1), [])
 
   const can = useCallback(

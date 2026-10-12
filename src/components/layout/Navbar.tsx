@@ -263,7 +263,8 @@ export function Navbar() {
 
   // ---------------------------------------------------------------- capabilities
   // Deal flow: the investor persona today; once the rights switch is on, the company
-  // type (members of a validated investor company, and staff), as the database.
+  // type (members of a validated investor company, and staff) plus the verified
+  // SM26-confirmed investors (capability_person_grant), as the database.
   const showDealFlow = capabilitiesEnforced ? isVerified && can('see_dealflow') : profile?.persona === 'investor';
   // A draft account (sign-up not finished): the dashboard, Create and the inbox
   // would all send it back to its registration, so the bar offers that instead.

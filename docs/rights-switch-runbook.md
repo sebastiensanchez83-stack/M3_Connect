@@ -12,7 +12,7 @@ Files:
   and functions, in shadow mode. Applied BEFORE the day (it changes nothing that
   anyone can do). Down: `supabase/migrations/down/20261011090000_capabilities_shadow.down.sql`.
   Dry run: `supabase/dryrun/20261011090000_capabilities_shadow.dryrun.sql`,
-  expected **50 PASS, 0 FAIL**.
+  expected **57 PASS, 0 FAIL**.
 - `supabase/migrations/held/capabilities_enforce.sql`: the switch. Applied ON the
   day. Down: `supabase/migrations/down/capabilities_enforce.down.sql`. Dry run:
   `supabase/dryrun/capabilities_enforce.dryrun.sql`, expected **32 PASS, 0 FAIL**.
@@ -26,21 +26,36 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
 - **No e-mail** to the people who gain or lose a right. Nothing in the site, the
   database or the edge functions sends a "rights change" notice; do not add one.
 - People confirmed as investors at Smart Marina 2026 keep Deal flow, with its
-  data, even without a validated investor company. Built into the shadow
-  migration (`capability_sm26_investor`); on 11 Oct 2026 it covers 12 people,
-  one of whom has no validated investor company.
+  data, even without a validated investor company, and get nothing else from it.
+  The shadow migration copies them ONCE into `capability_person_grant` (a
+  confirmed investor role on their own confirmed SM26 registration); the rules
+  read that list, never the SM26 tables, so archiving or reshaping those tables
+  cannot break the switch, and a registration attached to an account later (by
+  e-mail, a claim code or M3) gives nothing. On 11 Oct 2026 the list has 12
+  people, all verified, one of whom has no validated investor company.
+  - Their company does not affect it. To take Deal flow back from one of them,
+    suspend the person, or delete their row:
+    `delete from public.capability_person_grant where user_id = '<id>';`
+  - To give it to someone else (Victor's decision only), insert a row with
+    capability `see_dealflow`; nothing else can be granted this way.
 - Marinas read other members' needs but do not answer them with "Express
   interest". They can still send a message to the company that published one.
 
 ## Before the day
 
-1. Shadow migration in production: run its dry run (50 PASS, 0 FAIL; INFO lines
+1. Shadow migration in production: run its dry run (57 PASS, 0 FAIL; INFO lines
    on 11 Oct 2026: "128 verified people, 32 gain, 15 lose" and "SM26-confirmed
    investors: 12 (12 verified), 1 of them without a validated investor
    company"), then apply it.
 2. Admin > Rights shows the table, the counts, and "Validated companies without
    a type: none". Type any untyped validated company before the day: its members
    would otherwise lose their rights.
+3. Run the switch's dry run (`supabase/dryrun/capabilities_enforce.dryrun.sql`,
+   expected **32 PASS, 0 FAIL**) the day before the go-live, and again after any
+   migration that touches rfps, consultations, marina_projects, partner_requests,
+   webinar_requests or org_capital_intents. If it stops on "the policies to
+   replace changed", rebuild the switch and its down script from production then,
+   not on the day.
 
 ## On the day, in this order
 
@@ -58,7 +73,11 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
 3. **Apply the switch.** Give the held file a timestamp, move it to
    `supabase/migrations/<YYYYMMDDHHMMSS>_capabilities_enforce.sql`, apply it.
    It runs in one transaction and gives up after 5 seconds waiting for a lock:
-   if it does, nothing was applied; run it again a little later.
+   if it does, nothing was applied; run it again a little later. If it stops
+   with "has_capability or capability_set is not the one of
+   20261011090000_capabilities_shadow.sql", someone replaced one of those
+   functions in production: stop, nothing was applied; review the change and
+   rebuild the switch (its md5 check) and its dry run.
 4. **The flag.** The migration turns `registration_flags.capabilities_enforced`
    on itself, in the same transaction, so the screens and the database change
    together. Check it:
@@ -75,8 +94,10 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
     where key = 'registration_flags';
    ```
 
-   Open tabs follow within five minutes (the site keeps the flag five minutes);
-   a reload follows at once.
+   The database applies the new rules at once. A tab that was already open
+   follows the first time the person comes back to it (focus) five minutes or
+   more after its last read of the flag; a reload follows at once. Do the checks
+   below in a freshly loaded tab.
 5. **Checks.**
 
    ```sql
@@ -122,4 +143,6 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
    `supabase/migrations/down/20261011090000_capabilities_shadow.down.sql`, only
    after step 1 (it refuses while the switch is on).
 
-The site follows the flag within five minutes, or at once on a reload.
+The database is back to the old rules at once. An open tab follows the first time
+the person comes back to it five minutes or more after its last read of the flag;
+a reload follows at once.

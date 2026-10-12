@@ -97,8 +97,9 @@ export function DealFlowPage() {
   // see_dealflow, as the database does (oci_select_dealflow): members of a
   // validated investor company, M3 staff, and a verified SM26-confirmed investor
   // whatever their company (Victor, 11 Oct 2026: they keep Deal flow, with its
-  // data). The database decides who that is (capability_sm26_investor), so the
-  // page asks can() and no longer reads sm_registration itself.
+  // data). The database decides who that is (the frozen list in
+  // capability_person_grant, copied from the SM26 registrations by the shadow
+  // migration), so the page asks can() and no longer reads sm_registration itself.
   const personaInvestor = !!user && profile?.persona === 'investor' && isVerified;
   const [smInvestor, setSmInvestor] = useState<boolean | null>(null); // null = still checking
   useEffect(() => {
@@ -409,7 +410,9 @@ export function DealFlowPage() {
         title="Deal flow"
       >
         <p className="max-w-2xl text-[16px] leading-7">
-          Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, open a profile to read the full thesis, or send an introduction from here.
+          {canContact
+            ? t('dealflow.lead', 'Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, open a profile to read the full thesis, or send an introduction from here.')
+            : t('dealflow.leadReadOnly', 'Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, and open a profile to read the full thesis.')}
         </p>
       </MemberHeader>
 

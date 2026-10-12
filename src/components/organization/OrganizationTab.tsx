@@ -33,6 +33,8 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BTN, BTN_OUTLINE } from '@/components/member/MemberUI';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
+import { AddCompanyForm } from '@/components/organization/AddCompanyForm';
+import { useRegistrationFlags } from '@/lib/flags';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
 import {
   addOrgGalleryImages, answerJoinRequest, cancelTeamInvitation, deleteOrgDocument, fetchOrgDocuments, imageProblem,
@@ -71,6 +73,12 @@ export function OrganizationTab({ onSaved }: {
 } = {}) {
   const { t } = useTranslation();
   const { user, profile, organization: activeOrg, refreshProfile } = useAuth();
+  // Flag account_signup_v2: no company row is created from here any more ("Add my company"
+  // sends a request M3 reviews, the same step as the sign-up), and no seat cap (the
+  // platform is free, Victor 6 Oct 2026). The window.confirm domain bypass of the old
+  // creation form goes with it.
+  const { flags: regFlags } = useRegistrationFlags();
+  const signupV2 = regFlags.account_signup_v2;
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -638,8 +646,9 @@ export function OrganizationTab({ onSaved }: {
   const handleInvite = async () => {
     if (!org || !inviteForm.email.trim()) return;
 
-    // Capacity check — block invite if at max_seats (marinas/developers have unlimited seats)
-    const problem = invitationProblem(org, members.length + invitations.length, inviteForm.email);
+    // Capacity check — block invite if at max_seats (marinas/developers have unlimited seats).
+    // No seat cap with account_signup_v2 (the domain rule stays).
+    const problem = invitationProblem(signupV2 ? { ...org, max_seats: 0 } : org, members.length + invitations.length, inviteForm.email);
     if (problem === 'capacity') {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
@@ -764,6 +773,24 @@ export function OrganizationTab({ onSaved }: {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
       </div>
+    );
+  }
+
+  // ── NO ORG, account_signup_v2: "Add my company" (a request, never a company row) ──
+  if (!org && signupV2) {
+    return (
+      <Card className="rounded-card shadow-none">
+        <CardContent className="space-y-5 pt-6">
+          <div className="flex items-start gap-3">
+            <Building2 className="mt-0.5 h-6 w-6 shrink-0 text-navy" aria-hidden="true" />
+            <div>
+              <h3 className="text-lg font-semibold text-navy">{t('signupV2.add.title', 'Add my company')}</h3>
+              <p className="text-sm text-meta">{t('signupV2.add.lead', 'Find it among the companies already on the platform, or describe it: the M3 team checks it, and the owner of a listed company confirms who joins.')}</p>
+            </div>
+          </div>
+          <AddCompanyForm onDone={() => onSaved?.()} />
+        </CardContent>
+      </Card>
     );
   }
 
@@ -1587,7 +1614,7 @@ export function OrganizationTab({ onSaved }: {
               {t('org.members')}
             </CardTitle>
             {/* Seat counter — hidden for marinas (unlimited) */}
-            {org.organization_type !== 'marina' && org.max_seats > 0 && (
+            {!signupV2 && org.organization_type !== 'marina' && org.max_seats > 0 && (
               <div className="mt-2 flex items-center gap-2">
                 <div className="flex-1 max-w-[160px] h-2 bg-rule rounded-full overflow-hidden">
                   <div
@@ -1602,7 +1629,7 @@ export function OrganizationTab({ onSaved }: {
                 </span>
               </div>
             )}
-            {org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
+            {!signupV2 && org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
               <p className="text-xs text-amber-800 mt-1">
                 All seats are occupied. Contact Smart Marina Connect to request additional seats.
               </p>
@@ -1617,7 +1644,7 @@ export function OrganizationTab({ onSaved }: {
               size="sm"
               className={BTN}
               onClick={() => setInviteOpen(true)}
-              disabled={org.organization_type !== 'marina' && org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
+              disabled={!signupV2 && org.organization_type !== 'marina' && org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
             >
               <UserPlus className="h-4 w-4 mr-1" />
               {t('org.inviteMember')}

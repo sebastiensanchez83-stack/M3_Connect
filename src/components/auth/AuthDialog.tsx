@@ -53,6 +53,7 @@ export function AuthDialog({
   description,
   switchTo,
   photo,
+  sheet = false,
   children,
   className,
 }: {
@@ -67,6 +68,12 @@ export function AuthDialog({
   switchTo?: { onClick: () => void; prompt?: string; label?: string };
   /** Default: the photo of the mode; `null` for none. */
   photo?: SiteImage | null;
+  /**
+   * Below 640 px the window becomes a full-screen sheet (spec regspec-en.md §6, mobile
+   * rules): the whole screen for the form, the close (x) in its corner. Set by the
+   * callers behind the registration flags (account_signup_v2, password_only_login).
+   */
+  sheet?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -82,6 +89,7 @@ export function AuthDialog({
       <DialogContent
         className={cn(
           'max-h-[92vh] w-[calc(100%-2rem)] max-w-lg gap-0 overflow-y-auto rounded-card border-0 bg-white p-0 shadow-drawer sm:rounded-card',
+          sheet && 'max-sm:inset-0 max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:data-[state=open]:slide-in-from-left-0 max-sm:data-[state=open]:slide-in-from-top-0 max-sm:data-[state=closed]:slide-out-to-left-0 max-sm:data-[state=closed]:slide-out-to-top-0 max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=closed]:zoom-out-100',
           // The close (x), the content's last child (ui/dialog): a 44 px target, on a
           // white disc so that it shows on any photo (a dark x vanished on dark ones).
           '[&>button:last-child]:right-2 [&>button:last-child]:top-2 [&>button:last-child]:grid [&>button:last-child]:h-11 [&>button:last-child]:w-11 [&>button:last-child]:place-items-center',
@@ -90,7 +98,7 @@ export function AuthDialog({
         )}
       >
         {image?.src && (
-          <div aria-hidden="true" className="relative h-28 shrink-0 overflow-hidden bg-navy sm:h-32">
+          <div aria-hidden="true" className={cn('relative h-28 shrink-0 overflow-hidden bg-navy sm:h-32', sheet && 'max-sm:h-20')}>
             <img
               src={image.src}
               alt=""

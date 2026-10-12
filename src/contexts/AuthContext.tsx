@@ -5,6 +5,34 @@ import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/dat
 import { getStoredInvite } from '@/lib/invite-store'
 import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
+import { loadRegistrationFlags } from '@/lib/flags'
+
+/**
+ * attach_my_records (registration core): once per browser tab session and account,
+ * the registrations made with the account's PROVEN address that are not linked yet
+ * join the account (event guests, legacy webinar guests; never SM26). A no-op in
+ * the database while the address is not proven. Behind flag front_door: with the
+ * flags off nothing new is called. Fire-and-forget, never blocks the page.
+ */
+const ATTACHED_KEY = 'smc_attached:'
+async function attachMyRecordsOnce(userId: string): Promise<boolean> {
+  try {
+    if (sessionStorage.getItem(ATTACHED_KEY + userId)) return false
+  } catch { /* storage blocked: the in-memory guard of the caller still applies */ }
+  const flags = await loadRegistrationFlags()
+  if (!flags.front_door) return false
+  try {
+    const { error } = await supabase.rpc('attach_my_records')
+    if (error) {
+      if (import.meta.env.DEV) console.warn('[AuthContext] attach_my_records:', error.message)
+      return false
+    }
+    try { sessionStorage.setItem(ATTACHED_KEY + userId, String(Date.now())) } catch { /* ignore */ }
+    return true
+  } catch {
+    return false
+  }
+}
 
 interface AuthContextType {
   user: User | null
@@ -135,6 +163,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Only true when profile was ACTUALLY loaded (not just attempted).
   // Allows TOKEN_REFRESHED to retry if the initial fetch failed.
   const profileLoadedRef = useRef(false)
+
+  // ─── Attach registrations once per session (flag front_door) ─────────
+  // Once the account's profile is here: unlinked registrations made with its proven
+  // address join it (My events reads them through my_participations, by e-mail too).
+  const attachTriedRef = useRef<string | null>(null)
+  const profileUserId = profile?.user_id ?? null
+  useEffect(() => {
+    if (!profileUserId || attachTriedRef.current === profileUserId) return
+    attachTriedRef.current = profileUserId
+    void attachMyRecordsOnce(profileUserId)
+  }, [profileUserId])
 
   // ─── Core auth effect ─────────────────────────────────────────────
   //

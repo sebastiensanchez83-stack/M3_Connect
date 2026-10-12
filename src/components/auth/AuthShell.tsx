@@ -69,8 +69,10 @@ export function AuthShell({
   const sentence = lead === undefined ? t('authRefonte.shell.lead', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events.") : lead;
   const enter = (delay: number) => ({ '--enter-delay': `${delay}s` }) as CSSProperties;
 
+  // overflow: clip where supported (not hidden): it clips the photo the same way but is no
+  // scroll container, so a form's sticky bottom button (sign-up v2, phones) sticks to the screen.
   return (
-    <section ref={ref} className="relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white lg:min-h-[min(100svh,860px)]">
+    <section ref={ref} className="relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white supports-[overflow:clip]:overflow-clip lg:min-h-[min(100svh,860px)]">
       <div aria-hidden="true" className="absolute inset-0 -z-30">
         <CoverImage
           src={image?.src ?? null}

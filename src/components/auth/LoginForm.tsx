@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -10,7 +10,12 @@ import { useAuthDialogTitle } from '@/components/auth/AuthDialog';
 import { throughWelcome } from '@/lib/confirmationLink';
 import { type AuthErrorLike, isInvalidCredentials, isNetworkError, isRateLimited, signInErrorMessage } from '@/lib/authErrors';
 import { toast } from '@/hooks/use-toast';
+import { useRegistrationFlags } from '@/lib/flags';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { Loader2, MailWarning } from 'lucide-react';
+
+// password_only_login's "Get my links" step: its own chunk (the registration helpers), loaded when opened.
+const ResendLinksForm = lazyWithRetry(() => import('@/components/registration/ResendLinksForm').then((m) => ({ default: m.ResendLinksForm })));
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -141,6 +146,12 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
   const [forgotMode, setForgotMode] = useState(false);
+  // password_only_login: "Registered without an account? Get my links" (the registration
+  // function's resend_links: a fresh personal link per upcoming registration of the address),
+  // and one plain message for a refused sign-in with "First time since your event?".
+  const { flags } = useRegistrationFlags();
+  const v2 = flags.password_only_login;
+  const [linksMode, setLinksMode] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotError, setForgotError] = useState<string | null>(null);
@@ -153,7 +164,8 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   // In the sign-in window, the "forgot password" step takes over the window's title
   // (instead of "Sign in" above a second heading); on a page, it keeps its own.
   const forgotTitle = t('auth.passwordLink.title', 'Get a link to set your password');
-  const inDialog = useAuthDialogTitle(forgotMode ? forgotTitle : null);
+  const linksTitle = t('loginV2.linksTitle', 'Get my registration links');
+  const inDialog = useAuthDialogTitle(forgotMode ? forgotTitle : linksMode ? linksTitle : null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,6 +227,22 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       setForgotSent(true);
     }
   };
+
+  if (linksMode) {
+    return (
+      <div className="space-y-5">
+        {!inDialog && <h3 className="text-h3 text-navy">{linksTitle}</h3>}
+        <Suspense fallback={<p className="text-sm text-meta" role="status">{t('common.loading', 'Loading...')}</p>}>
+          <ResendLinksForm idPrefix="login-links" defaultEmail={email} />
+        </Suspense>
+        <div className="text-center">
+          <UnderlineLink arrow={false} className="min-h-11" onClick={() => setLinksMode(false)}>
+            {t('auth.backToSignIn', 'Back to sign in')}
+          </UnderlineLink>
+        </div>
+      </div>
+    );
+  }
 
   if (forgotMode) {
     return (
@@ -291,6 +319,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
         <AuthInput
           id="email"
           type="email"
+          inputMode="email"
           autoComplete="email"
           value={email}
           onChange={(e) => { setEmail(e.target.value); setSignInError(null); setWrongCredentials(false); }}
@@ -320,8 +349,16 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
 
       {signInError && (
         <AuthNotice tone="error" role="alert">
-          <p>{signInError}</p>
-          {wrongCredentials && (
+          <p>{v2 && wrongCredentials ? t('loginV2.refused', 'The e-mail address or the password is not right.') : signInError}</p>
+          {v2 && wrongCredentials ? (
+            <UnderlineLink
+              arrow={false}
+              className="min-h-11 !text-sm !font-medium"
+              onClick={() => { setForgotMode(true); setSignInError(null); setWrongCredentials(false); }}
+            >
+              {t('loginV2.firstTime', 'First time since your event? Set your password')}
+            </UnderlineLink>
+          ) : wrongCredentials && (
             <UnderlineLink
               arrow={false}
               className="min-h-11 !text-sm !font-medium"
@@ -336,6 +373,15 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
         {loading ? t('common.loading', 'Loading...') : t('auth.login', 'Sign in')}
       </Button>
+
+      {v2 && (
+        <p className="text-center text-sm leading-6 text-meta">
+          {t('loginV2.noAccountReg', 'Registered without an account?')}{' '}
+          <UnderlineLink arrow={false} className="min-h-11 !text-sm" onClick={() => { setLinksMode(true); setSignInError(null); }}>
+            {t('loginV2.getLinks', 'Get my links')}
+          </UnderlineLink>
+        </p>
+      )}
 
       {unconfirmedEmail !== null && unconfirmedEmail === email && (
         <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>

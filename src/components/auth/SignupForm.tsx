@@ -74,7 +74,9 @@ const isInvalidCode = (payload: ClaimSignupPayload | null) =>
 // (/sm26/claim?code=SM26-…, /sm26/open-score?code=…) and also show this form.
 function readUrlClaimCode(): string | null {
   const params = new URLSearchParams(window.location.search);
-  return params.get('signup') === 'true' ? params.get('code') : null;
+  // /signup?email=…&code=… (flag front_door) is where that link lands now.
+  const onSignupPage = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/signup';
+  return params.get('signup') === 'true' || onSignupPage ? params.get('code') : null;
 }
 
 // That code, or the one kept from it earlier in this tab. Read while the first

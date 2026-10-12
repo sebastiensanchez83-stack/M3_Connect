@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStoredInvite } from '@/lib/invite-store'
 import { toast } from '@/hooks/use-toast'
+import { useRegistrationFlags } from '@/lib/flags'
+import { linkSessionAt } from '@/lib/accountSignup'
 // The i18next instance rather than useTranslation(): `t` would have to join the
 // redirect effect's dependencies and re-run it on every language switch.
 import i18n from '@/i18n'
@@ -77,9 +79,17 @@ export function scrubAuthLandingUrl() {
 }
 
 export function AuthRedirector() {
-  const { user, loading, profile, profileTimedOut, isModerator } = useAuth()
+  const { user, session, loading, profile, profileTimedOut, isModerator } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  // Flag front_door: no forced company wizard for drafts, and /welcome forced only
+  // right after an e-mailed link (spec regspec-en.md §6 /welcome, §12: the 14
+  // pw_pending accounts are not sent there on every visit). Until the switches are
+  // read, the current rules apply.
+  const { flags } = useRegistrationFlags()
+  const frontDoor = flags.front_door
+  // The session was opened from an e-mailed link (JWT amr), not with a password.
+  const fromLink = linkSessionAt(session) !== null
 
   const isAdminRoute = pathname.startsWith('/admin')
   const isOnboardingRoute = pathname === '/onboarding'
@@ -108,8 +118,11 @@ export function AuthRedirector() {
     // Exempt: the welcome page itself, claim links (auto-claim then hub),
     // password-recovery, the on-site event info and the personal links of
     // registrations — everything else routes to /welcome until done.
+    // front_door: only a session opened from an e-mailed link is sent there (the link's
+    // owner chooses the password); a password session already knows its password.
     if (
       user.user_metadata?.pw_pending === true &&
+      (!frontDoor || fromLink) &&
       pathname !== '/welcome' &&
       pathname !== '/sm26/claim' &&
       !isOnsiteInfoPage(pathname) &&
@@ -153,6 +166,10 @@ export function AuthRedirector() {
       return
     }
 
+    // front_door: no company wizard. A draft or a rejected account uses the dashboard
+    // (its status card says what to do); /onboarding itself forwards there (App.tsx).
+    if (frontDoor) return
+
     if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && isProtectedRoute(pathname)) {
       navigate('/account', { replace: true })
       return
@@ -161,7 +178,7 @@ export function AuthRedirector() {
     if (isCompleted && isOnboardingRoute && !pendingInviteId) {
       navigate('/account', { replace: true })
     }
-  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])
+  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute, frontDoor, fromLink])
 
   return null
 }

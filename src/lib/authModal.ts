@@ -13,12 +13,21 @@ export const OPEN_SIGNUP_EVENT = 'smc:open-signup';
 
 export interface OpenSignupDetail {
   persona?: PersonaType;
+  /**
+   * Where to continue once the account exists (a path on this site, e.g. /register/<slug>):
+   * the sign-up v2 carries it (flag account_signup_v2). The Navbar uses the current
+   * page when it is an event's registration and nothing is given.
+   */
+  then?: string;
 }
 
-export function openSignup(persona?: PersonaType): void {
+export function openSignup(persona?: PersonaType, options: { then?: string } = {}): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent<OpenSignupDetail>(OPEN_SIGNUP_EVENT, { detail: { persona } }));
+  window.dispatchEvent(new CustomEvent<OpenSignupDetail>(OPEN_SIGNUP_EVENT, { detail: { persona, then: options.then } }));
 }
+
+/** The sign-up page (flag front_door). The presentation page stays /join (Victor, 8 Oct 2026). */
+export const SIGNUP_PATH = '/signup';
 
 /**
  * The address the sign-in window starts with after /reset-password signs a person

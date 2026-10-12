@@ -13,6 +13,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { accountHref, legacyTabTarget, memberHomeHref } from '@/lib/accountNav';
+import { useRegistrationFlags } from '@/lib/flags';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,8 +41,13 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const [searchParams] = useSearchParams();
   const tab = searchParams.get('tab');
   const isDraft = profile?.onboarding_status === 'draft';
+  // Flag front_door: no company wizard and no pricing. The registration screen goes to the
+  // dashboard (its status card says where the account stands), ?tab=pricing to My profile,
+  // and a draft account uses the dashboard like everyone else.
+  const { flags, ready: flagsReady } = useRegistrationFlags();
+  const frontDoor = flags.front_door;
   // Only ?tab=pricing needs to know about sponsors: the query runs for it alone.
-  const access = useMemberAccess(!forceTab && tab === 'pricing' && !!profile && !isDraft);
+  const access = useMemberAccess(!forceTab && tab === 'pricing' && !!profile && !isDraft && flagsReady && !frontDoor);
 
   if (authLoading) return <LoadingSkeleton variant="screen" />;
   if (!user) return null;
@@ -66,6 +72,14 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
         </div>
       </div>
     );
+  }
+
+  if (!flagsReady) return <LoadingSkeleton variant="screen" />;
+  if (frontDoor) {
+    if (tab === 'pricing') return <Navigate to={memberHomeHref('profile')} replace />;
+    if (tab === 'complete-registration') return <Navigate to="/#dashboard" replace />;
+    const target = legacyTabTarget(tab, searchParams.get('section'));
+    return <Navigate to={target ? memberHomeHref(target.panel, target.section) : '/'} replace />;
   }
 
   // A member whose registration was just submitted (not yet reviewed) still

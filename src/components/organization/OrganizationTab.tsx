@@ -33,7 +33,7 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BTN, BTN_OUTLINE } from '@/components/member/MemberUI';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
-import { AddCompanyForm } from '@/components/organization/AddCompanyForm';
+import { AddMyCompany } from '@/components/organization/AddCompanyForm';
 import { useRegistrationFlags } from '@/lib/flags';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
 import {
@@ -781,14 +781,7 @@ export function OrganizationTab({ onSaved }: {
     return (
       <Card className="rounded-card shadow-none">
         <CardContent className="space-y-5 pt-6">
-          <div className="flex items-start gap-3">
-            <Building2 className="mt-0.5 h-6 w-6 shrink-0 text-navy" aria-hidden="true" />
-            <div>
-              <h3 className="text-lg font-semibold text-navy">{t('signupV2.add.title', 'Add my company')}</h3>
-              <p className="text-sm text-meta">{t('signupV2.add.lead', 'Find it among the companies already on the platform, or describe it: the M3 team checks it, and the owner of a listed company confirms who joins.')}</p>
-            </div>
-          </div>
-          <AddCompanyForm onDone={() => onSaved?.()} />
+          <AddMyCompany onSaved={onSaved} />
         </CardContent>
       </Card>
     );

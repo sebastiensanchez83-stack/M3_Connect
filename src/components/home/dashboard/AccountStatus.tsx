@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/StatusCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { MemberBanner } from '@/components/member/MemberUI';
-import { AddCompanyForm, companyPathText } from '@/components/organization/AddCompanyForm';
+import { AddCompanyForm, companyPathText, useCompanyRequest } from '@/components/organization/AddCompanyForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { isProven, readStoredIntent, sendEmailProof } from '@/lib/accountSignup';
+import { isProven, sendEmailProof } from '@/lib/accountSignup';
 import { notifyAdmin } from '@/lib/notifications';
 import { useReviewSla } from '@/lib/registration';
 import { supabase } from '@/lib/supabase';
@@ -31,8 +31,6 @@ import type { HomePanel } from '@/lib/accountNav';
 
 const REVIEW_AGAIN_KEY = 'smc_review_again:';
 const REVIEW_AGAIN_DAYS = 7;
-/** Requests that still wait for an answer (the "Add my company" card stays away meanwhile). */
-const WAITING_PATHS = new Set(['join_requested', 'claim_requested', 'company_pending', 'new_company', 'invitation_pending']);
 
 function readReviewAgain(uid: string | undefined): boolean {
   if (!uid) return false;
@@ -68,6 +66,10 @@ export function AccountStatus({
   const [addOpen, setAddOpen] = useState(!!urlCode);
   const [reviewAgain, setReviewAgain] = useState(() => readReviewAgain(user?.id));
   const [reviewBusy, setReviewBusy] = useState(false);
+  // Where a company request stands (the open request row first: useCompanyRequest).
+  const request = useCompanyRequest(signupV2 && !hasOrganization);
+  // A request sent from the card keeps the card (and its "Request sent" notice) on screen.
+  const [sentHere, setSentHere] = useState(false);
 
   // Take the code out of the address once it is in the form (a copied link must not carry it).
   useEffect(() => {
@@ -82,13 +84,11 @@ export function AccountStatus({
   if (!user || !profile) return null;
 
   const proven = isProven(profile, user.email);
-  const intent = readStoredIntent(profile);
   const status = profile.access_status;
   const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || user.email || '';
-  const intentOrg = intent?.name ?? null;
-  const pathLine = intent?.path ? companyPathText(t, intent.path, intentOrg) : null;
-  const requestWaiting = !!intent && intent.action !== 'none' && (!intent.done_at || WAITING_PATHS.has(intent.path ?? ''));
-  const showAdd = signupV2 && !hasOrganization && !requestWaiting && (status === 'pending' || status === 'verified');
+  const requestWaiting = !hasOrganization && request.waiting;
+  const pathLine = !hasOrganization && request.path ? companyPathText(t, request.path, request.orgName) : null;
+  const showAdd = signupV2 && !hasOrganization && (sentHere || !requestWaiting) && (status === 'pending' || status === 'verified');
 
   const askReviewAgain = async () => {
     if (reviewBusy) return;
@@ -212,7 +212,7 @@ export function AccountStatus({
           </div>
           {addOpen && (
             <div className="mt-5 border-t border-rule pt-5">
-              <AddCompanyForm initialCode={urlCode} />
+              <AddCompanyForm initialCode={urlCode} onDone={() => setSentHere(true)} />
             </div>
           )}
         </section>

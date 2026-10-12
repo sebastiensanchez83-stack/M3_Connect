@@ -23,14 +23,18 @@ export function FrontDoorOnly({ children, fallback }: { children: ReactNode; fal
  *  - ?code=<claim code> signed out: the sign-up page with the code (and ?email=);
  *  - ?code= signed in: "Add my company" on the dashboard, with the code;
  *  - anything else: the dashboard (signed out, its sign-in form first).
+ * A claim code needs the sign-up v2 (account_signup_v2) to be read: without it the
+ * code keeps going to the wizard of before (`legacy`).
  */
-export function OnboardingRedirect() {
+export function OnboardingRedirect({ legacy }: { legacy: ReactNode }) {
   const { user, loading } = useAuth();
+  const { flags } = useRegistrationFlags();
   const { search } = useLocation();
   if (loading) return <ScreenLoader />;
   const params = new URLSearchParams(search);
   const code = (params.get('code') || '').trim();
   if (code) {
+    if (!flags.account_signup_v2) return <>{legacy}</>;
     if (user) return <Navigate to={`/?code=${encodeURIComponent(code)}#dashboard`} replace />;
     const keep = new URLSearchParams({ code });
     const email = params.get('email');

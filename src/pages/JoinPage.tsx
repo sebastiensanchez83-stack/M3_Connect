@@ -49,8 +49,11 @@ function clearJoinIntent(id?: string) {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// "SMC invite token v1": base64url(20 bytes) "." base64url(16 bytes), see accept-invite.
-const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}$/;
+// A /join/<token> link of the new invitation e-mails, in either form of the server lanes:
+// the signed "SMC invite token v1" (base64url(20 bytes) "." base64url(16 bytes), see
+// accept-invite) or the 43-character random token of org_invitation_issue_token
+// (registration contract §10.6). Never a bare invitation id.
+const SIGNED_TOKEN_RE = /^(?:[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}|[A-Za-z0-9_-]{43})$/;
 
 /**
  * /join/:inviteId, the team invitation. The new invitation e-mails (send-notification,

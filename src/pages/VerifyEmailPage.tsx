@@ -8,7 +8,7 @@ import { AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell'
 import { AuthNotice, CTA_WRAP } from '@/components/auth/fields';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { confirmEmailProof, sendEmailProof } from '@/lib/accountSignup';
+import { confirmEmailProof, sendEmailProof, sendSignupNotices } from '@/lib/accountSignup';
 import { useRegistrationFlags } from '@/lib/flags';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import { cn } from '@/lib/utils';
@@ -61,6 +61,8 @@ export function VerifyEmailPage() {
     void (async () => {
       const res = await confirmEmailProof(token);
       if (res.ok && res.proven) {
+        // The sign-up's e-mails (under review; the owner's join request), once, now.
+        void sendSignupNotices(res.signup);
         await refreshProfile().catch(() => {});
         setPhase('done');
         return;

@@ -279,6 +279,13 @@ export function Navbar() {
     { deny: ['/signup', '/welcome', '/reset-password', '/verify-email'] },
   );
 
+  // front_door: the sign-in window's "Forgot password?" link comes back to this page
+  // (/reset-password keeps the person signed in and continues to ?next=). The home
+  // page and the auth utility pages keep the default (the member home).
+  const loginNext = regFlags.front_door && location.pathname !== '/'
+    ? safeNext(`${location.pathname}${location.search}`, { deny: ['/signup', '/welcome', '/reset-password', '/verify-email', '/join'] })
+    : null;
+
   // Detect email confirmation redirect (only on homepage — /onboarding and
   // /join/:id handle their own), including a failed link (expired / already used)
   useEffect(() => {
@@ -867,6 +874,7 @@ export function Navbar() {
       >
         <LoginForm
           onSuccess={() => setLoginOpen(false)}
+          next={loginNext}
           defaultEmail={emailFromConfirmation}
           showConfirmedBanner={confirmationLanding === 'confirmed'}
           linkError={confirmationLanding === 'link-error'}

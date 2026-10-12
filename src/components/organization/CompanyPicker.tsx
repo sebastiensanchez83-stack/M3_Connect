@@ -31,13 +31,19 @@ export type CompanyChoice =
 
 export const EMPTY_CHOICE: CompanyChoice = { mode: 'search' };
 
-/** The intent a choice (and a code) gives. null = nothing chosen yet. */
+/**
+ * The intent a choice (and a code) gives. null = nothing chosen yet.
+ * A code rides along with any choice: when it matches, the database takes the
+ * company it names (a claim, which M3 decides); when it does not, the choice
+ * stands (a new company stays `new`, so a mistyped code never loses the company
+ * the person typed).
+ */
 export function intentOf(choice: CompanyChoice, code: string): SignupIntent | null {
   const c = code.trim();
   if (choice.mode === 'join') return { action: 'join', org_id: choice.org.id, name: choice.org.name, ...(c ? { code: c } : {}) };
   if (choice.mode === 'new' && choice.name.trim()) {
     return {
-      action: c ? 'join' : 'new',
+      action: 'new',
       name: choice.name.trim(),
       ...(choice.website.trim() ? { website: choice.website.trim() } : {}),
       ...(choice.country.trim() ? { country: choice.country.trim() } : {}),

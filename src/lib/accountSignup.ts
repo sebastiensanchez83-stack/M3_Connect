@@ -156,6 +156,8 @@ export interface ProofResult {
   stamped?: boolean;
   /** invalid_token | wrong_account | email_changed | used | expired | impersonation */
   reason?: string;
+  /** What complete_signup_for answered once the address was proven (see sendSignupNotices). */
+  signup?: Record<string, unknown> | null;
 }
 
 /** /verify-email?t=: the signed-in account proves its address (never a sign-in). */
@@ -164,10 +166,52 @@ export async function confirmEmailProof(token: string): Promise<Result<ProofResu
     const { data, error } = await supabase.rpc('confirm_email_proof', { p_token: token });
     if (error) return { ok: false, error: error.code === '42501' ? 'session_expired' : error.code === 'PGRST202' || error.code === '42883' ? 'unavailable' : 'server' };
     const d = isObj(data) ? data : {};
-    return { ok: true, proven: d.proven === true, stamped: d.stamped === true, reason: typeof d.reason === 'string' ? d.reason : undefined };
+    return {
+      ok: true,
+      proven: d.proven === true,
+      stamped: d.stamped === true,
+      reason: typeof d.reason === 'string' ? d.reason : undefined,
+      signup: isObj(d.signup) ? d.signup : null,
+    };
   } catch {
     return { ok: false, error: 'network' };
   }
+}
+
+/**
+ * The e-mails a sign-up step owes, sent right after it ran (registration contract §10.5:
+ * "the person's page calls send-notification right after confirm_email_proof,
+ * mark_email_proven or submit_signup_intent"). `signup` is complete_signup_for's answer
+ * ({done, result: {path, invitation_id}}), as confirm_email_proof (`signup`) and
+ * submit_signup_intent return it:
+ *  - account_under_review, to the person (send-notification checks that the caller is
+ *    that pending, proven account, and sends it once);
+ *  - team_join_request, to the owner of the company the person asked to join (the
+ *    function resolves the owner and the words from the invitation row, which must be
+ *    the caller's own, fresh join request).
+ * Nothing when the step did not run (not proven yet, already done earlier). Fire and
+ * forget; send-notification sends each e-mail once (per person, per request row). The
+ * database also queues them (notification_outbox): the server side that drains that
+ * queue must skip what this call already sent (integration note, Phase 2).
+ */
+export async function sendSignupNotices(signup: unknown): Promise<void> {
+  if (!isObj(signup) || signup.done !== true || signup.already === true) return;
+  const result = isObj(signup.result) ? signup.result : {};
+  const path = typeof result.path === 'string' ? result.path : '';
+  const invitationId = typeof result.invitation_id === 'string' ? result.invitation_id : '';
+  let uid: string | null = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    uid = data.session?.user?.id ?? null;
+  } catch { /* no session: nothing to send for */ }
+  if (!uid) return;
+  const send = (body: Record<string, unknown>) =>
+    supabase.functions.invoke('send-notification', { body }).then(() => undefined, () => undefined);
+  const calls: Promise<void>[] = [send({ type: 'account_under_review', user_id: uid })];
+  if (path === 'join_requested' && invitationId) {
+    calls.push(send({ type: 'team_join_request', data: { invitation_id: invitationId } }));
+  }
+  await Promise.all(calls);
 }
 
 /**

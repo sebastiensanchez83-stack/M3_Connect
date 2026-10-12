@@ -233,7 +233,7 @@ function App() {
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
               {/* front_door: no company wizard. /onboarding goes to the dashboard, except a claim
                   code (?code=): signed out the sign-up page, signed in "Add my company". */}
-              <Route path="/onboarding" element={<FrontDoorOnly fallback={<ProtectedRoute><OnboardingPage /></ProtectedRoute>}><OnboardingRedirect /></FrontDoorOnly>} />
+              <Route path="/onboarding" element={<FrontDoorOnly fallback={<ProtectedRoute><OnboardingPage /></ProtectedRoute>}><OnboardingRedirect legacy={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} /></FrontDoorOnly>} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />

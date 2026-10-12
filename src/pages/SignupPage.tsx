@@ -41,7 +41,8 @@ export function SignupPage() {
   if (!ready || loading) return <AuthLoading className="min-h-[100svh]" />;
   if (!flags.front_door) return <NotFoundPage />;
   if (user) {
-    if (code) return <Navigate to={`/?code=${encodeURIComponent(code)}#dashboard`} replace />;
+    // A claim code: "Add my company" on the dashboard (sign-up v2), else the wizard of before.
+    if (code) return <Navigate to={flags.account_signup_v2 ? `/?code=${encodeURIComponent(code)}#dashboard` : `/onboarding?code=${encodeURIComponent(code)}`} replace />;
     return <Navigate to={then ?? MEMBER_HOME} replace />;
   }
 

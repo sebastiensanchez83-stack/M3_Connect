@@ -1,17 +1,26 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
-import { CalendarDays, MapPin, Loader2, CheckCircle, XCircle, Clock, UserPlus, Link2Off } from 'lucide-react';
+import { CalendarDays, MapPin, Loader2, CheckCircle, XCircle, Clock, UserPlus, Link2, Link2Off, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { AuthInput as Input, AuthLabel as Label, FieldError } from '@/components/auth/fields';
+import { Checkbox } from '@/components/ui/checkbox';
+import { AuthInput as Input, AuthLabel as Label, AuthTextarea as Textarea, FieldError, FieldHint } from '@/components/auth/fields';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { ContactCard, M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
-import { guestList, partsLabel, type GuestStatus, type GuestView } from '@/lib/guestList';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
+import { accountHref } from '@/lib/accountNav';
+import { useRegistrationFlags } from '@/lib/flags';
+import {
+  attachWysRequest, cancelWysRequest, getWysRequest, guestList, partsLabel, updateWysRequest,
+  type GuestStatus, type GuestView, type WysRequestChanges, type WysRequestView,
+} from '@/lib/guestList';
+import { registrationErrorText, type RegFailure } from '@/lib/registration';
 import { registerWysRefonteStrings } from '@/i18n/refonte-wys';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +34,12 @@ registerWysRefonteStrings();
 // The email's Accept / Decline buttons land here with ?answer=…, but nothing
 // is recorded until the guest clicks: mail scanners open links on their own,
 // and an invitation must not be answered by a robot.
+//
+// Switch wys_status_edit (registration_flags, off by default) adds, through the
+// `registration` function: "Edit my request" and "Cancel my request" while a
+// request is under review, and "Add to my account" when signed in. Everything
+// else (the view, RSVP, the pass, the plus-one) stays on guest-list, and the
+// statuses show exactly as before. Switch off: nothing of this is called.
 
 const ERRORS: Record<string, string> = {
   not_found: 'This link is not valid. Please use the link from your email, or contact us.',
@@ -88,6 +103,16 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** A checkbox row as a tile, as on the request form: navy edge and foam fill once ticked. */
+const tile = (on: boolean) =>
+  cn(
+    'flex min-h-12 cursor-pointer items-center gap-3 rounded-field border px-4 text-[15px] font-medium text-navy transition-colors focus-within:shadow-focus',
+    on ? 'border-navy bg-foam' : 'border-checkbox bg-white hover:border-navy',
+  );
+
+type EditValues = Omit<NonNullable<WysRequestView['request']>, 'first_name' | 'last_name' | 'email_masked'>;
+const EDIT_KEYS: (keyof EditValues)[] = ['phone', 'company', 'job_title', 'country', 'motivation', 'wants_conference', 'wants_gala'];
+
 export function GuestInvitationPage() {
   const { t } = useTranslation();
   const [params] = useSearchParams();
@@ -128,6 +153,113 @@ export function GuestInvitationPage() {
     setBusy(false);
     if (r.error) setError(ERRORS[r.error] || 'Something went wrong. Please try again.');
     else { setView(r); setPlusOpen(false); }
+  };
+
+  // ── Switch wys_status_edit: edit / cancel a request, add it to the account (registration). ──
+  const { user } = useAuth();
+  const userId = user?.id;
+  const { flags } = useRegistrationFlags();
+  const statusEdit = flags.wys_status_edit;
+  const formV2 = flags.wys_form_v2;
+  const [req, setReq] = useState<WysRequestView | null>(null);
+  const [reqVersion, setReqVersion] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState<EditValues | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [reqBusy, setReqBusy] = useState(false);
+  const [reqError, setReqError] = useState<string | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const guestStatus = view?.guest.status;
+
+  // Asked only with the switch on (an answer of "not_available" just hides the buttons).
+  useEffect(() => {
+    if (!statusEdit || !token || !guestStatus) { setReq(null); return; }
+    let alive = true;
+    getWysRequest(token).then((r) => { if (alive) setReq(r.ok ? (r as WysRequestView) : null); });
+    return () => { alive = false; };
+  }, [statusEdit, token, guestStatus, userId, reqVersion]);
+
+  /** The guest-list view again (status, company), after a change made through registration. */
+  const reloadGuest = async () => {
+    const r = await guestList<GuestView>({ action: 'guest', token });
+    if (!r.error) setView(r);
+  };
+
+  const reqErrorText = (f: RegFailure) => {
+    if (f.error === 'no_part') return t('wysGuest.edit.noPart', 'Choose the conference, the gala dinner, or both.');
+    if (f.error === 'missing_fields') return t('wysGuest.edit.missing', 'Please give your company and your job title.');
+    if (f.error === 'locked') return t('wysGuest.edit.locked', 'Your request can no longer be changed: our team has already answered it.');
+    return registrationErrorText(t, f);
+  };
+
+  const openEdit = () => {
+    if (!req?.request) return;
+    const r = req.request;
+    setEdit({
+      phone: r.phone, company: r.company, job_title: r.job_title, country: r.country, motivation: r.motivation,
+      wants_conference: r.wants_conference, wants_gala: r.wants_gala,
+    });
+    setReqError(null);
+    setConfirmCancel(false);
+    setEditing(true);
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!edit || !req?.request) return;
+    if (!edit.wants_conference && !edit.wants_gala) { setReqError(t('wysGuest.edit.noPart', 'Choose the conference, the gala dinner, or both.')); return; }
+    if (!edit.company.trim() || !edit.job_title.trim()) { setReqError(t('wysGuest.edit.missing', 'Please give your company and your job title.')); return; }
+    // Only what changed goes to the server.
+    const before = req.request;
+    const changes: WysRequestChanges = {};
+    for (const k of EDIT_KEYS) {
+      const v = edit[k];
+      if (typeof v === 'string' ? v.trim() !== String(before[k] ?? '').trim() : v !== before[k]) {
+        (changes as Record<string, unknown>)[k] = typeof v === 'string' ? v.trim() : v;
+      }
+    }
+    setReqBusy(true); setReqError(null);
+    const r = Object.keys(changes).length ? await updateWysRequest(token, changes) : ({ ...req } as WysRequestView);
+    setReqBusy(false);
+    if (r.ok) {
+      setReq(r as WysRequestView);
+      setEditing(false);
+      toast({ title: t('wysGuest.edit.saved', 'Your request is updated.') });
+      void reloadGuest();
+      return;
+    }
+    const f = r as RegFailure;
+    setReqError(reqErrorText(f));
+    if (f.error === 'locked') { setEditing(false); void reloadGuest(); setReqVersion((v) => v + 1); }
+  };
+
+  const doCancel = async () => {
+    setReqBusy(true); setReqError(null);
+    const r = await cancelWysRequest(token);
+    setReqBusy(false);
+    if (r.ok) {
+      setConfirmCancel(false);
+      setEditing(false);
+      toast({ title: t('wysGuest.cancel.done', 'Your request is cancelled.') });
+      await reloadGuest();
+      setReqVersion((v) => v + 1);
+      return;
+    }
+    const f = r as RegFailure;
+    setReqError(reqErrorText(f));
+    if (f.error === 'locked') { setConfirmCancel(false); void reloadGuest(); setReqVersion((v) => v + 1); }
+  };
+
+  const doAttach = async () => {
+    setReqBusy(true); setAttachError(null);
+    const r = await attachWysRequest(token);
+    setReqBusy(false);
+    if (r.ok) {
+      toast({ title: t('wysGuest.account.added', 'Added to your account. You find it in My events.') });
+      setReqVersion((v) => v + 1);
+      return;
+    }
+    setAttachError(reqErrorText(r as RegFailure));
   };
 
   if (loading) {
@@ -207,6 +339,44 @@ export function GuestInvitationPage() {
               </div>
             )}
 
+            {/* wys_status_edit: change or withdraw a request still under review. */}
+            {guest.status === 'requested' && req && req.status === 'requested' && (req.can_edit || req.can_cancel) && !editing && !confirmCancel && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-5">
+                {req.can_edit && (
+                  <Button variant="ctaOutline" size="sm" arrow={false} roll={false} onClick={openEdit} className="w-full sm:w-auto">
+                    <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />{t('wysGuest.edit.open', 'Edit my request')}
+                  </Button>
+                )}
+                {req.can_cancel && (
+                  <UnderlineLink onClick={() => { setReqError(null); setConfirmCancel(true); }} arrow={false} className="self-start !text-sm sm:self-auto">
+                    {t('wysGuest.cancel.open', 'Cancel my request')}
+                  </UnderlineLink>
+                )}
+              </div>
+            )}
+
+            {guest.status === 'requested' && confirmCancel && (
+              <div role="group" aria-labelledby="inv-cancel-title" className="rounded-field bg-page p-4 ring-1 ring-inset ring-rule sm:p-5">
+                <p id="inv-cancel-title" className="text-[15px] font-semibold leading-6 text-navy">{t('wysGuest.cancel.title', 'Cancel your request?')}</p>
+                <p className="mt-1 text-sm leading-6 text-ink">
+                  {t('wysGuest.cancel.body', 'Our team will no longer review it.')}{' '}
+                  {formV2 && !guest.is_plus_one
+                    ? t('wysGuest.cancel.again', 'If you change your mind, you can send a new request from the event page.')
+                    : t('wysGuest.cancel.againContact', 'If you change your mind, write to the M3 team.')}
+                </p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <Button variant="ctaNavy" size="sm" disabled={reqBusy} arrow={false} roll={!reqBusy} onClick={() => void doCancel()} className="w-full sm:w-auto">
+                    {reqBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysGuest.cancel.confirm', 'Yes, cancel my request')}</> : t('wysGuest.cancel.confirm', 'Yes, cancel my request')}
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={reqBusy} onClick={() => setConfirmCancel(false)} className="w-full sm:w-auto">
+                    {t('wysGuest.cancel.keep', 'Keep my request')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {reqError && !editing && <FieldError>{reqError}</FieldError>}
+
             {guest.status === 'confirmed' && (
               <div className="flex items-start gap-3 text-body-lg text-ink">
                 <CheckCircle className="mt-1 h-5 w-5 shrink-0 text-teal-text" aria-hidden="true" />
@@ -273,6 +443,75 @@ export function GuestInvitationPage() {
             </p>
           )}
         </section>
+
+        {/* wys_status_edit: the request's details, while under review. Names and e-mail stay as sent. */}
+        {editing && edit && req?.request && guest.status === 'requested' && (
+          <section aria-labelledby="inv-edit" className="rounded-card bg-white p-6 ring-1 ring-inset ring-rule sm:p-8">
+            <div className="flex items-center gap-3">
+              <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Pencil className="h-5 w-5" /></span>
+              <h2 id="inv-edit" className="text-card-title text-navy">{t('wysGuest.edit.title', 'Edit my request')}</h2>
+            </div>
+            <form onSubmit={saveEdit} className="mt-5 space-y-5">
+              <div className="rounded-field bg-page px-4 py-3 text-sm leading-6 text-ink">
+                <span className="font-semibold text-navy">{[req.request.first_name, req.request.last_name].filter(Boolean).join(' ')}</span>
+                <span className="block break-all text-meta">{req.request.email_masked}</span>
+                <span className="mt-1 block text-[13px] leading-5 text-meta">{t('wysGuest.edit.identity', 'Your name and e-mail cannot be changed here. For a change, write to the M3 team.')}</span>
+              </div>
+              <div className="space-y-2"><Label htmlFor="ed-ph">{t('wysPage.form.phone', 'Phone')}</Label><Input id="ed-ph" type="tel" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} autoComplete="tel" maxLength={40} /></div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="space-y-2"><Label htmlFor="ed-co">{t('wysPage.form.company', 'Company')} <span aria-hidden="true" className="text-red-700">*</span></Label><Input id="ed-co" required value={edit.company} onChange={(e) => setEdit({ ...edit, company: e.target.value })} autoComplete="organization" maxLength={160} /></div>
+                <div className="space-y-2"><Label htmlFor="ed-jt">{t('wysPage.form.jobTitle', 'Job title')} <span aria-hidden="true" className="text-red-700">*</span></Label><Input id="ed-jt" required value={edit.job_title} onChange={(e) => setEdit({ ...edit, job_title: e.target.value })} autoComplete="organization-title" maxLength={160} /></div>
+              </div>
+              <div className="space-y-2"><Label htmlFor="ed-ct">{t('wysPage.form.country', 'Country')}</Label><Input id="ed-ct" value={edit.country} onChange={(e) => setEdit({ ...edit, country: e.target.value })} autoComplete="country-name" maxLength={80} /></div>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold leading-5 text-navy">
+                  {t('wysPage.form.attend', 'I would like to attend')} <span aria-hidden="true" className="text-red-700">*</span>
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className={tile(edit.wants_conference)}>
+                    <Checkbox checked={edit.wants_conference} onCheckedChange={(v) => setEdit({ ...edit, wants_conference: v === true })} className="h-5 w-5 border-checkbox" /> {t('wysPage.form.conference', 'Conference')}
+                  </label>
+                  <label className={tile(edit.wants_gala)}>
+                    <Checkbox checked={edit.wants_gala} onCheckedChange={(v) => setEdit({ ...edit, wants_gala: v === true })} className="h-5 w-5 border-checkbox" /> {t('wysPage.form.gala', 'Gala dinner')}
+                  </label>
+                </div>
+              </fieldset>
+              <div className="space-y-2"><Label htmlFor="ed-mo">{t('wysPage.form.motivation', 'Why would you like to attend?')}</Label><Textarea id="ed-mo" rows={3} value={edit.motivation} onChange={(e) => setEdit({ ...edit, motivation: e.target.value })} maxLength={2000} /></div>
+              <FieldHint>{t('wysGuest.edit.hint', 'Our team sees your changes straight away. Nothing is sent by e-mail.')}</FieldHint>
+              {reqError && <FieldError>{reqError}</FieldError>}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button type="submit" variant="ctaNavy" size="sm" disabled={reqBusy} arrow={!reqBusy} roll={!reqBusy} className="w-full sm:w-auto">
+                  {reqBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysGuest.edit.save', 'Save my changes')}</> : t('wysGuest.edit.save', 'Save my changes')}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={reqBusy} onClick={() => { setEditing(false); setReqError(null); }} className="w-full sm:w-auto">
+                  {t('wysGuest.edit.close', 'Close without saving')}
+                </Button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {/* wys_status_edit, signed in: keep this invitation (or request) in the account. */}
+        {req && user && !req.linked && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
+          <section aria-labelledby="inv-account" className="rounded-card bg-white p-6 ring-1 ring-inset ring-rule sm:p-8">
+            <div className="flex items-center gap-3">
+              <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Link2 className="h-5 w-5" /></span>
+              <h2 id="inv-account" className="text-card-title text-navy">{t('wysGuest.account.title', 'Keep it in your account')}</h2>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-ink">{t('wysGuest.account.body', 'Add this invitation to the account you are signed in with, to find it in My events.')}</p>
+            {attachError && <FieldError className="mt-3">{attachError}</FieldError>}
+            <Button variant="ctaNavy" size="sm" className="mt-4 w-full sm:w-auto" onClick={() => void doAttach()} disabled={reqBusy} arrow={!reqBusy} roll={!reqBusy}>
+              {reqBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysGuest.account.add', 'Add to my account')}</> : t('wysGuest.account.add', 'Add to my account')}
+            </Button>
+          </section>
+        )}
+        {req && user && req.linked_to_me && (
+          <p className="flex flex-wrap items-center justify-center gap-x-2 text-center text-sm leading-6 text-meta">
+            <Link2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('wysGuest.account.in', 'This invitation is in your account.')}{' '}
+            <Link to={accountHref('registrations')} className="inline-flex min-h-11 items-center font-semibold text-navy underline underline-offset-4">{t('wysGuest.account.myEvents', 'My events')}</Link>
+          </p>
+        )}
 
         {guest.status === 'confirmed' && !guest.is_plus_one && (
           <section aria-labelledby="inv-plus" className="rounded-card bg-white p-6 ring-1 ring-inset ring-rule sm:p-8">

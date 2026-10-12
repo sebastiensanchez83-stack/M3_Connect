@@ -84,7 +84,8 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
   `guest-list`'s `request` (`slug, first_name, last_name, email, phone, company, job_title,
   country, motivation, wants_conference, wants_gala, captcha, website`) + `consents`. Same
   rules, codes and answers as `guest-list`. The acknowledgement gets a "View my request"
-  button to `/{slug}/guest?t=`.
+  button to `/{slug}/guest?t=`. Field-by-field proof and the live comparison on
+  canary-onsite: `scripts/contract/wys-parity.mjs` (its header lists the known differences).
 
 Status view (`status`, `update`):
 ```
@@ -125,14 +126,27 @@ show a button "Stop e-mails about this event" that calls `reminders` with `on: f
 act on the page load alone (mail scanners open links).
 
 wys26 personal page `/wys26/guest?t=<gl_guest.token>`, flag `wys_status_edit` (else 403
-`not_available`): `update` (only while `requested`: `phone, company, job_title, country,
-motivation, wants_conference, wants_gala`), `cancel` (a request only), `attach` (signed in,
-"Add to my account"). The e-mail address is never editable. `status` does not take this token
-(the page keeps guest-list's `guest` action). A request cancelled from this page comes back
-as a new request when the person sends the `/wys26` form again, but ONLY through the parity
-form (`wys_form_v2` on): while it is off, `/wys26` posts to the frozen guest-list, which
-answers `{ ok: true }` and records nothing. Label the cancel button accordingly ("You will
-not be able to send a new request from this page") while `wys_form_v2` is off.
+`not_available`; a HIDDEN guest-list event, i.e. canary-onsite, skips the switch, like the
+parity form, so `scripts/contract/wys-parity.mjs` runs with every switch off):
+- `status` with that token: `{ ok, engine: "guest_list_v1", via: "guest_link", status, source,
+  is_plus_one, can_edit, can_cancel, linked, linked_to_me, request }`. `request` (only while
+  `can_edit`): `first_name, last_name, email_masked, phone, company, job_title, country,
+  motivation, wants_conference, wants_gala`. The page keeps guest-list's `guest` action for
+  everything else (invitation, RSVP, pass, plus-one): this only drives the three buttons.
+- `update` (an invitation REQUEST only, `source = 'request'`, only while `requested`: `phone,
+  company, job_title, country, motivation, wants_conference, wants_gala`; company and job title
+  stay required, at least one part): answers the same view as `status`. A plus-one request
+  follows its host: 409 `locked`. Names and e-mail are never editable.
+- `cancel` (any `requested` row, plus-ones included): `{ ok: true, status: "cancelled" }`
+  (`decided_at` / `decided_by` stay empty: that is how a self-cancelled request is told from
+  a staff cancel). Invited and confirmed guests keep guest-list's RSVP decline.
+- `attach` (signed in, "Add to my account").
+
+A request cancelled from this page comes back as a new request (same row, same token,
+`request_ack` + `staff_notify` again) when the person sends the `/wys26` form again, but ONLY
+through the parity form (`wys_form_v2` on): while it is off, `/wys26` posts to the frozen
+guest-list, which answers `{ ok: true }` and records nothing. The page says so before the
+person confirms the cancellation.
 
 ### Staff (verified admin or moderator session)
 

@@ -1638,7 +1638,7 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   const { count } = await db.from("gl_guest").select("id", { count: "exact", head: true })
     .eq("event_id", ev.id).eq("source", "request").gte("created_at", since);
   if ((count || 0) > 40) return json(req, { error: "busy" }, 429);
-  const { data: existing } = await db.from("gl_guest").select("id, source, status, decided_by, user_id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
+  const { data: existing } = await db.from("gl_guest").select("id, source, status, decided_by, decided_at, user_id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
   const extra: Json = { consents: consentsFrom(body.consents) };
   // Linked only to an account that PROVED this very address (the DB guard drops anything else).
   const proven = !!caller && caller.proven && caller.email === g.email;
@@ -1646,13 +1646,14 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   if (existing) {
     // Same answer as a new request, whatever the existing status: this form must not reveal
     // who is on the list. One exception: a request its author cancelled from the personal
-    // link (wys_status_edit; never touched by staff, whose cancel sets decided_by) comes back
-    // to life as a new request (same token, legacy values only).
+    // link (wys_status_edit) comes back to life as a new request (same row, same token,
+    // legacy values only). Staff never get there: guest-list's staff cancel stamps
+    // decided_at and decided_by (decided_at stays even if that staff account is deleted).
     const e = existing as Json;
-    if (e.source !== "request" || e.status !== "cancelled" || e.decided_by) return json(req, { ok: true });
+    if (e.source !== "request" || e.status !== "cancelled" || e.decided_by || e.decided_at) return json(req, { ok: true });
     const { data: revived, error: reviveErr } = await db.from("gl_guest")
       .update({ ...g, ...extra, ...(proven && !e.user_id ? { user_id: caller!.id } : {}), status: "requested", cancelled_at: null })
-      .eq("id", e.id).eq("status", "cancelled").is("decided_by", null).select("*").maybeSingle();
+      .eq("id", e.id).eq("status", "cancelled").is("decided_by", null).is("decided_at", null).select("*").maybeSingle();
     if (reviveErr) {
       console.error("registration: parity revive failed", reviveErr.code, reviveErr.message);
       return json(req, { ok: true });
@@ -1671,16 +1672,24 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
     row = inserted as Json;
   }
   const evRow: Ev = { id: ev.id, slug: ev.slug, title: ev.title, capacity: ev.capacity, notify_email: ev.notify_email, requests_open: ev.requests_open, settings: ev.settings || {} };
-  const from = `${evRow.title.replace(/[<>"]/g, "")} <${FROM_ADDRESS}>`;
-  const replyTo = evRow.settings?.contact_email || EM.contact;
   const sent = row as Json;
-  await inBackground("wys26 request e-mails", () => Promise.all([
-    sendMail({ from, to: sent.email, replyTo, mail: renderParityAck(evRow, sent), log: { guestId: sent.id, eventId: evRow.id, kind: "request_ack" } }),
-    evRow.notify_email
-      ? sendMail({ from, to: evRow.notify_email, replyTo, mail: renderParityStaffNotice(evRow, sent), log: { guestId: sent.id, eventId: evRow.id, kind: "staff_notify" } })
-      : Promise.resolve(false),
-  ]));
+  await inBackground("wys26 request e-mails", () => sendParityMails(evRow, sent));
   return json(req, { ok: true });
+}
+
+/** The two e-mails of a parity request, as guest-list sends them after its "request" insert
+ *  (sendRequestAck + notifyStaff): same sender, reply-to, recipients, subjects and log kinds;
+ *  the acknowledgement adds "View my request". scripts/contract/wys-parity.mjs renders this
+ *  function next to guest-list's for the same row. */
+function sendParityMails(ev: Ev, g: Guest): Promise<boolean[]> {
+  const from = `${ev.title.replace(/[<>"]/g, "")} <${FROM_ADDRESS}>`;
+  const replyTo = ev.settings?.contact_email || EM.contact;
+  return Promise.all([
+    sendMail({ from, to: g.email, replyTo, mail: renderParityAck(ev, g), log: { guestId: g.id, eventId: ev.id, kind: "request_ack" } }),
+    ev.notify_email
+      ? sendMail({ from, to: ev.notify_email, replyTo, mail: renderParityStaffNotice(ev, g), log: { guestId: g.id, eventId: ev.id, kind: "staff_notify" } })
+      : Promise.resolve(false),
+  ]);
 }
 
 // ─── Finding the registration of a request (status link, v1 link or session) ─
@@ -1708,15 +1717,17 @@ async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o:
   const token = typeof body.token === "string" ? body.token.trim() : "";
   if (token) {
     if (UUID_RE.test(token)) {
-      // A wys26 personal link (gl_guest.token): edit / cancel / attach a request, behind wys_status_edit.
+      // A wys26 personal link (gl_guest.token): view / edit / cancel / attach a request,
+      // behind wys_status_edit. A hidden test event (canary-onsite) skips the switch, as the
+      // parity form does, so the contract tests run with every switch off.
       if (!o.allowGuestLink) throw new HttpError(404, "not_found");
-      if (flags.wys_status_edit !== true) throw new HttpError(403, "not_available");
       const { data } = await db.from("gl_guest").select("*").eq("token", token).maybeSingle();
       const g = data as Json | null;
-      if (!g) throw new HttpError(404, "not_found");
+      if (!g) throw new HttpError(flags.wys_status_edit === true ? 404 : 403, flags.wys_status_edit === true ? "not_found" : "not_available");
       const ctx = await loadEventById(g.event_id);
       // A core_v2 gl_guest.token is never a key (contract §1).
       if (!ctx || ctx.ev.engine !== "guest_list_v1") throw new HttpError(404, "not_found");
+      if (flags.wys_status_edit !== true && ctx.ev.hidden !== true) throw new HttpError(403, "not_available");
       return { g, ctx, via: "guest_link", readOnly: false, showPass: false, callerId: caller?.id ?? null };
     }
     if (!ACCESS_TOKEN_RE.test(token)) throw new HttpError(404, "not_found");
@@ -1847,8 +1858,47 @@ async function statusView(t: Target): Promise<Json> {
 }
 
 async function actionStatus(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
-  const t = await resolveTarget(body, caller, flags, { touch: true, allowGuestLink: false });
+  const t = await resolveTarget(body, caller, flags, { touch: true, allowGuestLink: true });
+  if (t.via === "guest_link") return json(req, guestRequestView(t));
   return json(req, await statusView(t));
+}
+
+/** wys26 personal link (flag wys_status_edit): what the personal page needs to offer "Edit my
+ *  request", "Cancel my request" and "Add to my account". The page itself keeps guest-list's
+ *  "guest" action for everything else (invitation, RSVP, pass, plus-one). The details of the
+ *  request are given only while it can be edited, to the holder of the link (the inbox). */
+function guestRequestView(t: Target): Json {
+  const g = t.g;
+  const status = String(g.status);
+  const isRequest = g.source === "request";
+  const canEdit = status === "requested" && isRequest;
+  return {
+    ok: true,
+    engine: "guest_list_v1",
+    via: "guest_link",
+    status,
+    source: g.source,
+    is_plus_one: !!g.plus_one_of,
+    can_edit: canEdit,
+    // A plus-one request can be withdrawn too (the host may then ask for someone else).
+    can_cancel: status === "requested",
+    linked: !!g.user_id,
+    linked_to_me: !!t.callerId && g.user_id === t.callerId,
+    request: canEdit
+      ? {
+        first_name: g.first_name,
+        last_name: g.last_name,
+        email_masked: maskEmail(String(g.email || "")),
+        phone: g.phone || "",
+        company: g.company || "",
+        job_title: g.job_title || "",
+        country: g.country || "",
+        motivation: g.motivation || "",
+        wants_conference: g.wants_conference !== false,
+        wants_gala: g.wants_gala !== false,
+      }
+      : null,
+  };
 }
 
 // ─── Public: update ──────────────────────────────────────────────────────────
@@ -1957,10 +2007,12 @@ function changedLabels(before: Json, after: Json, questions: Json[]): string[] {
   return out;
 }
 
-/** wys26 request edited from its personal link (flag wys_status_edit): only while requested. */
+/** wys26 request edited from its personal link (flag wys_status_edit): only an invitation
+ *  request (source 'request'; a plus-one follows its host), only while requested. The names
+ *  and the e-mail are never editable. Answers the same view as `status`. */
 async function updateGuestListRequest(req: Request, body: Json, t: Target): Promise<Response> {
   const g = t.g;
-  if (g.status !== "requested") throw new HttpError(409, "locked");
+  if (g.status !== "requested" || g.source !== "request") throw new HttpError(409, "locked");
   const patch: Json = {};
   if (typeof body.phone === "string") patch.phone = clean(body.phone, 40);
   if (typeof body.country === "string") patch.country = clean(body.country, 80);
@@ -1974,11 +2026,11 @@ async function updateGuestListRequest(req: Request, body: Json, t: Target): Prom
   const conf = "wants_conference" in patch ? patch.wants_conference : g.wants_conference;
   const gala = "wants_gala" in patch ? patch.wants_gala : g.wants_gala;
   if (!conf && !gala) return json(req, { error: "no_part" }, 400);
-  if (!Object.keys(patch).length) return json(req, { ok: true });
-  const { data: up, error } = await db.from("gl_guest").update(patch).eq("id", g.id).eq("status", "requested").select("id").maybeSingle();
+  if (!Object.keys(patch).length) return json(req, guestRequestView(t));
+  const { data: up, error } = await db.from("gl_guest").update(patch).eq("id", g.id).eq("status", "requested").select("*").maybeSingle();
   if (error) throw error;
   if (!up) throw new HttpError(409, "locked");
-  return json(req, { ok: true });
+  return json(req, guestRequestView({ ...t, g: up as Json }));
 }
 
 // ─── Public: cancel ──────────────────────────────────────────────────────────

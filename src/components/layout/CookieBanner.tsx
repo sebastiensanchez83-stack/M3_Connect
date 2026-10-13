@@ -3,6 +3,17 @@ import { Link } from 'react-router-dom';
 
 const STORAGE_KEY = 'cookie_consent';
 
+declare global {
+  interface Window {
+    gtag?: (...args: unknown[]) => void;
+  }
+}
+
+// Google Analytics waits for this answer: index.html starts it with analytics_storage 'denied'.
+function updateAnalyticsConsent(granted: boolean) {
+  window.gtag?.('consent', 'update', { analytics_storage: granted ? 'granted' : 'denied' });
+}
+
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
 
@@ -15,11 +26,13 @@ export function CookieBanner() {
 
   const handleAccept = () => {
     localStorage.setItem(STORAGE_KEY, 'accepted');
+    updateAnalyticsConsent(true);
     setVisible(false);
   };
 
   const handleDecline = () => {
     localStorage.setItem(STORAGE_KEY, 'declined');
+    updateAnalyticsConsent(false);
     setVisible(false);
   };
 

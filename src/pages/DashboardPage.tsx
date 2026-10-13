@@ -16,6 +16,7 @@ import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
 import { SITE_IMAGES, eventCover } from '@/lib/siteMedia';
 import { Button } from '@/components/ui/button';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { MyInvoices } from '@/components/account/MyInvoices';
 import { CREATE_ACTIONS, DEAL_FLOW_ITEM, MEMBER_NAV, canCreate } from '@/lib/nav';
 import { ACCOUNT_GROUPS, ACCOUNT_SECTIONS, accountHref, type AccountTab } from '@/lib/accountNav';
 import { cn, type CalendarEventInput } from '@/lib/utils';
@@ -792,6 +793,9 @@ export function DashboardPage() {
             {nextRegistered
               ? <NextEventCard event={nextRegistered} lang={lang} />
               : <div className="lg:hidden">{upcomingSection}</div>}
+
+            {/* Invoices from M3, per event; hidden when there are none. */}
+            <MyInvoices />
 
             {/* Demand side: what I've put out there */}
             {isDemand && (

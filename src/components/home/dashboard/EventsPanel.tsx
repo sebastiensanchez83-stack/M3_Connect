@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { sm26Kind, type Sm26Participation } from '@/hooks/useSm26Participation';
 
 const MyEvents = lazyWithRetry(() => import('@/components/account/MyEvents').then((m) => ({ default: m.MyEvents })));
+const MyInvoices = lazyWithRetry(() => import('@/components/account/MyInvoices').then((m) => ({ default: m.MyInvoices })));
 
 /** "Alice Martin, Bob Smith and 4 others" (or fewer names when there are few). */
 export function teamSummary(names: string[], t: TFunction): string {
@@ -91,7 +92,8 @@ export function Sm26Block({ sm26 }: { sm26: Sm26Participation }) {
  * rows: they are left out while the mark above says it, so the edition never
  * shows twice. While the mark is still loading they wait a few seconds; a mark
  * that never comes (its read failed) leaves them in the list, so the
- * participation is never lost from view.
+ * participation is never lost from view. Last, the invoices M3 uploaded for
+ * the member's registrations (MyInvoices).
  */
 const SM26_WAIT_MS = 4000;
 
@@ -108,6 +110,8 @@ export function EventsPanel({ sm26 }: { sm26: Sm26Participation | null }) {
       {sm26 && <Sm26Block sm26={sm26} />}
       <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={2} /></div>}>
         <MyEvents hideSm26={hideSm26} />
+        {/* Invoices from M3, per event; nothing when there are none. */}
+        <MyInvoices />
       </Suspense>
     </div>
   );

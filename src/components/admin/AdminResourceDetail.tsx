@@ -58,7 +58,7 @@ export function AdminResourceDetail() {
   const [form, setForm] = useState({
     title: '', summary: '', content: '', type: 'article', topic: 'Sustainability',
     language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '',
-    seo_keywords: '', published: isAdmin, share_to_m3: false,
+    seo_keywords: '', published: isAdmin, share_to_m3: false, share_to_s3: false,
   });
 
   // Speaker management
@@ -108,7 +108,7 @@ export function AdminResourceDetail() {
       title: r.title, summary: r.summary, content: r.content || '',
       type: r.type, topic: r.topic, language: r.language, access_level: r.access_level,
       thumbnail_url: r.thumbnail_url || '', file_url: r.file_url || '',
-      seo_keywords: r.seo_keywords || '', published: r.published, share_to_m3: r.share_to_m3 === true,
+      seo_keywords: r.seo_keywords || '', published: r.published, share_to_m3: r.share_to_m3 === true, share_to_s3: r.share_to_s3 === true,
     });
 
     // Load speakers
@@ -182,7 +182,7 @@ export function AdminResourceDetail() {
       type: form.type, topic: form.topic, language: form.language, access_level: form.access_level,
       thumbnail_url: form.thumbnail_url || null, file_url: form.file_url || null,
       seo_keywords: form.seo_keywords.trim() || null, published: form.published,
-      share_to_m3: form.share_to_m3,
+      share_to_m3: form.share_to_m3, share_to_s3: form.share_to_s3,
     };
 
     let savedId: string;
@@ -744,14 +744,18 @@ export function AdminResourceDetail() {
               <Checkbox id="published" checked={form.published} onCheckedChange={(c) => setForm({ ...form, published: c as boolean })} disabled={!isAdmin && isNew} />
               <Label htmlFor="published">Published</Label>
               {!isAdmin && isNew && <span className="text-xs text-amber-600 ml-2">(Requires admin approval to publish)</span>}
-              {/* The /rss.xml feed that m3monaco.com imports (netlify/edge-functions/rss.ts). */}
+              {/* The feeds that m3monaco.com (/rss.xml) and s3monaco.com (/rss-s3.xml) import (netlify/edge-functions/rss.ts). */}
               <span className="flex items-center space-x-2 pl-6">
                 <Checkbox id="share_to_m3" checked={form.share_to_m3} onCheckedChange={(c) => setForm({ ...form, share_to_m3: c === true })} />
                 <Label htmlFor="share_to_m3">Also publish on m3monaco.com</Label>
-                {form.share_to_m3 && (!form.published || form.access_level !== 'public') && (
-                  <span className="text-xs text-amber-600">(only once published and public)</span>
-                )}
               </span>
+              <span className="flex items-center space-x-2 pl-4">
+                <Checkbox id="share_to_s3" checked={form.share_to_s3} onCheckedChange={(c) => setForm({ ...form, share_to_s3: c === true })} />
+                <Label htmlFor="share_to_s3">Also publish on s3monaco.com</Label>
+              </span>
+              {(form.share_to_m3 || form.share_to_s3) && (!form.published || form.access_level !== 'public') && (
+                <span className="text-xs text-amber-600">(only once published and public)</span>
+              )}
             </div>
             <Button onClick={handleSave} disabled={saving} className="gap-1.5">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

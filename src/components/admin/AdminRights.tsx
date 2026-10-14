@@ -251,7 +251,7 @@ export function AdminRights() {
           </table>
         </AdminTableCard>
         <p className="max-w-3xl text-[13px] leading-5 text-meta">
-          {t('adminRights.sm26Exception', 'One exception, for a person rather than a company: the people M3 verified who were confirmed investors at Smart Marina 2026 also see Deal flow, with or without a company. Nothing else comes with it. The list was copied once from the event registrations and does not grow by itself. Their company does not affect it: to take Deal flow back from one of them, suspend the person or remove their row from capability_person_grant.')}
+          {t('adminRights.sm26Exception', 'One exception, for a person rather than a company: the people M3 verified who were confirmed investors at Smart Marina 2026 also see Deal flow, with or without a company. Nothing else comes with it. The list was copied once from the event registrations and does not grow by itself. Their company does not affect it: to take Deal flow back from one of them, suspend the person, or ask for their exception to be removed (see docs/rights-switch-runbook.md).')}
         </p>
       </section>
 

@@ -1438,7 +1438,7 @@ function EventDetailContent() {
         />
       ) : cardPending ? (
         // Which card applies is known in a moment (the registration switches): a quiet placeholder meanwhile.
-        <div role="status" aria-label={t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
+        <div role={flagsFailed ? undefined : 'status'} aria-label={flagsFailed ? undefined : t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-chip motion-reduce:animate-none" />
             <span className="h-5 w-1/2 animate-pulse rounded bg-chip motion-reduce:animate-none" />
@@ -1446,7 +1446,7 @@ function EventDetailContent() {
           <div className="h-12 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
           {flagsFailed && (
             // Read again when the tab regains focus, or now.
-            <p className="text-[14px] leading-5 text-meta">
+            <p role="alert" className="text-[14px] leading-5 text-meta">
               {t('reg.flagsFailed', 'This part of the page could not be loaded.')}{' '}
               <button type="button" onClick={retryFlags} className="font-medium text-navy underline underline-offset-2 hover:no-underline">
                 {t('reg.tryAgain', 'Try again')}

@@ -124,7 +124,7 @@ as $snap$
    where schemaname = 'public'
   union all
   select 'function ' || p.oid::regprocedure::text,
-         md5(p.prosrc) || '|' || coalesce(p.proconfig::text, '') || '|' || p.prosecdef::text || '|'
+         md5(replace(p.prosrc, chr(13), '')) || '|' || coalesce(p.proconfig::text, '') || '|' || p.prosecdef::text || '|'
            || p.provolatile::text || '|' || coalesce(p.proacl::text, '')
     from pg_proc p
    where p.pronamespace = 'public'::regnamespace

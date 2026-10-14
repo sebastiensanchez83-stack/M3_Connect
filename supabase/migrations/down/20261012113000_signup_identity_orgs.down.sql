@@ -10,7 +10,8 @@
 -- normalize_org_name and immutable_unaccent.
 -- Data: rows in a status the old CHECK refuses are set to 'cancelled' first (a declined join
 -- request 'rejected', an open claim 'claim_requested'); the counts are printed (NOTICE).
--- expires_at moved forward by org_invitation_issue_token stays as it is.
+-- expires_at moved forward by org_invitation_issue_token stays as it is. The invitation
+-- expiry of 20261012112000_org_invitations_expiry stays (its own down, run after this one).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';

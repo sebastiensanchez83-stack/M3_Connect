@@ -1,9 +1,10 @@
 -- Unified registration, Phase 2 (DB lane), part 1 of 2: companies and teams.
 -- Spec: regspec-en.md §3.9, §4.4-4.6; Victor 11 Oct 2026. Contract: docs/registration-contract.md "Phase 2".
--- NOT APPLIED. Apply after 20261009210000_registration_core, before
--- 20261012113500_signup_identity (part 2, which needs the statuses added here).
+-- NOT APPLIED. Apply after 20261009210000_registration_core and
+-- 20261012112000_org_invitations_expiry (checked below), before 20261012113500_signup_identity
+-- (part 2, which needs the statuses added here).
 -- Down: supabase/migrations/down/20261012113000_signup_identity_orgs.down.sql.
--- Dry run: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql.
+-- Dry runs: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql, .dryrun2.sql, .dryrun3.sql.
 --
 -- For the live main site and for the redesign with every flag off, only these change:
 --   * Decline on a join request works: status 'rejected' is allowed (reject_join_request
@@ -12,13 +13,15 @@
 --   * A claim code no longer makes anyone a member of a company that already has an
 --     owner (claim_organization, claim_organization_for_user). Victor, 11 Oct 2026.
 --   * accept_org_invitation refuses an invitation past its expires_at (30 days), and never
---     turns a suspended account into a verified one.
+--     turns a suspended account into a verified one. The onboarding pages no longer offer an
+--     expired invitation (20261012112000_org_invitations_expiry, applied first).
 --   * An owner can no longer write an invitation that expires later than 30 days.
 -- New, unused until the Phase 2 functions and pages call them: status 'claim_requested',
 -- column code_matched, org_invitation_token (/join/<token> links, sha256 only) and its
 -- RPCs, normalize_org_name + trigram index, company_search.
--- Not touched: reject_join_request, approve_join_request, request_org_join,
--- create_organization, get_invitation_for_join (old /join/<id> links keep resolving).
+-- Not touched: reject_join_request, request_org_join, create_organization,
+-- get_invitation_for_join (old /join/<id> links keep resolving; an expired row shows
+-- "no longer valid" there).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -36,6 +39,11 @@ begin
   lock table public.organization_invitations in access exclusive mode;
   if to_regclass('public.review_log') is null or to_regprocedure('public.on_email_proven(uuid)') is null then
     raise exception 'signup_identity_orgs: apply 20261009210000_registration_core first';
+  end if;
+  -- accept_org_invitation below refuses an expired invitation: the onboarding pages must
+  -- stop offering one first (20261012112000_org_invitations_expiry).
+  if not exists (select 1 from cron.job j where j.jobname = 'org-invitations-expire') then
+    raise exception 'signup_identity_orgs: apply 20261012112000_org_invitations_expiry first';
   end if;
   for v_row in
     select * from (values
@@ -86,8 +94,9 @@ set search_path to ''
 return public.unaccent('public.unaccent'::regdictionary, p);
 
 -- lower case, accents off, dots dropped (s.a.r.l. -> sarl, d.o.o. -> doo), other
--- punctuation -> space, legal forms dropped at either end, spaces collapsed; NULL when
--- nothing is left. 'sam' (Monaco's S.A.M.) is added to the spec's list.
+-- punctuation -> space, legal-form SUFFIXES dropped (spec: never at the start, where
+-- 'Spa Resorts SpA' or 'SA Monaco ...' would lose a real word), spaces collapsed; NULL
+-- when nothing is left. 'sam' (Monaco's S.A.M.) is added to the spec's list.
 create or replace function public.normalize_org_name(p text)
 returns text
 language sql
@@ -97,11 +106,9 @@ parallel safe
 set search_path to ''
 return nullif(pg_catalog.btrim(pg_catalog.regexp_replace(
   pg_catalog.regexp_replace(
-    pg_catalog.regexp_replace(
-      pg_catalog.btrim(pg_catalog.regexp_replace(
-        pg_catalog.replace(pg_catalog.lower(public.immutable_unaccent(pg_catalog.normalize(p, 'NFD'))), '.', ''),
-        '[^[:alnum:]]+', ' ', 'g')),
-      '^((sas|sarl|sa|sam|ltd|llc|inc|gmbh|srl|spa|bv|doo) )+', ''),
+    pg_catalog.btrim(pg_catalog.regexp_replace(
+      pg_catalog.replace(pg_catalog.lower(public.immutable_unaccent(pg_catalog.normalize(p, 'NFD'))), '.', ''),
+      '[^[:alnum:]]+', ' ', 'g')),
     '( (sas|sarl|sa|sam|ltd|llc|inc|gmbh|srl|spa|bv|doo))+$', ''),
   ' +', ' ', 'g')), '');
 

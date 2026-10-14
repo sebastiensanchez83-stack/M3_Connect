@@ -1,15 +1,14 @@
 -- DOWN for supabase/migrations/20261012113500_signup_identity.sql (part 2 of 2).
 -- Run it BEFORE the down of 20261012113000_signup_identity_orgs.
 -- Puts back handle_new_user (production md5 7155140f...) and the Phase 1 complete_signup_for
--- placeholder (md5 2baf4cc8...); unstamps the legacy e-mail proof this migration stamped
--- (only rows whose email_proven_at is still the stamped value; review_log rows
--- 'email_proof_backfill' of this migration deleted; updated_at untouched); drops the
--- functions and the tables email_proof_token, signup_claim_code, notification_outbox
+-- placeholder (md5 2baf4cc8...); drops the functions and the tables email_proof_token,
+-- signup_claim_code, notification_outbox
 -- (unsent e-mails in it are lost: check "select kind, count(*) from notification_outbox
 -- where sent_at is null group by 1" first).
 -- Kept (valid Phase 1 columns and rows): profiles.signup_source / country / affiliation /
 -- signup_intent written at sign-up, profile_interest_sectors rows, join and claim requests
--- in organization_invitations (the down of part 1 cancels the claims).
+-- in organization_invitations (the down of part 1 cancels the claims). The legacy proof
+-- backfill has its own file and down (20261012114000_signup_identity_backfill).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -21,8 +20,8 @@ declare
 begin
   for v_row in
     select * from (values
-      ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', 'd97d129639215c29680dec3c3eee0d6f'),
-      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '87225da67304b9f0d43fb5a090b91332')
+      ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', '4729540e868841759ad598be8d1a08f1'),
+      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '090a57e76e712b96bd7e00650064e855')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);
@@ -32,25 +31,6 @@ begin
   end loop;
 end
 $pre$;
-
-do $unstamp$
-declare
-  v_n integer;
-begin
-  alter table public.profiles disable trigger trg_profiles_updated_at;
-  update public.profiles pr
-     set email_proven_at = null
-    from public.review_log l
-   where l.subject_type = 'person' and l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012113500'
-     and pr.user_id = l.subject_id
-     and pr.email_proven_at = (l.details ->> 'stamped_at')::timestamptz;
-  get diagnostics v_n = row_count;
-  alter table public.profiles enable trigger trg_profiles_updated_at;
-  delete from public.review_log l
-   where l.subject_type = 'person' and l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012113500';
-  raise notice 'signup_identity DOWN: legacy e-mail proof removed from % account(s)', v_n;
-end
-$unstamp$;
 
 -- Production body (owner and ACL kept by CREATE OR REPLACE).
 CREATE OR REPLACE FUNCTION public.handle_new_user()

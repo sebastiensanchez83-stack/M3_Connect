@@ -175,6 +175,16 @@ create function pg_temp.dr_person(p_id uuid, p_email text, p_intent jsonb, p_pro
 returns void language sql as $f$
   select pg_temp.dr_user(p_id, p_email, jsonb_build_object('first_name', 'Pat', 'last_name', 'Doe', 'signup_intent', p_intent), p_proven, p_status)
 $f$;
+-- runs a pg_cron job's command now (as postgres); the number of rows it wrote
+create function pg_temp.dr_cron(p_name text) returns bigint language plpgsql as $f$
+declare
+  v_n bigint;
+begin
+  execute (select j.command from cron.job j where j.jobname = p_name);
+  get diagnostics v_n = row_count;
+  return v_n;
+end
+$f$;
 
 -- ─── D. Cases ─────────────────────────────────────────────────────────────────
 do $dryrun$

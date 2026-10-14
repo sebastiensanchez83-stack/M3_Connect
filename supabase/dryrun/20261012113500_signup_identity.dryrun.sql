@@ -1,23 +1,25 @@
--- DRY RUN of supabase/migrations/20261012113500_signup_identity.sql (structure, backfill,
+-- DRY RUN of supabase/migrations/20261012113500_signup_identity.sql (structure,
 -- handle_new_user, complete_signup_for). NOT A MIGRATION. ONE query text, ONE execute_sql
 -- call, AFTER 20261012113000_signup_identity_orgs is applied. Ends with RAISE EXCEPTION
 -- 'DRYRUN ...'; everything rolls back (the backfill included). Harness of the orgs dry runs:
 -- each case in its own sub-transaction (setup as postgres, the statement as the caller,
 -- chk as postgres); test people and companies per case (example.invalid, random ids).
--- S04: before/after snapshot (a concurrent write by a real user fails it: re-run). S05 prints
--- the backfill count. More cases: dry run 2.
--- Expected: "16 PASS, 0 FAIL".
+-- S04: before/after snapshot (a concurrent write by a real user fails it: re-run). Cases run
+-- with account_signup_v2 on (rolled back). More cases: dry runs 2 and 3. The legacy proof
+-- backfill has its own dry run (20261012114000_signup_identity_backfill).
+-- Expected: "14 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
 -- ─── A. Snapshot (read again after the migration: must be identical) ─────────
+-- A pending invitation past its expiry is read as 'expired' (part 1 sets it so).
 create function pg_temp.dr_snap() returns table (k text, v text) language sql as $f$
   select 'acl ' || p.oid::regprocedure::text, coalesce(p.proacl::text, '') || ' ' || pg_get_userbyid(p.proowner)
     from pg_proc p
    where p.oid in ('public.accept_org_invitation(uuid)'::regprocedure, 'public.claim_organization(text)'::regprocedure,
                    'public.claim_organization_for_user(uuid,text)'::regprocedure, 'public.reject_join_request(uuid)'::regprocedure,
-                   'public.approve_join_request(uuid)'::regprocedure, 'public.handle_new_user()'::regprocedure,
+                   'public.approve_join_request(uuid)'::regprocedure, 'public.check_pending_invitation(text)'::regprocedure, 'public.handle_new_user()'::regprocedure,
                    'public.complete_signup_for(uuid)'::regprocedure, 'public.request_org_join(uuid)'::regprocedure,
                    'public.create_organization(text,text,text,text,text,text,text)'::regprocedure)
   union all select 'sm26', md5(concat_ws('|',
@@ -29,7 +31,7 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
       (select md5(coalesce(string_agg(x::text, ',' order by x::text), '')) from public.sm_invoice x),
       (select md5(coalesce(string_agg(x::text, ',' order by x::text), '')) from public.sm_networking_pass x)))
   union all select 'gl_guest', (select md5(coalesce(string_agg(g.id::text || g.token::text || g.status, ',' order by g.id), '')) from public.gl_guest g)
-  union all select 'invitations', (select md5(coalesce(string_agg(i.id::text || i.status || i.email || i.expires_at::text, ',' order by i.id), '')) from public.organization_invitations i)
+  union all select 'invitations', (select md5(coalesce(string_agg(i.id::text || case when i.status = 'pending' and i.expires_at < now() then 'expired' else i.status end || i.email || i.expires_at::text, ',' order by i.id), '')) from public.organization_invitations i)
   union all select 'orgs', (select md5(coalesce(string_agg(o.id::text || o.name || coalesce(o.access_status, '') || coalesce(o.owner_user_id::text, ''), ',' order by o.id), '')) from public.organizations o)
   union all select 'members', (select md5(coalesce(string_agg(m.id::text || m.user_id::text || m.role, ',' order by m.id), '')) from public.organization_members m)
   union all select 'profiles', (select md5(coalesce(string_agg(pr.user_id::text || pr.access_status::text || pr.onboarding_status::text || pr.persona::text || pr.updated_at::text, ',' order by pr.user_id), '')) from public.profiles pr)
@@ -45,22 +47,25 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- Spec: regspec-en.md §3.8, §4.4, §4.6, §5; Victor 6/8/11 Oct 2026. Contract: docs/registration-contract.md "Phase 2".
 -- NOT APPLIED. Apply after 20261012113000_signup_identity_orgs (checked below).
 -- Down: supabase/migrations/down/20261012113500_signup_identity.down.sql.
--- Dry runs: supabase/dryrun/20261012113500_signup_identity.dryrun.sql and .dryrun2.sql.
+-- Dry runs: supabase/dryrun/20261012113500_signup_identity.dryrun.sql, .dryrun2.sql, .dryrun3.sql.
+-- The legacy proof backfill (§5) is a separate file, 20261012114000_signup_identity_backfill,
+-- applied only once Victor has chosen which sessions count (see that file).
 --
 -- For the live main site and for the redesign with every flag off, nothing visible
 -- changes: a new account's profile row is the one of today (same persona whitelist,
--- names, e-mail, job title, pending/draft) plus signup_source 'account'; the sign-up
--- form v2 keys (signup_intent, country, affiliation, sector_ids, declared_type) are read
--- only when present, and nothing runs an intent until an address is PROVEN. The legacy
--- proof backfill stamps profiles.email_proven_at, which only the redesign reads.
+-- names, e-mail, job title, pending/draft) plus signup_source 'account' for a sign-up
+-- form; the sign-up form v2 keys (signup_intent, country, affiliation, sector_ids,
+-- declared_type) are read only when present. Nothing runs an intent while the flag
+-- account_signup_v2 is off (registration_flags, JSON true), nor before an address is
+-- PROVEN: no join or claim request, no e-mail queued.
 --  1. Private tables: email_proof_token, signup_claim_code (a claim code typed at sign-up:
 --     never in profiles, which co-members read), notification_outbox (staff read).
 --  2. handle_new_user: whitelist + length caps; never access_status, staff persona or proof.
 --  3. complete_signup_for (replaces the Phase 1 stub, same signature), complete_my_signup,
 --     submit_signup_intent ("Add my company", claim link while signed in).
---  4. issue_email_proof_token (service role), confirm_email_proof (/verify-email).
+--  4. issue_email_proof_token (service role), confirm_email_proof (/verify-email; a
+--     PASSWORD session only, as the Phase 1 rule of mark_email_proven).
 --  5. notification_outbox_claim / _done (service role): e-mails queued here, sent once.
---  6. Legacy proof backfill (§5), recorded in review_log for the down script.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -86,8 +91,8 @@ begin
   end if;
   for v_row in
     select * from (values
-      ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', 'd97d129639215c29680dec3c3eee0d6f'),
-      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '87225da67304b9f0d43fb5a090b91332')
+      ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', '4729540e868841759ad598be8d1a08f1'),
+      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '090a57e76e712b96bd7e00650064e855')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);
@@ -201,9 +206,12 @@ revoke all on function public.signup_code_clean(text) from public, anon, authent
 revoke all on function public.signup_intent_clean(jsonb) from public, anon, authenticated;
 
 -- Production body (md5 7155140f...) for every key it reads (old client, claim-code-signup,
--- provisioning: provision-person then writes signup_source 'provisioned'); names capped at
--- 100 and the job title at 200 characters. The v2 keys are read only when present; a
--- failure there is a WARNING, never a failed sign-up.
+-- provisioning); names capped at 100 and the job title at 200 characters. The v2 keys are
+-- read only when present; a failure there is a WARNING, never a failed sign-up.
+-- signup_source: 'account' for a sign-up form (main's, the v2 form, claim-code-signup) and
+-- create-admin-user; NULL (as today) for an account one of M3's tools made for the person
+-- (metadata pw_pending or provision_job_id: sm26-register, sm26-provision, sponsor-invite,
+-- sm26-attendee-invite, provision-person, which then writes 'provisioned').
 CREATE OR REPLACE FUNCTION public.handle_new_user()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -248,7 +256,7 @@ BEGIN
     NULLIF(left(v_meta->>'job_title', 200), ''),
     'pending',
     'draft',
-    'account',
+    CASE WHEN v_meta ? 'pw_pending' OR v_meta ? 'provision_job_id' THEN NULL ELSE 'account' END,
     v_country,
     v_affiliation,
     v_intent
@@ -289,8 +297,10 @@ $function$;
 
 -- ---- 3. Running the sign-up intent ----------------------------------------------
 -- Same signature as the Phase 1 stub (on_email_proven calls it in its own block). Runs
--- once (signup_intent.done_at), only for a PROVEN account (email_proven_at set and
--- profiles.email = auth e-mail). result.path:
+-- once (signup_intent.done_at), only while the flag account_signup_v2 is on (else
+-- {done:false, reason:'flag_off'}: intent and claim code kept for complete_my_signup
+-- later) and only for a PROVEN account (email_proven_at set and profiles.email = auth
+-- e-mail). An invitation past its expiry is not an open invitation. result.path:
 --   join_requested   verified company with an owner: join request, team_join_request e-mail to the owner
 --   claim_requested  verified company with no owner, or a claim code of a company with no owner: M3 decides
 --   company_pending  company not verified yet: M3 decides
@@ -346,6 +356,11 @@ begin
   if v_intent ? 'done_at' then
     return jsonb_build_object('done', true, 'already', true, 'result', v_intent -> 'result');
   end if;
+  -- Flags are on only as JSON true (contract §7 item 14). Off: nothing is filed or queued.
+  if not coalesce((select (ps.value -> 'account_signup_v2') = 'true'::jsonb
+                     from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+    return jsonb_build_object('done', false, 'reason', 'flag_off');
+  end if;
   select lower(u.email) into v_email from auth.users u where u.id = p_user_id;
   if v_email is null or v_proven is null or v_pemail is distinct from v_email then
     return jsonb_build_object('done', false, 'reason', 'not_proven');
@@ -395,6 +410,7 @@ begin
       select i.id, i.status into v_open_id, v_open_status from public.organization_invitations i
        where i.organization_id = v_target and lower(btrim(i.email)) = v_email
          and i.status in ('pending', 'join_requested', 'claim_requested')
+         and (i.status <> 'pending' or i.expires_at >= now())
        order by i.created_at desc limit 1;
       if exists (select 1 from public.organization_members m where m.organization_id = v_target and m.user_id = p_user_id) then
         v_path := 'already_member';
@@ -483,8 +499,10 @@ $function$;
 
 -- Signed in, in no company: "Add my company", or a claim link opened while signed in.
 -- p_intent has the sign-up shape {action, org_id, name, website, country, type, code}.
--- Runs at once when the address is proven, else once it is. Errors (22023): no_profile,
--- account_suspended, already_in_company, request_pending, too_soon (1 a minute), bad_input.
+-- Runs at once when the address is proven, else once it is. Errors (22023): flag_off
+-- (account_signup_v2 off: nothing stored), no_profile, account_suspended,
+-- already_in_company, request_pending (an open join or claim request less than 30 days
+-- old: its expires_at), too_soon (1 a minute), bad_input.
 create or replace function public.submit_signup_intent(p_intent jsonb)
 returns jsonb
 language plpgsql
@@ -503,6 +521,10 @@ begin
   if v_uid is null then
     raise exception using errcode = '42501', message = 'not_signed_in';
   end if;
+  if not coalesce((select (ps.value -> 'account_signup_v2') = 'true'::jsonb
+                     from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+    raise exception using errcode = '22023', message = 'flag_off';
+  end if;
   select pr.access_status::text, pr.signup_intent into v_status, v_old
     from public.profiles pr where pr.user_id = v_uid for update;
   if not found then
@@ -516,7 +538,8 @@ begin
   end if;
   select lower(u.email) into v_email from auth.users u where u.id = v_uid;
   if exists (select 1 from public.organization_invitations i
-              where lower(btrim(i.email)) = v_email and i.status in ('join_requested', 'claim_requested')) then
+              where lower(btrim(i.email)) = v_email and i.status in ('join_requested', 'claim_requested')
+                and i.expires_at >= now()) then
     raise exception using errcode = '22023', message = 'request_pending';
   end if;
   if public.gl_try_ts(v_old ->> 'submitted_at') > now() - interval '1 minute' then
@@ -574,11 +597,17 @@ end
 $function$;
 
 -- Signed in (/verify-email?t=): the token's account is the caller, its address the current
--- auth e-mail, no e-mail change since it was issued, not an admin "view as user" session.
--- The caller holds the password and the link reached the inbox: proof is stamped, then
+-- auth e-mail, no e-mail change since it was issued, not an admin "view as user" session,
+-- and the session was opened with the account's PASSWORD (JWT amr 'password'). A link
+-- session (magic link, OTP, recovery) proves the inbox, not that the password belongs to
+-- the person (Confirm email off: anyone can create an account with another person's
+-- address and keep its password): the Phase 1 rule of mark_email_proven. Such a session
+-- gets password_session_required: the page sends the person to set a new password
+-- (/reset-password, then mark_email_proven), or to sign in with the password.
+-- Then the caller holds the password and the link reached the inbox: proof is stamped, and
 -- on_email_proven attaches records and runs complete_signup_for. Never a login.
 -- {proven, stamped, reason?: invalid_token | wrong_account | email_changed | used | expired |
--- impersonation, attached?, requeued?, signup?}
+-- impersonation | password_session_required, attached?, requeued?, signup?}
 create or replace function public.confirm_email_proof(p_token text)
 returns jsonb
 language plpgsql
@@ -644,6 +673,11 @@ begin
         where l.target_user_id = v_uid
           and l.created_at between v_link_at - interval '5 minutes' and v_link_at + interval '1 minute') then
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'impersonation');
+  end if;
+  if not exists (select 1
+                   from jsonb_array_elements(case when jsonb_typeof(v_amr) = 'array' then v_amr else '[]'::jsonb end) a
+                  where a ->> 'method' = 'password') then
+    return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'password_session_required');
   end if;
   update public.email_proof_token set used_at = now() where token_hash = v_hash;
   v_out := public.on_email_proven(v_uid);
@@ -713,63 +747,6 @@ grant execute on function public.notification_outbox_claim(integer, uuid, text[]
 revoke all on function public.notification_outbox_done(bigint, text) from public, anon, authenticated;
 grant execute on function public.notification_outbox_done(bigint, text) to service_role;
 
--- ---- 7. Legacy proof backfill (spec §5) ---------------------------------------------
--- auth.audit_log_entries is EMPTY in this project (0 rows on 11 Oct 2026; GoTrue's audit
--- trail goes to the log service). The evidence used is the one GoTrue keeps in the
--- database, auth.mfa_amr_claims (the amr of every live session, what mark_email_proven
--- reads from the JWT): a session opened from an e-mail link (otp, magiclink, recovery,
--- invite, email/signup, email_change) after the account was created and after the last
--- e-mail change, the address still being both the auth e-mail and profiles.email; not
--- within -5/+1 minutes of an admin "view as user" (admin_impersonation_log), and only since
--- that log exists (11 Jul 2026: an older magic link may be an unlogged impersonation).
--- email_proven_at = that session's time. updated_at is left alone (send-profile-reminders
--- reads it). One review_log row per stamped account (action 'email_proof_backfill',
--- details.stamped_at): the down script unstamps exactly those still carrying that stamp.
--- attach / complete_signup are not run here (the next session does it).
--- 47 accounts on 11 Oct 2026 (41 verified, 6 pending, 0 staff).
-do $backfill$
-declare
-  v_n integer;
-begin
-  alter table public.profiles disable trigger trg_profiles_updated_at;
-  with lg as (select min(l.created_at) as since from public.admin_impersonation_log l),
-  ev as (
-    select s.user_id, max(c.created_at) as at_,
-           (array_agg(c.authentication_method order by c.created_at desc))[1] as method
-      from auth.mfa_amr_claims c
-      join auth.sessions s on s.id = c.session_id
-      join auth.users u on u.id = s.user_id
-      join public.profiles pr on pr.user_id = s.user_id
-      cross join lg
-     where c.authentication_method in ('otp', 'magiclink', 'recovery', 'invite', 'email/signup', 'email_change')
-       and c.created_at >= coalesce(lg.since, 'infinity'::timestamptz)
-       and c.created_at >= u.created_at
-       and (pr.email_changed_at is null or c.created_at >= pr.email_changed_at)
-       and lower(pr.email) = lower(u.email)
-       and pr.email_proven_at is null
-       and not exists (select 1 from public.admin_impersonation_log l
-                        where l.target_user_id = s.user_id
-                          and l.created_at between c.created_at - interval '5 minutes' and c.created_at + interval '1 minute')
-     group by s.user_id
-  ),
-  st as (
-    update public.profiles pr
-       set email_proven_at = ev.at_
-      from ev
-     where pr.user_id = ev.user_id and pr.email_proven_at is null
-    returning pr.user_id, pr.email_proven_at, ev.method
-  )
-  insert into public.review_log (subject_type, subject_id, action, note, details)
-  select 'person', st.user_id, 'email_proof_backfill',
-         'Legacy e-mail proof (migration 20261012113500_signup_identity): a session opened from an e-mail link sent to this address.',
-         jsonb_build_object('stamped_at', st.email_proven_at, 'method', st.method, 'migration', '20261012113500')
-    from st;
-  get diagnostics v_n = row_count;
-  alter table public.profiles enable trigger trg_profiles_updated_at;
-  raise notice 'signup_identity: legacy e-mail proof stamped for % account(s)', v_n;
-end
-$backfill$;
-
 -- ─── C. Test helpers (temporary, gone with the rollback) ─────────────────────
 create function pg_temp.dr_user(p_id uuid, p_email text, p_meta jsonb, p_proven boolean, p_status text)
 returns void language plpgsql as $f$
@@ -795,6 +772,16 @@ create function pg_temp.dr_person(p_id uuid, p_email text, p_intent jsonb, p_pro
 returns void language sql as $f$
   select pg_temp.dr_user(p_id, p_email, jsonb_build_object('first_name', 'Pat', 'last_name', 'Doe', 'signup_intent', p_intent), p_proven, p_status)
 $f$;
+-- runs a pg_cron job's command now (as postgres); the number of rows it wrote
+create function pg_temp.dr_cron(p_name text) returns bigint language plpgsql as $f$
+declare
+  v_n bigint;
+begin
+  execute (select j.command from cron.job j where j.jobname = p_name);
+  get diagnostics v_n = row_count;
+  return v_n;
+end
+$f$;
 
 -- ─── D. Checks and cases ──────────────────────────────────────────────────────
 do $dryrun$
@@ -819,28 +806,23 @@ begin
     'code_v', 'DRYV' || upper(r8), 'code_n', 'DRYN' || upper(r8),
     'sec1', (select s.id from public.sectors s where s.is_active order by s.id limit 1),
     'sec2', (select s.id from public.sectors s where s.is_active order by s.id offset 1 limit 1));
-  s0 := $s$select pg_temp.dr_user({owner}, {e_owner}, '{}', true, 'verified');
+  -- every case but the bare ones runs with account_signup_v2 on (production: off; rolled back)
+  s0 := $s$update public.platform_settings set value = value || '{"account_signup_v2": true}'::jsonb where key = 'registration_flags';
+select pg_temp.dr_user({owner}, {e_owner}, '{}', true, 'verified');
 select pg_temp.dr_org({org_v}, 'Dryrun Zebramarina', 'verified', {owner}, {code_v});
 select pg_temp.dr_org({org_n}, 'Dryrun Ownerless Yard', 'verified', null, {code_n});
 select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$;
 
   tests := jsonb_build_array(
-    -- ── Structure and backfill ──
+    -- ── Structure ──
     jsonb_build_object('id', 'S01', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'handle_new_user and complete_signup_for carry this file''s bodies',
-      'q', $q$select bool_and(md5(replace(p.prosrc, chr(13), '')) = x.m) from (values ('public.handle_new_user()', 'd97d129639215c29680dec3c3eee0d6f'), ('public.complete_signup_for(uuid)', '87225da67304b9f0d43fb5a090b91332')) x(s, m) join pg_proc p on p.oid = to_regprocedure(x.s)$q$),
+      'q', $q$select bool_and(md5(replace(p.prosrc, chr(13), '')) = x.m) from (values ('public.handle_new_user()', '4729540e868841759ad598be8d1a08f1'), ('public.complete_signup_for(uuid)', '090a57e76e712b96bd7e00650064e855')) x(s, m) join pg_proc p on p.oid = to_regprocedure(x.s)$q$),
     jsonb_build_object('id', 'S02', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'email_proof_token, signup_claim_code: RLS, no policy, no client access; notification_outbox: staff read only',
       'q', $q$select bool_and(c.relrowsecurity and not has_any_column_privilege('anon', c.oid, 'select') and not has_table_privilege('authenticated', c.oid, 'insert') and not has_table_privilege('authenticated', c.oid, 'update') and (c.relname = 'notification_outbox') = has_any_column_privilege('authenticated', c.oid, 'select') and (select count(*) from pg_policy where polrelid = c.oid) = (case when c.relname = 'notification_outbox' then 1 else 0 end)) from pg_class c where c.oid in ('public.email_proof_token'::regclass, 'public.signup_claim_code'::regclass, 'public.notification_outbox'::regclass)$q$),
     jsonb_build_object('id', 'S03', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'EXECUTE: closed to anon and PUBLIC; authenticated only where documented',
       'q', $q$select bool_and(has_function_privilege('service_role', f, 'execute') and has_function_privilege('authenticated', f, 'execute') = x.auth and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('public', f, 'execute')) from (values ('public.complete_signup_for(uuid)', false), ('public.complete_my_signup()', true), ('public.submit_signup_intent(jsonb)', true), ('public.issue_email_proof_token(uuid)', false), ('public.confirm_email_proof(text)', true), ('public.notification_outbox_claim(integer,uuid,text[])', false), ('public.notification_outbox_done(bigint,text)', false), ('public.signup_intent_clean(jsonb)', false), ('public.signup_code_clean(text)', false)) x(f, auth)$q$),
     jsonb_build_object('id', 'S04', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'unchanged: SM26, gl_guest, invitations, companies, members, profiles (updated_at too), policies, ACLs',
       'q', $q$select count(*) = (select count(*) from _dr_before) and bool_and(b.v = a.v) from _dr_before b join pg_temp.dr_snap() a on a.k = b.k$q$),
-    jsonb_build_object('id', 'S05', 'who', 'postgres', 'bare', true, 'expect', 'ret:true',
-      'label', format('backfill: %s account(s) stamped, each logged once in review_log with its stamp', (select count(*) from public.review_log l where l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012113500')),
-      'q', $q$select count(*) = count(distinct l.subject_id) and coalesce(bool_and(pr.email_proven_at = (l.details ->> 'stamped_at')::timestamptz and lower(pr.email) = lower(u.email)), true) from public.review_log l join public.profiles pr on pr.user_id = l.subject_id join auth.users u on u.id = l.subject_id where l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012113500'$q$),
-    jsonb_build_object('id', 'S06', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'backfill evidence: an e-mail-link session at the stamped time, none within an admin "view as user"',
-      'q', $q$select coalesce(bool_and(exists (select 1 from auth.mfa_amr_claims c join auth.sessions s on s.id = c.session_id where s.user_id = l.subject_id and c.created_at = (l.details ->> 'stamped_at')::timestamptz and c.authentication_method in ('otp', 'magiclink', 'recovery', 'invite', 'email/signup', 'email_change') and not exists (select 1 from public.admin_impersonation_log i where i.target_user_id = s.user_id and i.created_at between c.created_at - interval '5 minutes' and c.created_at + interval '1 minute'))), true) from public.review_log l where l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012113500'$q$),
-    jsonb_build_object('id', 'S07', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'trg_profiles_updated_at enabled again',
-      'q', $q$select tgenabled = 'O' from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'trg_profiles_updated_at'$q$),
     -- ── handle_new_user ──
     jsonb_build_object('id', 'H01', 'who', 'postgres', 'expect', 'allow', 'label', 'old client metadata: the profile of today + signup_source account, nothing else',
       'q', $q$select pg_temp.dr_user({p1}, {e_p1}, '{"persona": "marina", "first_name": "Ada", "last_name": "Lovelace", "company_name": "Dryrun Co", "company_website": "https://dryrun.example", "detected_org_id": "", "job_title": "Harbour master", "lang": "en"}', false, 'pending')$q$,
@@ -854,6 +836,9 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
     jsonb_build_object('id', 'H04', 'who', 'postgres', 'expect', 'allow', 'label', 'hostile v2 values: capped, action re-derived, unknown type dropped, at most 5 sectors',
       'q', $q$select pg_temp.dr_user({p1}, {e_p1}, jsonb_build_object('first_name', repeat('A', 300), 'country', repeat('C', 300), 'sector_ids', (select jsonb_agg(s.id) from public.sectors s), 'signup_intent', jsonb_build_object('action', 'owner', 'org_id', 'not-a-uuid', 'name', repeat('N', 500), 'type', 'admin')), false, 'pending')$q$,
       'chk', $c$select pr.signup_intent ->> 'action' = 'new' and not (pr.signup_intent ? 'org_id') and not (pr.signup_intent ? 'type') and length(pr.signup_intent ->> 'name') = 200 and length(pr.first_name) = 100 and length(pr.country) = 80 and (select count(*) from public.profile_interest_sectors where user_id = {p1}) <= 5 from public.profiles pr where pr.user_id = {p1}$c$),
+    jsonb_build_object('id', 'H07', 'who', 'postgres', 'expect', 'allow', 'label', 'an account made by an M3 tool (pw_pending): signup_source stays NULL, as today',
+      'q', $q$select pg_temp.dr_user({p1}, {e_p1}, '{"persona": "partner", "first_name": "Sam", "pw_pending": true}', false, 'pending')$q$,
+      'chk', $c$select signup_source is null and persona::text = 'partner' and first_name = 'Sam' from public.profiles where user_id = {p1}$c$),
     jsonb_build_object('id', 'C01', 'who', 'service', 'expect', 'ret:not_proven', 'label', 'unproven address: nothing runs',
       'setup', $s$select pg_temp.dr_person({p1}, {e_p1}, '{"action": "none"}', false, 'pending')$s$,
       'q', $q$select public.complete_signup_for({p1}) ->> 'reason'$q$,

@@ -1,5 +1,5 @@
 -- DRY RUN of supabase/migrations/20261012113000_signup_identity_orgs.sql. NOT A MIGRATION.
--- Run it as ONE query text in ONE execute_sql call, after 20261009210000_registration_core
+-- Run it as ONE query text in ONE execute_sql call, after 20261012112000_org_invitations_expiry
 -- is applied. It ends with RAISE EXCEPTION 'DRYRUN ...': the report is the error message and
 -- everything rolls back (the migration, test people, companies, invitations, tokens).
 -- A. snapshot; B. the migration verbatim; C. helpers; D. checks and cases, each case in its
@@ -11,18 +11,22 @@
 -- err:<text> = an error containing <text>; ret:<v> = returned exactly <v>; chk must be true.
 -- S05 compares SM26, gl_guest, invitations, companies, members, profiles, policies and ACLs
 -- before/after: a concurrent write by a real user shows there as a FAIL; re-run then.
--- Expected: "32 PASS, 0 FAIL".
+-- More cases: dry run 2 (claim codes, company_search), dry run 3 (/join/<token>).
+-- It holds an ACCESS EXCLUSIVE lock on organization_invitations until the final rollback
+-- (a few seconds): run it off-peak.
+-- Expected: "18 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
 -- ─── A. Snapshot (read again after the migration: must be identical) ─────────
+-- A pending invitation past its expiry is read as 'expired' (part 1 sets it so).
 create function pg_temp.dr_snap() returns table (k text, v text) language sql as $f$
   select 'acl ' || p.oid::regprocedure::text, coalesce(p.proacl::text, '') || ' ' || pg_get_userbyid(p.proowner)
     from pg_proc p
    where p.oid in ('public.accept_org_invitation(uuid)'::regprocedure, 'public.claim_organization(text)'::regprocedure,
                    'public.claim_organization_for_user(uuid,text)'::regprocedure, 'public.reject_join_request(uuid)'::regprocedure,
-                   'public.approve_join_request(uuid)'::regprocedure, 'public.handle_new_user()'::regprocedure,
+                   'public.approve_join_request(uuid)'::regprocedure, 'public.check_pending_invitation(text)'::regprocedure, 'public.handle_new_user()'::regprocedure,
                    'public.complete_signup_for(uuid)'::regprocedure, 'public.request_org_join(uuid)'::regprocedure,
                    'public.create_organization(text,text,text,text,text,text,text)'::regprocedure)
   union all select 'sm26', md5(concat_ws('|',
@@ -34,7 +38,7 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
       (select md5(coalesce(string_agg(x::text, ',' order by x::text), '')) from public.sm_invoice x),
       (select md5(coalesce(string_agg(x::text, ',' order by x::text), '')) from public.sm_networking_pass x)))
   union all select 'gl_guest', (select md5(coalesce(string_agg(g.id::text || g.token::text || g.status, ',' order by g.id), '')) from public.gl_guest g)
-  union all select 'invitations', (select md5(coalesce(string_agg(i.id::text || i.status || i.email || i.expires_at::text, ',' order by i.id), '')) from public.organization_invitations i)
+  union all select 'invitations', (select md5(coalesce(string_agg(i.id::text || case when i.status = 'pending' and i.expires_at < now() then 'expired' else i.status end || i.email || i.expires_at::text, ',' order by i.id), '')) from public.organization_invitations i)
   union all select 'orgs', (select md5(coalesce(string_agg(o.id::text || o.name || coalesce(o.access_status, '') || coalesce(o.owner_user_id::text, ''), ',' order by o.id), '')) from public.organizations o)
   union all select 'members', (select md5(coalesce(string_agg(m.id::text || m.user_id::text || m.role, ',' order by m.id), '')) from public.organization_members m)
   union all select 'profiles', (select md5(coalesce(string_agg(pr.user_id::text || pr.access_status::text || pr.onboarding_status::text || pr.persona::text || pr.updated_at::text, ',' order by pr.user_id), '')) from public.profiles pr)
@@ -48,10 +52,11 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- ─── B. The migration, verbatim ───────────────────────────────────────────────
 -- Unified registration, Phase 2 (DB lane), part 1 of 2: companies and teams.
 -- Spec: regspec-en.md §3.9, §4.4-4.6; Victor 11 Oct 2026. Contract: docs/registration-contract.md "Phase 2".
--- NOT APPLIED. Apply after 20261009210000_registration_core, before
--- 20261012113500_signup_identity (part 2, which needs the statuses added here).
+-- NOT APPLIED. Apply after 20261009210000_registration_core and
+-- 20261012112000_org_invitations_expiry (checked below), before 20261012113500_signup_identity
+-- (part 2, which needs the statuses added here).
 -- Down: supabase/migrations/down/20261012113000_signup_identity_orgs.down.sql.
--- Dry run: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql.
+-- Dry runs: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql, .dryrun2.sql, .dryrun3.sql.
 --
 -- For the live main site and for the redesign with every flag off, only these change:
 --   * Decline on a join request works: status 'rejected' is allowed (reject_join_request
@@ -60,13 +65,15 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 --   * A claim code no longer makes anyone a member of a company that already has an
 --     owner (claim_organization, claim_organization_for_user). Victor, 11 Oct 2026.
 --   * accept_org_invitation refuses an invitation past its expires_at (30 days), and never
---     turns a suspended account into a verified one.
+--     turns a suspended account into a verified one. The onboarding pages no longer offer an
+--     expired invitation (20261012112000_org_invitations_expiry, applied first).
 --   * An owner can no longer write an invitation that expires later than 30 days.
 -- New, unused until the Phase 2 functions and pages call them: status 'claim_requested',
 -- column code_matched, org_invitation_token (/join/<token> links, sha256 only) and its
 -- RPCs, normalize_org_name + trigram index, company_search.
--- Not touched: reject_join_request, approve_join_request, request_org_join,
--- create_organization, get_invitation_for_join (old /join/<id> links keep resolving).
+-- Not touched: reject_join_request, request_org_join, create_organization,
+-- get_invitation_for_join (old /join/<id> links keep resolving; an expired row shows
+-- "no longer valid" there).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -84,6 +91,11 @@ begin
   lock table public.organization_invitations in access exclusive mode;
   if to_regclass('public.review_log') is null or to_regprocedure('public.on_email_proven(uuid)') is null then
     raise exception 'signup_identity_orgs: apply 20261009210000_registration_core first';
+  end if;
+  -- accept_org_invitation below refuses an expired invitation: the onboarding pages must
+  -- stop offering one first (20261012112000_org_invitations_expiry).
+  if not exists (select 1 from cron.job j where j.jobname = 'org-invitations-expire') then
+    raise exception 'signup_identity_orgs: apply 20261012112000_org_invitations_expiry first';
   end if;
   for v_row in
     select * from (values
@@ -134,8 +146,9 @@ set search_path to ''
 return public.unaccent('public.unaccent'::regdictionary, p);
 
 -- lower case, accents off, dots dropped (s.a.r.l. -> sarl, d.o.o. -> doo), other
--- punctuation -> space, legal forms dropped at either end, spaces collapsed; NULL when
--- nothing is left. 'sam' (Monaco's S.A.M.) is added to the spec's list.
+-- punctuation -> space, legal-form SUFFIXES dropped (spec: never at the start, where
+-- 'Spa Resorts SpA' or 'SA Monaco ...' would lose a real word), spaces collapsed; NULL
+-- when nothing is left. 'sam' (Monaco's S.A.M.) is added to the spec's list.
 create or replace function public.normalize_org_name(p text)
 returns text
 language sql
@@ -145,11 +158,9 @@ parallel safe
 set search_path to ''
 return nullif(pg_catalog.btrim(pg_catalog.regexp_replace(
   pg_catalog.regexp_replace(
-    pg_catalog.regexp_replace(
-      pg_catalog.btrim(pg_catalog.regexp_replace(
-        pg_catalog.replace(pg_catalog.lower(public.immutable_unaccent(pg_catalog.normalize(p, 'NFD'))), '.', ''),
-        '[^[:alnum:]]+', ' ', 'g')),
-      '^((sas|sarl|sa|sam|ltd|llc|inc|gmbh|srl|spa|bv|doo) )+', ''),
+    pg_catalog.btrim(pg_catalog.regexp_replace(
+      pg_catalog.replace(pg_catalog.lower(public.immutable_unaccent(pg_catalog.normalize(p, 'NFD'))), '.', ''),
+      '[^[:alnum:]]+', ' ', 'g')),
     '( (sas|sarl|sa|sam|ltd|llc|inc|gmbh|srl|spa|bv|doo))+$', ''),
   ' +', ' ', 'g')), '');
 
@@ -687,6 +698,16 @@ create function pg_temp.dr_person(p_id uuid, p_email text, p_intent jsonb, p_pro
 returns void language sql as $f$
   select pg_temp.dr_user(p_id, p_email, jsonb_build_object('first_name', 'Pat', 'last_name', 'Doe', 'signup_intent', p_intent), p_proven, p_status)
 $f$;
+-- runs a pg_cron job's command now (as postgres); the number of rows it wrote
+create function pg_temp.dr_cron(p_name text) returns bigint language plpgsql as $f$
+declare
+  v_n bigint;
+begin
+  execute (select j.command from cron.job j where j.jobname = p_name);
+  get diagnostics v_n = row_count;
+  return v_n;
+end
+$f$;
 
 -- ─── D. Checks and cases ──────────────────────────────────────────────────────
 do $dryrun$
@@ -726,17 +747,17 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
     jsonb_build_object('id', 'S03', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'insert policy: owner, pending, signed by the caller, expires_at <= now() + 30 days; noted signup_identity',
       'q', $q$select p.with_check like '%''owner''%' and p.with_check like '%''pending''%' and p.with_check like '%invited_by_user_id = auth.uid()%' and p.with_check like '%expires_at <= (now() + ''30 days''::interval)%' and obj_description(pp.oid, 'pg_policy') like 'signup_identity %' from pg_policies p join pg_policy pp on pp.polname = p.policyname and pp.polrelid = 'public.organization_invitations'::regclass where p.tablename = 'organization_invitations' and p.policyname = 'owners_can_create_invitations'$q$),
     jsonb_build_object('id', 'S04', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'replaced functions carry this file''s bodies; reject_join_request untouched',
-      'q', $q$select bool_and(md5(replace(p.prosrc, chr(13), '')) = x.m) from (values ('public.accept_org_invitation(uuid)', 'd2931bc02461e4f80fdda4aefa29fd41'), ('public.claim_organization(text)', 'c67aa88884d0494efe26c3ada41c8d8e'), ('public.claim_organization_for_user(uuid,text)', 'da43fcccea2e39f0450347289da7d5e8'), ('public.reject_join_request(uuid)', '8b8efcc5956f01847e4983ca8202a50e')) x(s, m) join pg_proc p on p.oid = to_regprocedure(x.s)$q$),
+      'q', $q$select count(*) = 4 and bool_and(md5(replace(p.prosrc, chr(13), '')) = x.m) from (values ('public.accept_org_invitation(uuid)', 'd2931bc02461e4f80fdda4aefa29fd41'), ('public.claim_organization(text)', 'c67aa88884d0494efe26c3ada41c8d8e'), ('public.claim_organization_for_user(uuid,text)', 'da43fcccea2e39f0450347289da7d5e8'), ('public.reject_join_request(uuid)', '8b8efcc5956f01847e4983ca8202a50e')) x(s, m) join pg_proc p on p.oid = to_regprocedure(x.s)$q$),
     jsonb_build_object('id', 'S05', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'unchanged: SM26, gl_guest tokens, invitations, companies, members, profiles, other policies, ACLs and owners',
       'q', $q$select count(*) = (select count(*) from _dr_before) and bool_and(b.v = a.v) from _dr_before b join pg_temp.dr_snap() a on a.k = b.k$q$),
     jsonb_build_object('id', 'S06', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'EXECUTE: closed to anon and PUBLIC; authenticated only for accept_org_invitation_by_token',
       'q', $q$select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('public', f, 'execute') and has_function_privilege('authenticated', f, 'execute') = x.auth) from (values ('public.org_invitation_issue_token(uuid)', false), ('public.org_invitation_by_token(text)', false), ('public.accept_org_invitation_for(uuid,text)', false), ('public.company_search(text,integer)', false), ('public.org_invitation_resolve(text)', false), ('public.accept_org_invitation_by_token(text)', true)) x(f, auth)$q$),
     jsonb_build_object('id', 'S07', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'org_invitation_token: RLS on, no policy, nothing for anon/authenticated',
       'q', $q$select c.relrowsecurity and not exists (select 1 from pg_policy where polrelid = c.oid) and not has_any_column_privilege('anon', c.oid, 'select') and not has_any_column_privilege('authenticated', c.oid, 'select') and not has_table_privilege('authenticated', c.oid, 'insert') from pg_class c where c.oid = 'public.org_invitation_token'::regclass$q$),
-    jsonb_build_object('id', 'S08', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'normalize_org_name: accents, dots, legal forms at either end, empty -> null',
-      'q', $q$select public.normalize_org_name('S.A.R.L. Le Port de Göcek') = 'le port de gocek' and public.normalize_org_name('D-Marin Göcek d.o.o.') = 'd marin gocek' and public.normalize_org_name('Marina Ltd.') = 'marina' and public.normalize_org_name('Port Hercule S.A.M.') = 'port hercule' and public.normalize_org_name('SAS') = 'sas' and public.normalize_org_name('Kuşadası  Setur, Marina') = 'kusadasi setur marina' and public.normalize_org_name(' ... ') is null and public.normalize_org_name(null) is null$q$),
-    jsonb_build_object('id', 'S09', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'GIN trigram expression index on normalize_org_name(name); both helpers IMMUTABLE',
-      'q', $q$select exists (select 1 from pg_indexes where indexname = 'organizations_name_norm_trgm_idx' and indexdef like '%gin (normalize_org_name(name) extensions.gin_trgm_ops)%') and (select bool_and(provolatile = 'i') from pg_proc where oid in ('public.normalize_org_name(text)'::regprocedure, 'public.immutable_unaccent(text)'::regprocedure))$q$),
+    jsonb_build_object('id', 'S08', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'normalize_org_name: accents, dots, legal-form suffixes only (never a leading word), empty -> null',
+      'q', $q$select public.normalize_org_name('S.A.R.L. Le Port de Göcek') = 'sarl le port de gocek' and public.normalize_org_name('D-Marin Göcek d.o.o.') = 'd marin gocek' and public.normalize_org_name('Marina Ltd.') = 'marina' and public.normalize_org_name('Port Hercule S.A.M.') = 'port hercule' and public.normalize_org_name('Spa Resorts SpA') = 'spa resorts' and public.normalize_org_name('SA Monaco Marina Management') = 'sa monaco marina management' and public.normalize_org_name('Marina SA SAS') = 'marina' and public.normalize_org_name('SAS') = 'sas' and public.normalize_org_name('Kuşadası  Setur, Marina') = 'kusadasi setur marina' and public.normalize_org_name(' ... ') is null and public.normalize_org_name(null) is null$q$),
+    jsonb_build_object('id', 'S09', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'GIN trigram expression index on normalize_org_name(name) with extensions.gin_trgm_ops; both helpers IMMUTABLE',
+      'q', $q$select exists (select 1 from pg_index x join pg_opclass oc on oc.oid = x.indclass[0] join pg_am am on am.oid = (select c.relam from pg_class c where c.oid = x.indexrelid) where x.indexrelid = to_regclass('public.organizations_name_norm_trgm_idx') and x.indrelid = 'public.organizations'::regclass and am.amname = 'gin' and oc.opcname = 'gin_trgm_ops' and oc.opcnamespace = 'extensions'::regnamespace and pg_get_indexdef(x.indexrelid) like '%normalize_org_name(name)%') and (select bool_and(provolatile = 'i') from pg_proc where oid in ('public.normalize_org_name(text)'::regprocedure, 'public.immutable_unaccent(text)'::regprocedure))$q$),
     -- ── Owners' invitations ──
     jsonb_build_object('id', 'I01', 'who', 'owner', 'expect', 'allow', 'label', 'owner invites as both clients do (pending, default expiry)',
       'q', $q$insert into public.organization_invitations (organization_id, email, invited_by_user_id) values ({org_v}, 'dryrun-new@example.invalid', {owner})$q$),
@@ -763,51 +784,7 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
     jsonb_build_object('id', 'I09', 'who', 'inv', 'expect', 'allow', 'label', 'a suspended account accepting stays suspended',
       'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); update public.profiles set access_status = 'suspended' where user_id = {inv}$s$,
       'q', $q$select public.accept_org_invitation({inv_p})$q$,
-      'chk', $c$select access_status::text = 'suspended' from public.profiles where user_id = {inv}$c$),
-    -- ── /join/<token> ──
-    jsonb_build_object('id', 'I10', 'who', 'service', 'expect', 'ret:43', 'label', 'issue a 43-character token, sha256 stored, invitation kept open 30 days',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id, expires_at) values ({inv_p}, {org_v}, {e_inv}, {owner}, now() + interval '1 day')$s$,
-      'q', $q$select length(public.org_invitation_issue_token({inv_p}))::text$q$,
-      'chk', $c$select (select count(*) = 1 from public.org_invitation_token where invitation_id = {inv_p}) and (select expires_at > now() + interval '29 days' from public.organization_invitations where id = {inv_p})$c$),
-    jsonb_build_object('id', 'I11', 'who', 'service', 'expect', 'err:not_pending', 'label', 'no token for an accepted invitation',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id, status) values ({inv_p}, {org_v}, {e_inv}, {owner}, 'accepted')$s$,
-      'q', $q$select public.org_invitation_issue_token({inv_p})$q$),
-    jsonb_build_object('id', 'I12', 'who', 'service', 'expect', 'ret:<e_inv>', 'label', 'org_invitation_by_token shows the invitation',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true)$s$,
-      'q', $q$select public.org_invitation_by_token(current_setting('dr.tok')) ->> 'email'$q$),
-    jsonb_build_object('id', 'I13', 'who', 'service', 'bare', true, 'expect', 'ret:invalid_token', 'label', 'unknown token',
-      'q', $q$select public.org_invitation_by_token('not-a-token-not-a-token-not-a-token') ->> 'error'$q$),
-    jsonb_build_object('id', 'I14', 'who', 'service', 'expect', 'ret:expired', 'label', 'token of an invitation past expires_at',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true); update public.organization_invitations set expires_at = now() - interval '1 minute' where id = {inv_p}$s$,
-      'q', $q$select public.org_invitation_by_token(current_setting('dr.tok')) ->> 'error'$q$),
-    jsonb_build_object('id', 'I15', 'who', 'inv', 'expect', 'ret:true', 'label', 'invitee accepts by token: collaborator, token used',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true)$s$,
-      'q', $q$select public.accept_org_invitation_by_token(current_setting('dr.tok')) ->> 'ok'$q$,
-      'chk', $c$select exists (select 1 from public.organization_members where organization_id = {org_v} and user_id = {inv}) and (select used_at is not null from public.org_invitation_token where invitation_id = {inv_p})$c$),
-    jsonb_build_object('id', 'I16', 'who', 'other', 'expect', 'err:does not match', 'label', 'another account cannot use the token',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true)$s$,
-      'q', $q$select public.accept_org_invitation_by_token(current_setting('dr.tok'))$q$,
-      'chk', $c$select not exists (select 1 from public.organization_members where organization_id = {org_v} and user_id = {other})$c$),
-    jsonb_build_object('id', 'I17', 'who', 'inv', 'expect', 'err:already_accepted', 'label', 'a used link says already accepted',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true); update public.organization_invitations set status = 'accepted' where id = {inv_p}$s$,
-      'q', $q$select public.accept_org_invitation_by_token(current_setting('dr.tok'))$q$),
-    jsonb_build_object('id', 'I18', 'who', 'service', 'expect', 'ret:true', 'label', 'accept-invite (new account): collaborator, verified, token used',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true)$s$,
-      'q', $q$select public.accept_org_invitation_for({inv}, current_setting('dr.tok')) ->> 'ok'$q$,
-      'chk', $c$select exists (select 1 from public.organization_members where organization_id = {org_v} and user_id = {inv}) and (select access_status::text = 'verified' from public.profiles where user_id = {inv}) and (select status = 'accepted' from public.organization_invitations where id = {inv_p})$c$),
-    jsonb_build_object('id', 'I19', 'who', 'service', 'expect', 'ret:email_mismatch', 'label', 'accept-invite for another address is refused',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner}); select set_config('dr.tok', public.org_invitation_issue_token({inv_p}), true)$s$,
-      'q', $q$select public.accept_org_invitation_for({other}, current_setting('dr.tok')) ->> 'error'$q$),
-    jsonb_build_object('id', 'I20', 'who', 'owner', 'expect', 'rls', 'label', 'a person cannot read org_invitation_token',
-      'q', $q$select count(*)::text from public.org_invitation_token$q$),
-    jsonb_build_object('id', 'I21', 'who', 'owner', 'expect', 'rls', 'label', 'a person cannot mint a token',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner})$s$,
-      'q', $q$select public.org_invitation_issue_token({inv_p})$q$),
-    jsonb_build_object('id', 'I22', 'who', 'anon', 'bare', true, 'expect', 'rls', 'label', 'anon cannot accept by token',
-      'q', $q$select public.accept_org_invitation_by_token('not-a-token-not-a-token-not-a-token')::text$q$),
-    jsonb_build_object('id', 'I23', 'who', 'anon', 'expect', 'ret:<e_inv>', 'label', 'old /join/<id> page still reads its invitation (get_invitation_for_join)',
-      'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_p}, {org_v}, {e_inv}, {owner})$s$,
-      'q', $q$select email from public.get_invitation_for_join({inv_p})$q$)
+      'chk', $c$select access_status::text = 'suspended' from public.profiles where user_id = {inv}$c$)
   );
 
   -- ── Runner ── each case: common setup s0 (unless bare), its setup (postgres), the

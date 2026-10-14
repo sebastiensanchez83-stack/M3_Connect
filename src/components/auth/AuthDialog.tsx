@@ -5,6 +5,7 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { SITE_IMAGES, type SiteImage } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
+import { useRegistrationFlags } from '@/lib/flags';
 import { registerAuthRefonteStrings } from '@/i18n/refonte-auth';
 
 registerAuthRefonteStrings();
@@ -53,7 +54,7 @@ export function AuthDialog({
   description,
   switchTo,
   photo,
-  sheet = false,
+  sheet: sheetProp,
   children,
   className,
 }: {
@@ -70,14 +71,17 @@ export function AuthDialog({
   photo?: SiteImage | null;
   /**
    * Below 640 px the window becomes a full-screen sheet (spec regspec-en.md §6, mobile
-   * rules): the whole screen for the form, the close (x) in its corner. Set by the
-   * callers behind the registration flags (account_signup_v2, password_only_login).
+   * rules): the whole screen for the form, the close (x) in its corner. Default: on
+   * with the registration flag of the window's form (sign-up: account_signup_v2,
+   * sign-in: password_only_login), so every page's window follows; off with both off.
    */
   sheet?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   const { t } = useTranslation();
+  const { flags } = useRegistrationFlags();
+  const sheet = sheetProp ?? (mode === 'signup' ? flags.account_signup_v2 : flags.password_only_login);
   const [stepTitle, setStepTitle] = useState<string | null>(null);
   const image = photo === undefined ? (mode === 'login' ? SITE_IMAGES.homeHero : SITE_IMAGES.joinHero) : photo;
   const heading = stepTitle ?? title ?? (mode === 'login' ? t('auth.login', 'Sign in') : t('auth.signup', 'Sign up'));

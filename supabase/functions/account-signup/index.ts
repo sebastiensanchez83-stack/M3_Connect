@@ -30,7 +30,10 @@
 //                               (24 hours; only sha256 is stored, in email_proof_token);
 //                               /verify-email calls the RPC confirm_email_proof(p_token) with
 //                               the session, which stamps the proof. Not a sign-in link.
-//                               1 per minute and 5 per day per account.
+//                               1 per minute and 5 per day per account; 5 per hour and 20
+//                               per day per network (with Confirm email off, accounts cost
+//                               nothing). The e-mail greets with a plain "Hello," (the name
+//                               is the sign-up's own, unchecked until the address is proven).
 //
 // Flags (platform_settings.registration_flags; a switch is on only as JSON true):
 //   company_search, notify_existing  need account_signup_v2
@@ -40,7 +43,9 @@
 //
 // Rate limits: guest_signup_rate_limits (scope column of the registration core), scopes
 // acct_search / acct_exists / acct_proof, hashes prefixed "acct:" so they never count the
-// rows of guest-webinar-register or registration (contract §2).
+// rows of guest-webinar-register or registration (contract §2). A counter that cannot be
+// read lets company_search through (it sends nothing) and stops the two e-mails:
+// notify_existing answers { ok: true } without sending, send_email_proof 503 unavailable.
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles them).
 // E-mails are in English, in the SMC e-mail layout v1 (block below, checked by
@@ -55,8 +60,12 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").replace(/\/+$/, "");
 // Site of the links in these e-mails. SITE_URL by default; set ACCOUNT_SITE_URL to the
 // redesign preview to test before the redesign is live (the old main site has no
-// /verify-email page).
-const ACCOUNT_SITE = (Deno.env.get("ACCOUNT_SITE_URL") || SITE_URL).replace(/\/+$/, "");
+// /verify-email page). One of our own sites only, the same list as send-notification.
+const ACCOUNT_SITE_RE = /^https:\/\/((www\.)?smartmarinaconnect\.com|m3connect(v2)?\.netlify\.app|[a-z0-9-]+--m3connect(v2)?\.netlify\.app)$/;
+const ACCOUNT_SITE = (() => {
+  const raw = (Deno.env.get("ACCOUNT_SITE_URL") || "").replace(/\/+$/, "");
+  return ACCOUNT_SITE_RE.test(raw) ? raw : SITE_URL;
+})();
 const PLATFORM_FROM = "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 
 const SEARCH_MIN_CHARS = 3;
@@ -68,6 +77,8 @@ const EXISTS_EMAIL_PER_DAY = 3;
 const EXISTS_IP_PER_HOUR = 5;
 const PROOF_PER_MINUTE = 1;
 const PROOF_PER_DAY = 5;
+const PROOF_IP_PER_HOUR = 5;
+const PROOF_IP_PER_DAY = 20;
 const PROOF_TTL_MS = 24 * 3600000;
 const MAX_BODY_BYTES = 16 * 1024;
 const MINUTE = 60000;
@@ -203,20 +214,22 @@ const ipHashOf = (ip: string) => sha256Hex(`acct:ip:${ip}`);
 const emailHashOf = (email: string) => sha256Hex(`acct:email:${email}`);
 const userHashOf = (userId: string) => sha256Hex(`acct:user:${userId}`);
 
-async function rateCount(scope: string, column: "ip_hash" | "email_hash", hash: string, windowMs: number): Promise<number> {
+/** Calls of `scope` in the window, or null when the counter cannot be read (the caller decides). */
+async function rateCount(scope: string, column: "ip_hash" | "email_hash", hash: string, windowMs: number): Promise<number | null> {
   const since = new Date(Date.now() - windowMs).toISOString();
   const { count, error } = await db.from("guest_signup_rate_limits").select("id", { count: "exact", head: true })
     .eq("scope", scope).eq(column, hash).gte("created_at", since);
   if (error) {
     console.error("account-signup: rate-limit read failed", error.message);
-    return 0; // fail open: a broken counter must not block real people
+    return null;
   }
   return count || 0;
 }
 
-async function rateRecord(scope: string, ipHash: string, emailHash: string | null) {
+async function rateRecord(scope: string, ipHash: string, emailHash: string | null): Promise<boolean> {
   const { error } = await db.from("guest_signup_rate_limits").insert({ scope, ip_hash: ipHash, email_hash: emailHash });
   if (error) console.error("account-signup: rate-limit write failed", error.message);
+  return !error;
 }
 
 // ─── People ──────────────────────────────────────────────────────────────────
@@ -628,9 +641,11 @@ function renderAccountAlreadyExists(firstName: string, links: { signIn: string; 
   };
 }
 
-/** email_proof: "Confirm your e-mail address" (dashboard banner). Not a sign-in link. */
-function renderEmailProof(firstName: string, email: string, url: string): Mail {
-  const greeting = `Hello ${clean(firstName, 80) || "there"},`;
+/** email_proof: "Confirm your e-mail address" (dashboard banner). Not a sign-in link. A plain
+ *  "Hello,": the account's name is whatever its sign-up typed, unchecked until the address is
+ *  proven, so it never rides along to an inbox that may not be the account holder's. */
+function renderEmailProof(email: string, url: string): Mail {
+  const greeting = "Hello,";
   const a = `Please confirm that ${email} is your e-mail address. Once it is confirmed, your account shows every event registration made with this address.`;
   const b = "Open the link in the browser where you are signed in to Smart Marina Connect.";
   const note = "The link works once and expires in 24 hours. It does not sign you in. If you did not ask for it, you can ignore this e-mail.";
@@ -691,8 +706,8 @@ async function actionCompanySearch(req: Request, body: Json, _caller: Caller | n
   const q = clean(body.q, 200).replace(/\s+/g, " ").slice(0, SEARCH_MAX_CHARS);
   if (significantLength(q) < SEARCH_MIN_CHARS) return json(req, { results: [] });
   const ipHash = await ipHashOf(clientIp(req));
-  const recent = await rateCount("acct_search", "ip_hash", ipHash, MINUTE);
-  if (recent >= SEARCH_IP_PER_MINUTE) return json(req, { error: "rate_limited" }, 429);
+  const recent = await rateCount("acct_search", "ip_hash", ipHash, MINUTE); // unreadable: let through (nothing is sent)
+  if ((recent || 0) >= SEARCH_IP_PER_MINUTE) return json(req, { error: "rate_limited" }, 429);
   await rateRecord("acct_search", ipHash, null);
   const rows = await searchCompanies(q);
   const results: Json[] = [];
@@ -715,8 +730,10 @@ async function actionNotifyExisting(req: Request, body: Json, _caller: Caller | 
     rateCount("acct_exists", "email_hash", emailHash, DAY),
     rateCount("acct_exists", "ip_hash", ipHash, HOUR),
   ]);
-  await rateRecord("acct_exists", ipHash, emailHash);
-  // Same answer whatever happens (spec §5): over the limit, unknown address, or sent.
+  const recorded = await rateRecord("acct_exists", ipHash, emailHash);
+  // Same answer whatever happens (spec §5): over the limit, a counter that cannot be read
+  // or written (no limit, so no e-mail), unknown address, or sent.
+  if (byEmail === null || byEmailToday === null || byIp === null || !recorded) return json(req, { ok: true });
   if (byEmail >= EXISTS_EMAIL_PER_HOUR || byEmailToday >= EXISTS_EMAIL_PER_DAY || byIp >= EXISTS_IP_PER_HOUR) return json(req, { ok: true });
   await inBackground("notify existing", async () => {
     const user = await findAuthUser(email);
@@ -740,13 +757,18 @@ async function actionSendEmailProof(req: Request, _body: Json, caller: Caller | 
   if (caller.proven) return json(req, { ok: true, already_proven: true });
   if (!EMAIL_RE.test(caller.email)) return json(req, { error: "no_email" }, 400);
   const userHash = await userHashOf(caller.id);
-  const [lastMinute, lastDay] = await Promise.all([
+  const ipHash = await ipHashOf(clientIp(req));
+  const [lastMinute, lastDay, ipHour, ipDay] = await Promise.all([
     rateCount("acct_proof", "email_hash", userHash, MINUTE),
     rateCount("acct_proof", "email_hash", userHash, DAY),
+    rateCount("acct_proof", "ip_hash", ipHash, HOUR),
+    rateCount("acct_proof", "ip_hash", ipHash, DAY),
   ]);
+  // It sends an e-mail: a counter that cannot be read or written stops it.
+  if (lastMinute === null || lastDay === null || ipHour === null || ipDay === null) return json(req, { error: "unavailable" }, 503);
   if (lastMinute >= PROOF_PER_MINUTE) return json(req, { error: "rate_limited", retry_after: 60 }, 429);
-  if (lastDay >= PROOF_PER_DAY) return json(req, { error: "rate_limited" }, 429);
-  await rateRecord("acct_proof", await ipHashOf(clientIp(req)), userHash);
+  if (lastDay >= PROOF_PER_DAY || ipHour >= PROOF_IP_PER_HOUR || ipDay >= PROOF_IP_PER_DAY) return json(req, { error: "rate_limited" }, 429);
+  if (!(await rateRecord("acct_proof", ipHash, userHash))) return json(req, { error: "unavailable" }, 503);
 
   const raw = randomToken();
   const { error } = await db.from("email_proof_token").insert({
@@ -760,7 +782,7 @@ async function actionSendEmailProof(req: Request, _body: Json, caller: Caller | 
     return json(req, { error: "server" }, 500);
   }
   const url = `${ACCOUNT_SITE}/verify-email?t=${encodeURIComponent(raw)}`;
-  const sent = await sendMail(caller.email, renderEmailProof(caller.firstName, caller.email, url));
+  const sent = await sendMail(caller.email, renderEmailProof(caller.email, url));
   if (!sent) return json(req, { error: "send_failed" }, 502);
   // Never the token in the answer: it proves the inbox, so it only goes to the inbox.
   return json(req, { ok: true, sent: true });

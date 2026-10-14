@@ -610,7 +610,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         subject: `New request to join ${d.org_name || "your company"} on Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "A request to join your team",
-        body: `${d.requester_name || "Someone"} (${d.requester_email || "no address"})${d.requester_job ? `, ${d.requester_job},` : ""} has asked to join ${d.org_name || "your company"} on Smart Marina Connect.\n\nIf they are part of your team, approve the request in your company settings. If you do not know them, decline it: nobody joins your company without your agreement.`,
+        body: `${d.requester_name || "Someone"} (${d.requester_email || "no address"})${d.requester_job ? `, ${d.requester_job},` : ""} has asked to join ${d.org_name || "your company"} on Smart Marina Connect.${d.requester_unproven ? "\n\nThey have not confirmed this e-mail address yet: approve the request only if you know them." : ""}\n\nIf they are part of your team, approve the request in your company settings. If you do not know them, decline it: nobody joins your company without your agreement.`,
         buttonText: "Review the request",
         buttonUrl: `${SITE_URL}/account?tab=organization`,
         footer: "You are receiving this e-mail because you are the owner of this company on Smart Marina Connect.",
@@ -858,16 +858,29 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 //   - team_join_request, team_join_approved, account_under_review: resolved from the
 //     database for every caller (authorizeResolvedSend, below).
 //   - team_invitation / team_invitation_reminder, while registration_flags
-//     .account_signup_v2 is on: the button is the signed /join/<token> link of the
-//     accept-invite function (block "SMC invite token v1") with the expiry day, for the
-//     pending invitation row of that recipient (member: the row found above; staff /
-//     service: data.invitation_id or the /join/<id> of signup_url). Flag off: unchanged.
-//     Deploy this version only when the redesign (its /join/<token> page) is live, or
-//     keep that flag off until then: the old main site cannot open those links.
+//     .invite_links_v2 AND .account_signup_v2 are on: the button is the signed
+//     /join/<token> link of the accept-invite function (block "SMC invite token v1") on
+//     ACCOUNT_SITE_URL (SITE_URL by default), with the expiry day, for the pending
+//     invitation row of that recipient (member: the row found above, for a caller still in
+//     that company; staff / service: data.invitation_id or the /join/<id> of signup_url).
+//     invite_links_v2 is a switch of its own because these e-mails also leave from the
+//     OLD live site, whose /join page cannot open a token: switch it on at go-live only
+//     (testing account_signup_v2 on the preview never touches real invitations). Off:
+//     unchanged.
 
 const KNOWN_TYPES = new Set<string>(Object.keys(TYPE_TO_CATEGORY));
 const SITE_ORIGIN = (() => {
   try { return new URL(SITE_URL).origin; } catch { return "https://smartmarinaconnect.com"; }
+})();
+// Site of the signed /join/<token> invitation links (the redesign's page): SITE_URL by
+// default; ACCOUNT_SITE_URL points them at the redesign preview for a test before go-live.
+// One of our own sites only (else SITE_URL): the same list as accept-invite and account-signup.
+const ACCOUNT_ORIGIN = (() => {
+  try {
+    const o = new URL(Deno.env.get("ACCOUNT_SITE_URL") || "").origin;
+    if (/^https:\/\/((www\.)?smartmarinaconnect\.com|m3connect(v2)?\.netlify\.app|[a-z0-9-]+--m3connect(v2)?\.netlify\.app)$/.test(o)) return o;
+  } catch { /* SITE_ORIGIN */ }
+  return SITE_ORIGIN;
 })();
 const MAX_FIELD_CHARS = 2000;
 const MAX_FIELDS = 25;
@@ -940,14 +953,15 @@ function escapeData(d: Record<string, string>): Record<string, string> {
   return out;
 }
 
-/** Any button link is re-based onto the site origin (path + query kept). */
-function toSiteUrl(raw: string): string {
+/** Any button link is re-based onto the site origin (path + query kept); the signed team
+ *  invitation link onto ACCOUNT_ORIGIN (renderNotification). */
+function toSiteUrl(raw: string, origin = SITE_ORIGIN): string {
   try {
-    const u = new URL(raw, SITE_ORIGIN);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return `${SITE_ORIGIN}/`;
-    return `${SITE_ORIGIN}${u.pathname}${u.search}${u.hash}`;
+    const u = new URL(raw, origin);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return `${origin}/`;
+    return `${origin}${u.pathname}${u.search}${u.hash}`;
   } catch {
-    return `${SITE_ORIGIN}/`;
+    return `${origin}/`;
   }
 }
 
@@ -1140,8 +1154,12 @@ interface MemberGrant extends Recipient {
   unverifiedOrgId?: string;
   /** Replaces the template subject (no organisation name for unverified orgs). */
   subject?: string;
-  /** team_invitation(_reminder): the pending invitation row the e-mail is about. */
+  /** team_invitation(_reminder): the pending invitation row the e-mail is about (only for
+   *  a caller still in that company: the signed /join/<token> link). */
   invitation?: InvitationRow;
+  /** The caller may give that invitation more days (its company's owner, as RLS
+   *  owners_can_update_invitations). */
+  canExtend?: boolean;
 }
 
 /** The columns of organization_invitations read for a team invitation link. */
@@ -1391,6 +1409,9 @@ async function authorizeMemberSend(
         .find((x) => sameEmail(x.email, email));
       if (!inv) return null;
       const org = await orgInfo(db, inv.organization_id);
+      // The signed link only for a caller still in that company (an inviter since removed
+      // keeps the old e-mail); more days only from its owner, who may update the row under RLS.
+      const owner = owned.includes(inv.organization_id);
       return {
         recipientEmail: inv.email,
         recipientUserId: null,
@@ -1398,7 +1419,8 @@ async function authorizeMemberSend(
         prefs: null,
         data: { ...data, org_name: org.name || "An organization" },
         ref: `${type}:${inv.id}`,
-        invitation: inv,
+        invitation: owner || m.orgIds.includes(inv.organization_id) ? inv : undefined,
+        canExtend: owner,
         ...orgFields(type, inv.organization_id, org),
       };
     }
@@ -1427,16 +1449,25 @@ async function authorizeMemberSend(
 //                        request for `email` in a company the caller owns.
 //   account_under_review user_id (service / staff). A member only for themself, while
 //                        their profile is pending and their address PROVEN (contract §2).
-//                        Path (join | claim | new | none) and company from
-//                        profiles.signup_intent {action, org_id, name} (service / staff may
-//                        give data.path), the delay from platform_settings.review_sla_text.
-// The same e-mail about the same row goes out at most once per 10 minutes, whoever
-// triggers it (email_rate_log, memberThrottle with the person concerned as actor).
+//                        Path and company from the database (reviewPathOf): "join" only
+//                        when the person's own join_requested row is open (an owner was
+//                        asked), "claim" only with an open claim_requested row (M3 decides),
+//                        else "new" / "none" from profiles.signup_intent (its result, then
+//                        its action); data.path (service / staff) only when the database
+//                        says nothing, and never join or claim. The delay from
+//                        platform_settings.review_sla_text.
+// Members may trigger these types only while registration_flags.account_signup_v2 is on;
+// service and staff always. The same e-mail about the same row reaches its recipient at
+// most once per 10 minutes, whoever triggers it: email_rate_log kind "resolved:<ref>" with
+// the RECIPIENT as actor_id (outside the "send-notification:%" rows of the hourly cap). A
+// member caller also counts towards their own hourly cap (memberThrottle).
+// team_join_request from a member: only for their own request, from a PROVEN address
+// (contract §2; Confirm email is off, so a confirmed address proves nothing). From service
+// or staff with an unproven address, the owner is told so.
 
 const RESOLVED_TYPES = new Set<string>(["team_join_request", "team_join_approved", "account_under_review"]);
 /** Data keys that only this function sets: a caller's value is dropped. */
-const RESERVED_DATA_KEYS = ["join_url", "expires_on", "org_verified", "review_path", "sla", "requester_job"];
-const REVIEW_PATHS = new Set(["join", "claim", "new", "none"]);
+const RESERVED_DATA_KEYS = ["join_url", "expires_on", "org_verified", "review_path", "sla", "requester_job", "requester_unproven"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface InvitationFull extends InvitationRow {
@@ -1465,6 +1496,58 @@ async function realOwnerOf(db: Db, orgId: string): Promise<string | null> {
   const ownerId = String(org?.owner_user_id || "");
   if (!UUID_RE.test(ownerId)) return null;
   return (await ownedOrgIds(db, ownerId)).includes(orgId) ? ownerId : null;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** profiles.signup_intent.result.path (registration core, complete_signup_for) -> the wording
+ *  of account_under_review when no open request decides it. join_requested / claim_requested
+ *  without their open row (already decided), invitation_pending, already_member,
+ *  org_not_found, join_declined_recently: "none". */
+const RESULT_REVIEW_PATH: Record<string, string> = { company_pending: "new", new_company: "new" };
+
+/**
+ * What M3 does next for a pending person (account_under_review), from the database:
+ *   "join"  the person's own join_requested row for the company is open: its owner was asked;
+ *   "claim" their claim_requested row is open: M3 decides (a verified company with no owner,
+ *           or a claim code);
+ *   "new"   M3 reviews the person with a company it has not verified, or with the new
+ *           company they declared;
+ *   "none"  no company to mention.
+ * A caller's path counts only when the database says nothing, and never as join or claim
+ * (spec §4.6: the server decides; 164 of 264 verified companies had no owner on 11 Oct 2026).
+ */
+async function reviewPathOf(db: Db, address: string, rawIntent: unknown, given: string): Promise<{ path: string; orgId: string; orgName: string }> {
+  const intent = isRecord(rawIntent) ? rawIntent : {};
+  const result = isRecord(intent.result) ? intent.result : {};
+  const orgId = [result.organization_id, intent.org_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
+  const declaredName = cleanName(String(intent.name || ""), UNVERIFIED_ORG_NAME_CHARS);
+  const none = { path: "none", orgId: "", orgName: "" };
+  if (orgId && address) {
+    const { data: rows } = await db
+      .from("organization_invitations")
+      .select("email, status, created_at")
+      .eq("organization_id", orgId)
+      .in("status", ["join_requested", "claim_requested"])
+      .is("invited_by_user_id", null)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    const row = ((rows || []) as { email: string; status: string }[]).find((x) => sameEmail(x.email, address));
+    if (row) return { path: row.status === "claim_requested" ? "claim" : "join", orgId, orgName: "" };
+  }
+  const resultPath = String(result.path || "");
+  if (resultPath) {
+    if (RESULT_REVIEW_PATH[resultPath] !== "new") return none;
+    return resultPath === "company_pending" && orgId ? { path: "new", orgId, orgName: "" } : { path: "new", orgId: "", orgName: declaredName };
+  }
+  const declared = String(intent.action || "");
+  if (declared === "join" && orgId) {
+    // Nobody was asked (no open request): a company M3 has not verified is reviewed with the person.
+    return (await orgInfo(db, orgId)).verified ? none : { path: "new", orgId, orgName: "" };
+  }
+  if (declared === "new") return { path: "new", orgId: "", orgName: declaredName };
+  if (!declared && (given === "new" || given === "none")) return { path: given, orgId: "", orgName: "" };
+  return none;
 }
 
 async function reviewSlaText(db: Db): Promise<string> {
@@ -1506,20 +1589,28 @@ async function authorizeResolvedSend(
       if (!ownerId) return null;
       const r = await recipientForUser(db, ownerId);
       if (!r) return null;
-      // The requester as their account shows them (the row's names otherwise).
+      // The requester as their account shows them (the row's names otherwise), and whether
+      // that account PROVED the address (contract §2: email_proven_at set and profiles.email
+      // = the sign-in address).
       let name = cleanName([inv.first_name, inv.last_name].filter(Boolean).join(" "), PERSON_NAME_CHARS);
       let job = "";
+      let proven = false;
       const requesterId = await confirmedUserByEmail(db, inv.email);
       if (requesterId) {
-        const { data: p } = await db.from("profiles").select("first_name, last_name, job_title").eq("user_id", requesterId).maybeSingle();
+        const { data: p } = await db.from("profiles").select("first_name, last_name, job_title, email, email_proven_at").eq("user_id", requesterId).maybeSingle();
         const n = cleanName([p?.first_name, p?.last_name].filter(Boolean).join(" "), PERSON_NAME_CHARS);
         if (n) name = n;
         job = cleanName(p?.job_title, 120);
+        proven = !!p?.email_proven_at && sameEmail(p?.email, inv.email);
       }
+      // A member announces only their own request, from a proven address.
+      if (m && (requesterId !== m.id || !proven)) return null;
       const org = await orgInfo(db, inv.organization_id);
+      const out: Record<string, string> = { org_name: org.name || "your company", requester_name: name || "Someone", requester_email: inv.email.trim(), requester_job: job };
+      if (!proven) out.requester_unproven = "yes";
       return {
         ...r,
-        data: { org_name: org.name || "your company", requester_name: name || "Someone", requester_email: inv.email.trim(), requester_job: job },
+        data: out,
         ref: `${type}:${inv.id}`,
         ...orgFields(type, inv.organization_id, org),
       };
@@ -1575,24 +1666,15 @@ async function authorizeResolvedSend(
       if (m && (p.access_status !== "pending" || !p.email_proven_at || !sameEmail(p.email, m.email))) return null;
       const r = await recipientForUser(db, uid);
       if (!r) return null;
-      const intent = (p.signup_intent && typeof p.signup_intent === "object" && !Array.isArray(p.signup_intent)) ? p.signup_intent as Record<string, unknown> : {};
-      const given = m ? "" : (data.path || "");
-      const declared = String(intent.action || "");
-      let path = REVIEW_PATHS.has(given) ? given : REVIEW_PATHS.has(declared) ? declared : "none";
+      const address = m ? m.email : r.recipientEmail;
+      const review = await reviewPathOf(db, address, p.signup_intent, m ? "" : (data.path || ""));
       let orgName = "";
-      const orgId = String(intent.org_id || "");
-      if (path !== "none" && UUID_RE.test(orgId)) {
-        const org = await orgInfo(db, orgId);
-        orgName = org.name;
-        // A company M3 has not verified yet: M3 reviews the person with it (no owner to ask).
-        if (path === "join" && !org.verified) path = "new";
-      }
-      if (!orgName && path === "new") orgName = cleanName(String(intent.name || ""), UNVERIFIED_ORG_NAME_CHARS);
-      if (!orgName && !m && path !== "none") orgName = cleanName(data.org_name, UNVERIFIED_ORG_NAME_CHARS);
+      if (review.path !== "none") orgName = review.orgId ? (await orgInfo(db, review.orgId)).name : review.orgName;
+      if (!orgName && !m && review.path === "new") orgName = cleanName(data.org_name, UNVERIFIED_ORG_NAME_CHARS);
       return {
         ...r,
-        recipientEmail: m ? m.email : r.recipientEmail,
-        data: { review_path: path, org_name: orgName, sla: await reviewSlaText(db) },
+        recipientEmail: address,
+        data: { review_path: review.path, org_name: orgName, sla: await reviewSlaText(db) },
         ref: `${type}:${uid}`,
       };
     }
@@ -1602,15 +1684,18 @@ async function authorizeResolvedSend(
   }
 }
 
-/** registration_flags[key] === true (JSON true only, contract §2). Off when unreadable. */
-async function registrationFlag(db: Db, key: string): Promise<boolean> {
+/** platform_settings.registration_flags (a switch is on only as JSON true, contract §2). Empty when unreadable. */
+async function registrationFlags(db: Db): Promise<Record<string, unknown>> {
   try {
     const { data } = await db.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
-    const v = data?.value;
-    return !!v && typeof v === "object" && (v as Record<string, unknown>)[key] === true;
+    return isRecord(data?.value) ? data.value : {};
   } catch {
-    return false;
+    return {};
   }
+}
+
+async function registrationFlag(db: Db, key: string): Promise<boolean> {
+  return (await registrationFlags(db))[key] === true;
 }
 
 /** "10 November 2026" (Monaco time). */
@@ -1632,16 +1717,20 @@ async function invitationForTrustedSend(db: Db, data: Record<string, string>, re
 }
 
 /**
- * The signed /join/<token> link of a pending invitation (accept-invite) and its expiry
- * day. An invitation that expires within 7 days, or already has, gets 30 more days first:
- * whoever sends it again means it. null when the row cannot be used (the e-mail then keeps
- * the caller's link).
+ * The signed /join/<token> link of a pending invitation (accept-invite, on ACCOUNT_ORIGIN)
+ * and its expiry day. An invitation that expires within 7 days, or already has, gets 30
+ * more days first when the sender may give them (canExtend: its company's owner, staff, the
+ * service); otherwise an expired one keeps the caller's link (null) and a valid one keeps its
+ * day. null when the row cannot be used (the e-mail then keeps the caller's link).
  */
-async function teamInvitationLink(db: Db, inv: InvitationRow): Promise<{ url: string; expiresOn: string } | null> {
+async function teamInvitationLink(db: Db, inv: InvitationRow, canExtend: boolean): Promise<{ url: string; expiresOn: string } | null> {
   const email = (inv.email || "").trim();
   if (!SUPABASE_SERVICE_ROLE_KEY || !UUID_RE.test(inv.id) || !UUID_RE.test(inv.organization_id) || !isEmail(email)) return null;
   let expires = new Date(String(inv.expires_at || ""));
-  if (isNaN(expires.getTime()) || expires.getTime() < Date.now() + 7 * DAY_MS) {
+  const soon = isNaN(expires.getTime()) || expires.getTime() < Date.now() + 7 * DAY_MS;
+  if (soon && !canExtend) {
+    if (isNaN(expires.getTime()) || expires.getTime() <= Date.now()) return null;
+  } else if (soon) {
     const { data: upd, error } = await db
       .from("organization_invitations")
       .update({ expires_at: new Date(Date.now() + 30 * DAY_MS).toISOString() })
@@ -1656,7 +1745,7 @@ async function teamInvitationLink(db: Db, inv: InvitationRow): Promise<{ url: st
     expires = new Date(String(upd.expires_at));
   }
   const token = await signInviteToken(SUPABASE_SERVICE_ROLE_KEY, inv.id, inv.organization_id, email);
-  return { url: `${SITE_ORIGIN}/join/${token}`, expiresOn: fmtDay(expires) };
+  return { url: `${ACCOUNT_ORIGIN}/join/${token}`, expiresOn: fmtDay(expires) };
 }
 
 /**
@@ -1694,6 +1783,33 @@ async function memberThrottle(db: Db, actorId: string, key: string): Promise<"ok
     console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
   }
   return "ok";
+}
+
+/** email_rate_log kind of the per-recipient dedupe of a resolved type (not "send-notification:%"). */
+const resolvedKind = (ref: string) => `resolved:${ref}`.slice(0, 300);
+
+/** A resolved e-mail about this row reached this recipient less than 10 minutes ago. Fails open, as memberThrottle. */
+async function resolvedSentRecently(db: Db, recipientId: string, ref: string): Promise<boolean> {
+  try {
+    const since = new Date(Date.now() - MEMBER_DUPLICATE_MS).toISOString();
+    const { data, error } = await db
+      .from("email_rate_log")
+      .select("id")
+      .eq("actor_id", recipientId)
+      .eq("kind", resolvedKind(ref))
+      .gte("created_at", since)
+      .limit(1);
+    if (error) throw error;
+    return !!(data && data.length);
+  } catch (e) {
+    console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
+    return false;
+  }
+}
+
+async function logResolvedSend(db: Db, recipientId: string, ref: string): Promise<void> {
+  const { error } = await db.from("email_rate_log").insert({ actor_id: recipientId, kind: resolvedKind(ref) });
+  if (error) console.error("send-notification: could not log a resolved e-mail:", error.message || String(error));
 }
 
 /**
@@ -1807,9 +1923,14 @@ Deno.serve(async (req: Request) => {
     let fanOut: Recipient[] = [];
     let fanOutRef = "";
     let invitation: InvitationRow | null = null;
+    let invitationCanExtend = false;
 
     if (RESOLVED_TYPES.has(type)) {
-      // Registration Phase 2 types: resolved from the database for every caller.
+      // Registration Phase 2 types: resolved from the database for every caller. Members
+      // only once the new sign-up is on; service and staff always.
+      if (member && !(await registrationFlag(supabase, "account_signup_v2"))) {
+        return reply({ error: "This notification is not allowed for this recipient" }, 403);
+      }
       const grant = await authorizeResolvedSend(supabase, member, type, user_id, directEmail, notifData);
       if (!grant) {
         return member
@@ -1819,13 +1940,20 @@ Deno.serve(async (req: Request) => {
       if (grant.unverifiedOrgId && (await unverifiedOrgCapReached(supabase, grant.unverifiedOrgId))) {
         return reply({ error: "Too many e-mails for this organization today, try again tomorrow" }, 429);
       }
-      const actor = member ? member.id : grant.recipientUserId;
-      if (actor) {
-        const verdict = await memberThrottle(supabase, actor, grant.ref);
-        if (verdict === "limited" && member) return reply({ error: "Too many notifications, try again later" }, 429);
+      // Once per 10 minutes per recipient and row, whoever triggers it (see the header).
+      const recipientId = grant.recipientUserId || "";
+      if (recipientId && (await resolvedSentRecently(supabase, recipientId, grant.ref))) {
+        return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+      }
+      if (member) {
+        const verdict = await memberThrottle(supabase, member.id, grant.ref);
+        if (verdict === "limited") return reply({ error: "Too many notifications, try again later" }, 429);
         if (verdict === "duplicate") return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
       }
-      if (grant.unverifiedOrgId) await logUnverifiedOrgEmail(supabase, actor || grant.unverifiedOrgId, grant.unverifiedOrgId);
+      if (recipientId) await logResolvedSend(supabase, recipientId, grant.ref);
+      // email_rate_log.actor_id is an account: the member caller, else the recipient.
+      const capActor = member ? member.id : recipientId;
+      if (grant.unverifiedOrgId && capActor) await logUnverifiedOrgEmail(supabase, capActor, grant.unverifiedOrgId);
       subjectOverride = grant.subject || "";
       recipientEmail = grant.recipientEmail;
       recipientUserId = grant.recipientUserId;
@@ -1854,6 +1982,7 @@ Deno.serve(async (req: Request) => {
       fanOut = grant.also || [];
       fanOutRef = grant.ref;
       invitation = grant.invitation || null;
+      invitationCanExtend = !!grant.canExtend;
     } else {
       // service / staff: recipient as given (unchanged behaviour), first_name from
       // the caller's data or the recipient profile.
@@ -1876,13 +2005,18 @@ Deno.serve(async (req: Request) => {
       return reply({ error: "Could not resolve recipient email" }, 400);
     }
 
-    // Team invitations with the new sign-up (flag account_signup_v2, registration Phase 2):
-    // the button opens the signed /join/<token> page of accept-invite instead of the
-    // caller's link. Flag off, or no pending invitation row for this recipient: unchanged.
-    if ((ntype === "team_invitation" || ntype === "team_invitation_reminder") && (await registrationFlag(supabase, "account_signup_v2"))) {
-      const inv = invitation || (member ? null : await invitationForTrustedSend(supabase, notifData, recipientEmail));
-      const link = inv ? await teamInvitationLink(supabase, inv) : null;
-      if (link) data = { ...data, join_url: link.url, expires_on: link.expiresOn };
+    // Team invitations with the new sign-up (registration Phase 2): the button opens the
+    // signed /join/<token> page of accept-invite instead of the caller's link, only while
+    // registration_flags.invite_links_v2 AND account_signup_v2 are on (see the header: the
+    // old live site sends these e-mails too, and cannot open a token). Off, or no pending
+    // invitation row for this recipient: unchanged.
+    if (ntype === "team_invitation" || ntype === "team_invitation_reminder") {
+      const flags = await registrationFlags(supabase);
+      if (flags.invite_links_v2 === true && flags.account_signup_v2 === true) {
+        const inv = member ? invitation : await invitationForTrustedSend(supabase, notifData, recipientEmail);
+        const link = inv ? await teamInvitationLink(supabase, inv, !member || invitationCanExtend) : null;
+        if (link) data = { ...data, join_url: link.url, expires_on: link.expiresOn };
+      }
     }
 
     // Everyone who gets this e-mail: the recipient, plus, for partner_request_received,
@@ -2535,7 +2669,10 @@ function renderNotification(
 ): { subject: string; html: string; text: string } {
   const textContent = getEmailContent(ntype, rawData);
   const htmlContent = getEmailContent(ntype, escapeData(rawData));
-  const buttonUrl = toSiteUrl(textContent.buttonUrl);
+  // The signed team invitation link (join_url, set only by this function) opens on the
+  // account site; every other button on the site origin.
+  const joinLink = (ntype === "team_invitation" || ntype === "team_invitation_reminder") && !!rawData.join_url;
+  const buttonUrl = toSiteUrl(textContent.buttonUrl, joinLink ? ACCOUNT_ORIGIN : SITE_ORIGIN);
   textContent.buttonUrl = buttonUrl;
   htmlContent.buttonUrl = escapeHtml(buttonUrl);
   if (subjectOverride) textContent.subject = subjectOverride;

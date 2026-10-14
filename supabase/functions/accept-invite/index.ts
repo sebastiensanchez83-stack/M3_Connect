@@ -15,6 +15,10 @@
 // it still opens the page, and "send_link" e-mails a fresh signed link to the invited
 // address.
 //
+// Flags: every action needs registration_flags.account_signup_v2 or front_door (JSON true);
+// off: 403 not_enabled, so a link minted while a flag was on creates nothing after a
+// rollback.
+//
 // Actions (POST JSON { action, token, ... }); token = the path segment after /join/:
 //   preview    { token }   the page. 200 { ok, kind: "token"|"legacy", state:
 //                          "open"|"expired"|"accepted"|"closed", invitation_id, organization:
@@ -30,28 +34,42 @@
 //                          (at most 72 bytes). Then:
 //                            the address has an account -> 200 { sign_in_required: true,
 //                              invitation_id, email } (nothing written);
-//                            no account -> the invitation becomes 'accepted', the account
-//                              is created CONFIRMED with that password, the profile gets the
-//                              names, job title, persona of the company type and
-//                              signup_source 'invitation'; collaborator of the company; the
-//                              person is verified ONLY if M3 verified the company, else
-//                              pending with it (onboarding 'submitted'), like
-//                              accept_org_invitation; the address is proven
-//                              (on_email_proven: the person chose a new password from the
-//                              e-mailed link, contract §4); a review_log row (subject 'join',
-//                              action 'invitation_accepted') is the FYI of the M3 queue's
-//                              Team joins. 200 { ok: true, email, verified, organization_name }:
-//                              the page then signs in with that e-mail and password.
-//                          4xx: invalid_link, legacy_link, expired, accepted, closed,
+//                            no account -> the account is created CONFIRMED with that
+//                              password (app_metadata.invitation_id marks it as made for
+//                              this invitation), the invitation becomes 'accepted', then
+//                              finishAccept: collaborator of the company; the profile gets
+//                              the names, job title, persona of the company type and
+//                              signup_source 'invitation'; the person is verified ONLY if
+//                              M3 verified the company, else pending with it (onboarding
+//                              'submitted'), like accept_org_invitation; the address is
+//                              proven (on_email_proven: the person chose a new password
+//                              from the e-mailed link, contract §4); last, a review_log row
+//                              (subject 'join', action 'invitation_accepted'), the FYI of
+//                              the M3 queue's Team joins and the mark that the join is
+//                              complete. 200 { ok: true, email, verified (read back from the
+//                              profile), organization_name }: the page then signs in with
+//                              that e-mail and password.
+//                            Resumable: a call that stopped half-way (timeout, error) left
+//                              an account made for this invitation and no review_log row;
+//                              the same link finishes it (row still pending: claim then
+//                              finish; row accepted less than 24 hours ago: finish). Never
+//                              for an account made otherwise, nor once the join is complete
+//                              (an owner who removed the person is not overruled).
+//                          4xx/5xx: invalid_link, legacy_link, expired, accepted, closed,
 //                          email_mismatch, missing_fields (+ fields), weak_password,
-//                          password_too_long, rate_limited.
-//   send_link  { token }   legacy id only, flag account_signup_v2: e-mails a fresh signed
-//                          link to the invited address. 200 { ok: true, email (masked) };
-//                          409 expired / accepted / closed; 403 not_enabled. 1 per invitation
-//                          per 10 minutes, 3 per day; 10 per network per hour.
+//                          password_too_long, rate_limited, not_enabled; server (try the
+//                          same link again).
+//   send_link  { token }   legacy id only: e-mails a fresh signed link to the invited
+//                          address. 200 { ok: true, email (masked) }; 409 expired / accepted
+//                          / closed. 1 per invitation per 10 minutes, 3 per day; 10 per
+//                          network per hour. A company M3 has not verified: the cap of
+//                          send-notification (email_rate_log org-email:<org>, 5 per company
+//                          and 50 in all per 24 h) and no name typed by its owner in the
+//                          e-mail. Every limit fails CLOSED here (503 unavailable).
 //
 // Rate limits: guest_signup_rate_limits (scope column of the registration core), scopes
-// invite_preview / invite_accept / invite_link, hashes prefixed "invite:".
+// invite_preview / invite_accept / invite_link, hashes prefixed "invite:". A counter that
+// cannot be read lets preview and accept through (they send nothing) and stops send_link.
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles them).
 
@@ -62,8 +80,13 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").replace(/\/+$/, "");
 // Site of the link in the "send_link" e-mail. SITE_URL by default; ACCOUNT_SITE_URL points
-// it at the redesign preview for tests before the redesign is live.
-const ACCOUNT_SITE = (Deno.env.get("ACCOUNT_SITE_URL") || SITE_URL).replace(/\/+$/, "");
+// it at the redesign preview for tests before the redesign is live (one of our own sites
+// only, the same list as send-notification).
+const ACCOUNT_SITE_RE = /^https:\/\/((www\.)?smartmarinaconnect\.com|m3connect(v2)?\.netlify\.app|[a-z0-9-]+--m3connect(v2)?\.netlify\.app)$/;
+const ACCOUNT_SITE = (() => {
+  const raw = (Deno.env.get("ACCOUNT_SITE_URL") || "").replace(/\/+$/, "");
+  return ACCOUNT_SITE_RE.test(raw) ? raw : SITE_URL;
+})();
 const PLATFORM_FROM = "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 
 const PASSWORD_MIN_CHARS = 10;
@@ -74,6 +97,11 @@ const ACCEPT_IP_PER_HOUR = 20;
 const LINK_IP_PER_HOUR = 10;
 const LINK_PER_INVITATION_10_MIN = 1;
 const LINK_PER_INVITATION_DAY = 3;
+// E-mails naming a company M3 has not verified (send-notification's unverifiedOrgCapReached).
+const UNVERIFIED_ORG_DAILY_CAP = 5;
+const UNVERIFIED_ORGS_GLOBAL_DAILY_CAP = 50;
+// An accepted invitation whose join stopped half-way is finished only this soon after.
+const RESUME_WINDOW_MS = 24 * 3600000;
 const MAX_BODY_BYTES = 16 * 1024;
 const HOUR = 3600000;
 
@@ -145,10 +173,12 @@ function fmtDay(iso: unknown): string {
 }
 
 // ─── Flags ───────────────────────────────────────────────────────────────────
-async function flagOn(key: string): Promise<boolean> {
+/** The invitation page is on: registration_flags.account_signup_v2 or front_door (JSON true). Off when unreadable. */
+async function pageEnabled(): Promise<boolean> {
   try {
     const { data } = await db.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
-    return obj((data as Json | null)?.value)[key] === true;
+    const f = obj((data as Json | null)?.value);
+    return f.account_signup_v2 === true || f.front_door === true;
   } catch (e) {
     console.error("accept-invite: flags read failed", e instanceof Error ? e.message : e);
     return false;
@@ -159,29 +189,60 @@ async function flagOn(key: string): Promise<boolean> {
 const ipHashOf = (ip: string) => sha256Hex(`invite:ip:${ip}`);
 const invitationHashOf = (id: string) => sha256Hex(`invite:row:${id.toLowerCase()}`);
 
-async function rateCount(scope: string, column: "ip_hash" | "email_hash", hash: string, windowMs: number): Promise<number> {
+/** Calls of `scope` in the window, or null when the counter cannot be read (the caller decides). */
+async function rateCount(scope: string, column: "ip_hash" | "email_hash", hash: string, windowMs: number): Promise<number | null> {
   const since = new Date(Date.now() - windowMs).toISOString();
   const { count, error } = await db.from("guest_signup_rate_limits").select("id", { count: "exact", head: true })
     .eq("scope", scope).eq(column, hash).gte("created_at", since);
   if (error) {
     console.error("accept-invite: rate-limit read failed", error.message);
-    return 0; // fail open: a broken counter must not block real people
+    return null;
   }
   return count || 0;
 }
 
-async function rateRecord(scope: string, ipHash: string, otherHash: string | null) {
+async function rateRecord(scope: string, ipHash: string, otherHash: string | null): Promise<boolean> {
   const { error } = await db.from("guest_signup_rate_limits").insert({ scope, ip_hash: ipHash, email_hash: otherHash });
   if (error) console.error("accept-invite: rate-limit write failed", error.message);
+  return !error;
 }
 
-/** Counts and records one call of `scope` from this network; throws 429 over `perHour`. */
-async function ipLimit(req: Request, scope: string, perHour: number): Promise<string> {
+/** Counts and records one call of `scope` from this network; throws 429 over `perHour`.
+ *  An unreadable counter lets the call through (failOpen: nothing is sent) or stops it with 503. */
+async function ipLimit(req: Request, scope: string, perHour: number, failOpen: boolean): Promise<string> {
   const ipHash = await ipHashOf(clientIp(req));
   const n = await rateCount(scope, "ip_hash", ipHash, HOUR);
-  if (n >= perHour) throw new HttpError(429, "rate_limited");
-  await rateRecord(scope, ipHash, null);
+  if (n === null && !failOpen) throw new HttpError(503, "unavailable");
+  if ((n || 0) >= perHour) throw new HttpError(429, "rate_limited");
+  const recorded = await rateRecord(scope, ipHash, null);
+  if (!recorded && !failOpen) throw new HttpError(503, "unavailable");
   return ipHash;
+}
+
+/** send-notification's cap on e-mails naming a company M3 has not verified (5 per company,
+ *  50 in all, per 24 h, whoever triggers them). Fails CLOSED. */
+async function unverifiedOrgCapReached(orgId: string): Promise<boolean> {
+  try {
+    const dayAgo = new Date(Date.now() - 24 * HOUR).toISOString();
+    const { count: perOrg, error: e1 } = await db.from("email_rate_log").select("id", { count: "exact", head: true })
+      .eq("kind", `org-email:${orgId}`).gte("created_at", dayAgo);
+    if (e1) throw e1;
+    if ((perOrg || 0) >= UNVERIFIED_ORG_DAILY_CAP) return true;
+    const { count: all, error: e2 } = await db.from("email_rate_log").select("id", { count: "exact", head: true })
+      .like("kind", "org-email:%").gte("created_at", dayAgo);
+    if (e2) throw e2;
+    return (all || 0) >= UNVERIFIED_ORGS_GLOBAL_DAILY_CAP;
+  } catch (e) {
+    console.error("accept-invite: rate log unavailable, refusing unverified-company e-mail", (e as { message?: string })?.message || String(e));
+    return true;
+  }
+}
+
+/** Counts one such e-mail (email_rate_log.actor_id must be an account: the inviter or the owner). */
+async function logUnverifiedOrgEmail(actorId: string, orgId: string): Promise<boolean> {
+  const { error } = await db.from("email_rate_log").insert({ actor_id: actorId, kind: `org-email:${orgId}` });
+  if (error) console.error("accept-invite: could not log the unverified-company e-mail", error.message);
+  return !error;
 }
 
 // ---- SMC invite token v1 (keep identical in send-notification and accept-invite) ----
@@ -274,8 +335,9 @@ type Inv = {
   status: string;
   expires_at: string;
   invited_by_user_id: string | null;
+  updated_at: string | null;
 };
-type Org = { id: string; name: string; logo_url: string | null; organization_type: string | null; access_status: string | null };
+type Org = { id: string; name: string; logo_url: string | null; organization_type: string | null; access_status: string | null; owner_user_id: string | null };
 type Link = { kind: "token" | "legacy"; inv: Inv; org: Org };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -290,7 +352,7 @@ const PERSONAS = new Set(["marina", "partner", "media_partner", "developer", "in
 async function loadInvitation(id: string): Promise<Inv | null> {
   const { data, error } = await db
     .from("organization_invitations")
-    .select("id, organization_id, email, first_name, last_name, status, expires_at, invited_by_user_id")
+    .select("id, organization_id, email, first_name, last_name, status, expires_at, invited_by_user_id, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -298,7 +360,7 @@ async function loadInvitation(id: string): Promise<Inv | null> {
 }
 
 async function loadOrg(id: string): Promise<Org | null> {
-  const { data, error } = await db.from("organizations").select("id, name, logo_url, organization_type, access_status").eq("id", id).maybeSingle();
+  const { data, error } = await db.from("organizations").select("id, name, logo_url, organization_type, access_status, owner_user_id").eq("id", id).maybeSingle();
   if (error) throw error;
   return (data as Org | null) || null;
 }
@@ -340,7 +402,11 @@ function stateOf(l: Link): "open" | "expired" | "accepted" | "closed" {
   return !isNaN(exp) && exp > Date.now() ? "open" : "expired";
 }
 
-type AuthUser = { id: string; email?: string };
+type AuthUser = { id: string; email?: string; created_at?: string; app_metadata?: Json };
+
+/** An account this function created for this invitation (app_metadata: only the service role writes it). */
+const madeForInvitation = (u: AuthUser | null, invitationId: string): u is AuthUser =>
+  !!u && obj(u.app_metadata).invitation_id === invitationId;
 
 /** The auth user of this address (lower(auth.users.email)); profiles.email only finds candidates. */
 async function findAuthUser(email: string): Promise<AuthUser | null> {
@@ -667,9 +733,10 @@ const strong = (v: unknown) => `<strong style="color:${EM.navy};">${h(v)}</stron
 
 /** team_invitation_link: a fresh signed link, asked for from an older invitation e-mail
  *  (/join/<id>). The company is named in the subject only when M3 verified it (as in
- *  send-notification). */
+ *  send-notification); for a company M3 has not verified, the greeting does not carry the
+ *  name its owner typed on the invitation either. */
 function renderInviteLink(firstName: string, orgName: string, orgVerified: boolean, url: string, expiresOn: string): Mail {
-  const greeting = `Hello ${clean(firstName, 80) || "there"},`;
+  const greeting = orgVerified ? `Hello ${oneLine(firstName, 80) || "there"},` : "Hello,";
   const org = oneLine(orgName, orgVerified ? 120 : 80) || "your team";
   const a = `Here is a new link to your invitation to join ${org} on Smart Marina Connect, the B2B platform for the marina industry.`;
   const b = "Open it to choose your password: you will be linked to the team straight away.";
@@ -739,7 +806,8 @@ function orgCard(org: Org): Json {
 }
 
 async function actionPreview(req: Request, body: Json): Promise<Response> {
-  await ipLimit(req, "invite_preview", PREVIEW_IP_PER_HOUR);
+  if (!(await pageEnabled())) return json(req, { error: "not_enabled" }, 403);
+  await ipLimit(req, "invite_preview", PREVIEW_IP_PER_HOUR, true);
   const link = await resolveLink(body.token);
   if (!link) return json(req, { error: "invalid_link" }, 404);
   const { kind, inv, org } = link;
@@ -758,21 +826,117 @@ async function actionPreview(req: Request, body: Json): Promise<Response> {
     out.email = email;
     out.first_name = oneLine(inv.first_name, 80);
     out.last_name = oneLine(inv.last_name, 80);
-    out.account_exists = state === "open" ? !!(await findAuthUser(email)) : null;
+    if (state === "open") {
+      // An account this page made for this invitation, in a join that stopped half-way, is
+      // finished by the form (accept resumes it): the page must not send its owner to sign in.
+      const user = await findAuthUser(email);
+      out.account_exists = !!user && !madeForInvitation(user, inv.id);
+    } else {
+      out.account_exists = null;
+    }
   } else {
     out.email = maskEmail(email);
   }
   return json(req, out);
 }
 
+/** The join is complete: its review_log row exists. Unreadable = complete (never resume blindly). */
+async function joinComplete(invitationId: string): Promise<boolean> {
+  const { data, error } = await db.from("review_log").select("id")
+    .eq("subject_type", "join").eq("subject_id", invitationId).eq("action", "invitation_accepted").limit(1);
+  if (error) {
+    console.error("accept-invite: review_log read failed", error.message);
+    return true;
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Claims a pending, unexpired invitation for this join. false = it is no longer open. */
+async function claimInvitation(id: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("organization_invitations")
+    .update({ status: "accepted" })
+    .eq("id", id)
+    .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+/**
+ * Everything after the claim, for the account `uid` made for invitation `inv`; safe to run
+ * again (a join that stopped half-way is finished by the next call). The review_log row is
+ * written last and only on success: it marks the join complete. Returns whether the person
+ * is verified, as the profile now says.
+ */
+async function finishAccept(uid: string, inv: Inv, org: Org, names: { firstName: string; lastName: string; jobTitle: string }, account: "created" | "resumed"): Promise<boolean> {
+  // A person M3 suspended or rejected in the meantime is not touched.
+  const { data: before, error: readErr } = await db.from("profiles").select("access_status").eq("user_id", uid).maybeSingle();
+  if (readErr) throw readErr;
+  if (["suspended", "rejected"].includes(String((before as Json | null)?.access_status || ""))) throw new HttpError(409, "closed");
+
+  // Collaborator of the company (accept_org_invitation's rule); already there = fine.
+  const { error: memErr } = await db.from("organization_members").insert({ organization_id: inv.organization_id, user_id: uid, role: "collaborator" });
+  if (memErr && memErr.code !== "23505") throw new Error(`membership: ${memErr.message}`);
+
+  // The profile (handle_new_user made it). Verified ONLY if M3 verified the company
+  // (spec §0, the decided exception); otherwise pending with it, as accept_org_invitation.
+  const orgVerified = org.access_status === "verified";
+  const persona = PERSONAS.has(String(org.organization_type || "")) ? String(org.organization_type) : "individual";
+  const patch: Json = {
+    first_name: names.firstName,
+    last_name: names.lastName,
+    job_title: names.jobTitle || null,
+    persona,
+    signup_source: "invitation",
+    onboarding_status: orgVerified ? "completed" : "submitted",
+  };
+  if (orgVerified) patch.access_status = "verified";
+  const { error: profErr } = await db.from("profiles").update(patch).eq("user_id", uid);
+  if (profErr) throw new Error(`profile: ${profErr.message}`);
+  const { data: after, error: reReadErr } = await db.from("profiles").select("access_status").eq("user_id", uid).maybeSingle();
+  if (reReadErr) throw reReadErr;
+  const verified = (after as Json | null)?.access_status === "verified";
+
+  // Proof (spec §5 (c), contract §4): the person chose a new password from the e-mailed
+  // signed link. on_email_proven stamps it (once), attaches the registrations of the
+  // address and runs complete_signup_for (nothing to do: no signup_intent). A failure
+  // leaves the address unproven (the dashboard banner offers the proof link) and is logged.
+  let proven = false;
+  const { error: proofErr } = await db.rpc("on_email_proven", { p_user_id: uid });
+  if (proofErr) console.error("accept-invite: on_email_proven failed", uid, proofErr.code, proofErr.message);
+  else proven = true;
+
+  // FYI for the M3 queue (Team joins), and the mark that this join is complete.
+  const { error: logErr } = await db.from("review_log").insert({
+    subject_type: "join",
+    subject_id: inv.id,
+    action: "invitation_accepted",
+    details: {
+      organization_id: inv.organization_id,
+      user_id: uid,
+      org_verified: orgVerified,
+      person_status: verified ? "verified" : "pending",
+      invited_by: inv.invited_by_user_id,
+      account,
+      proven,
+      via: "accept-invite",
+    },
+    actor_id: uid,
+  });
+  if (logErr) throw new Error(`review_log: ${logErr.message}`);
+  return verified;
+}
+
 async function actionAccept(req: Request, body: Json): Promise<Response> {
-  await ipLimit(req, "invite_accept", ACCEPT_IP_PER_HOUR);
+  if (!(await pageEnabled())) return json(req, { error: "not_enabled" }, 403);
+  await ipLimit(req, "invite_accept", ACCEPT_IP_PER_HOUR, true);
   const link = await resolveLink(body.token);
   if (!link) return json(req, { error: "invalid_link" }, 404);
   if (link.kind === "legacy") return json(req, { error: "legacy_link" }, 400);
   const { inv, org } = link;
-  const state = stateOf(link);
-  if (state !== "open") return json(req, { error: state }, 409);
   const email = inv.email.trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return json(req, { error: "invalid_link" }, 404);
   const given = clean(body.email, 254).toLowerCase();
@@ -787,41 +951,44 @@ async function actionAccept(req: Request, body: Json): Promise<Response> {
   if ([...password].length < PASSWORD_MIN_CHARS) return json(req, { error: "weak_password" }, 400);
   if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) return json(req, { error: "password_too_long" }, 400);
 
-  // An account already has this address: its owner signs in and accepts with the RPC.
-  if (await findAuthUser(email)) return json(req, { sign_in_required: true, invitation_id: inv.id, email });
+  const names = { firstName, lastName, jobTitle };
+  const done = (verified: boolean) => json(req, { ok: true, email, verified, organization_name: orgCard(org).name });
+  const state = stateOf(link);
+  const existing = await findAuthUser(email);
 
-  // Claim the invitation first (a second click, or the owner cancelling at the same time,
-  // finds it no longer pending), then create the account; undo the claim if that fails.
-  const nowIso = new Date().toISOString();
-  const { data: claimed, error: claimErr } = await db
-    .from("organization_invitations")
-    .update({ status: "accepted" })
-    .eq("id", inv.id)
-    .eq("status", "pending")
-    .gt("expires_at", nowIso)
-    .select("id")
-    .maybeSingle();
-  if (claimErr) throw claimErr;
-  if (!claimed) {
-    const again = await loadInvitation(inv.id);
-    return json(req, { error: again ? stateOf({ ...link, inv: again }) : "closed" }, 409);
+  // A join this page started for this invitation and that stopped half-way: finish it.
+  if (madeForInvitation(existing, inv.id) && !(await joinComplete(inv.id))) {
+    if (state === "open") {
+      if (!(await claimInvitation(inv.id))) {
+        const again = await loadInvitation(inv.id);
+        return json(req, { error: again ? stateOf({ ...link, inv: again }) : "closed" }, 409);
+      }
+      return done(await finishAccept(existing.id, inv, org, names, "resumed"));
+    }
+    const acceptedAt = new Date(String(inv.updated_at || "")).getTime();
+    const createdAt = new Date(String(existing.created_at || "")).getTime();
+    const recent = (t: number) => !isNaN(t) && t > Date.now() - RESUME_WINDOW_MS;
+    if (state === "accepted" && recent(acceptedAt) && recent(createdAt) && !["suspended", "rejected"].includes(String(org.access_status || ""))) {
+      return done(await finishAccept(existing.id, inv, org, names, "resumed"));
+    }
   }
-  const unclaim = async () => {
-    const { error } = await db.from("organization_invitations").update({ status: "pending" }).eq("id", inv.id).eq("status", "accepted");
-    if (error) console.error("accept-invite: could not reopen the invitation", inv.id, error.message);
-  };
+  if (state !== "open") return json(req, { error: state }, 409);
 
-  const orgVerified = org.access_status === "verified";
+  // An account already has this address: its owner signs in and accepts with the RPC.
+  if (existing) return json(req, { sign_in_required: true, invitation_id: inv.id, email });
+
+  // The account first (GoTrue's unique address settles a double click), CONFIRMED with the
+  // invitee's own password: the signed link reached this inbox. app_metadata marks it as
+  // made for this invitation, so that a join that stops half-way can be finished.
   const persona = PERSONAS.has(String(org.organization_type || "")) ? String(org.organization_type) : "individual";
-  // CONFIRMED, with the invitee's own password: the signed link reached this inbox.
   const { data: created, error: createErr } = await db.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: { first_name: firstName, last_name: lastName, job_title: jobTitle, persona, signup_source: "invitation", lang: "en" },
+    app_metadata: { invitation_id: inv.id },
   });
   if (createErr || !created?.user) {
-    await unclaim();
     const code = (createErr as { code?: string } | null)?.code || "";
     const msg = (createErr?.message || "").toLowerCase();
     if (code === "email_exists" || msg.includes("already")) return json(req, { sign_in_required: true, invitation_id: inv.id, email });
@@ -830,68 +997,18 @@ async function actionAccept(req: Request, body: Json): Promise<Response> {
   }
   const uid = created.user.id;
 
-  // Collaborator of the company (accept_org_invitation's rule).
-  const { error: memErr } = await db.from("organization_members").insert({ organization_id: inv.organization_id, user_id: uid, role: "collaborator" });
-  if (memErr && memErr.code !== "23505") {
-    // The account exists with the person's password: reopen the invitation so that,
-    // signed in, they can still accept it with the RPC.
-    await unclaim();
-    console.error("accept-invite: membership failed", inv.id, memErr.message);
-    return json(req, { error: "server", sign_in_required: true, invitation_id: inv.id, email }, 500);
+  // Then the invitation (the owner may have cancelled it a moment ago: the account stays,
+  // without the company, and the page says the invitation is closed).
+  if (!(await claimInvitation(inv.id))) {
+    const again = await loadInvitation(inv.id);
+    return json(req, { error: again ? stateOf({ ...link, inv: again }) : "closed" }, 409);
   }
-
-  // The profile (handle_new_user made it). Verified ONLY if M3 verified the company
-  // (spec §0, the decided exception); otherwise pending with it, as accept_org_invitation.
-  const patch: Json = {
-    first_name: firstName,
-    last_name: lastName,
-    job_title: jobTitle || null,
-    persona,
-    signup_source: "invitation",
-    onboarding_status: orgVerified ? "completed" : "submitted",
-  };
-  if (orgVerified) patch.access_status = "verified";
-  let { error: profErr } = await db.from("profiles").update(patch).eq("user_id", uid);
-  if (profErr && (profErr.code === "PGRST204" || profErr.code === "42703")) {
-    // profiles.signup_source comes with the registration core migration: without it, the rest.
-    delete patch.signup_source;
-    ({ error: profErr } = await db.from("profiles").update(patch).eq("user_id", uid));
-  }
-  if (profErr) console.error("accept-invite: profile update failed", uid, profErr.message);
-
-  // Proof (spec §5 (c), contract §4): the person chose a new password from the e-mailed
-  // signed link. on_email_proven stamps it, attaches the registrations of the address and
-  // runs complete_signup_for (nothing to do: no signup_intent).
-  let proven = false;
-  const { error: proofErr } = await db.rpc("on_email_proven", { p_user_id: uid });
-  if (proofErr) console.error("accept-invite: on_email_proven failed", uid, proofErr.code, proofErr.message);
-  else proven = true;
-
-  // FYI for the M3 queue (Team joins).
-  const { error: logErr } = await db.from("review_log").insert({
-    subject_type: "join",
-    subject_id: inv.id,
-    action: "invitation_accepted",
-    details: {
-      organization_id: inv.organization_id,
-      user_id: uid,
-      org_verified: orgVerified,
-      person_status: orgVerified ? "verified" : "pending",
-      invited_by: inv.invited_by_user_id,
-      account: "created",
-      proven,
-      via: "accept-invite",
-    },
-    actor_id: uid,
-  });
-  if (logErr) console.error("accept-invite: review_log failed", logErr.message);
-
-  return json(req, { ok: true, email, verified: orgVerified, organization_name: orgCard(org).name });
+  return done(await finishAccept(uid, inv, org, names, "created"));
 }
 
 async function actionSendLink(req: Request, body: Json): Promise<Response> {
-  if (!(await flagOn("account_signup_v2"))) return json(req, { error: "not_enabled" }, 403);
-  const ipHash = await ipLimit(req, "invite_link", LINK_IP_PER_HOUR);
+  if (!(await pageEnabled())) return json(req, { error: "not_enabled" }, 403);
+  const ipHash = await ipLimit(req, "invite_link", LINK_IP_PER_HOUR, false);
   const link = await resolveLink(body.token);
   if (!link) return json(req, { error: "invalid_link" }, 404);
   if (link.kind !== "legacy") return json(req, { error: "bad_input" }, 400);
@@ -905,10 +1022,19 @@ async function actionSendLink(req: Request, body: Json): Promise<Response> {
     rateCount("invite_link", "email_hash", rowHash, 10 * 60000),
     rateCount("invite_link", "email_hash", rowHash, 24 * HOUR),
   ]);
+  if (recent === null || today === null) return json(req, { error: "unavailable" }, 503);
   if (recent >= LINK_PER_INVITATION_10_MIN || today >= LINK_PER_INVITATION_DAY) return json(req, { error: "rate_limited" }, 429);
-  await rateRecord("invite_link", ipHash, rowHash);
+  // A company M3 has not verified: anyone can make one and invite any address while the
+  // old site is live, so these e-mails share send-notification's cap (counted before sending).
+  const orgVerified = org.access_status === "verified";
+  if (!orgVerified) {
+    const actor = [inv.invited_by_user_id, org.owner_user_id].find((x) => UUID_RE.test(String(x || ""))) || "";
+    if (!actor || (await unverifiedOrgCapReached(org.id))) return json(req, { error: "rate_limited" }, 429);
+    if (!(await logUnverifiedOrgEmail(actor, org.id))) return json(req, { error: "unavailable" }, 503);
+  }
+  if (!(await rateRecord("invite_link", ipHash, rowHash))) return json(req, { error: "unavailable" }, 503);
   const token = await signInviteToken(SERVICE_ROLE, inv.id, inv.organization_id, email);
-  const mail = renderInviteLink(String(inv.first_name || ""), org.name, org.access_status === "verified", `${ACCOUNT_SITE}/join/${token}`, fmtDay(inv.expires_at));
+  const mail = renderInviteLink(String(inv.first_name || ""), org.name, orgVerified, `${ACCOUNT_SITE}/join/${token}`, fmtDay(inv.expires_at));
   if (!(await sendMail(email, mail))) return json(req, { error: "send_failed" }, 502);
   return json(req, { ok: true, email: maskEmail(email) });
 }

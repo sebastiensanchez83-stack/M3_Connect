@@ -106,13 +106,13 @@ for (const name of fs.readdirSync(fnDir).sort()) {
 
 // ---------------------------------------------------------------- load the real code
 
-function load(fn, names) {
+function load(fn, names, env = {}) {
   let src = fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
   src = src.replace(/^import .*$/gm, ""); // remote (esm.sh) imports: not needed to render
   const js = ts.transpileModule(src, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
-  const Deno = { env: { get: () => undefined }, serve() {} };
+  const Deno = { env: { get: (k) => env[k] }, serve() {} };
   const createClient = () => ({}); // a few functions build their client at the top level
   const QRCode = {};
   return new Function("Deno", "createClient", "QRCode", `${js}\nreturn { ${names.join(", ")} };`)(Deno, createClient, QRCode);
@@ -244,6 +244,7 @@ const items = [];
   add(15, "team_invitation", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", join_url: joinUrl, expires_on: "10 November 2026" }, "new sign-up: /join/<token> link");
   add(16, "team_invitation_reminder", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", join_url: joinUrl, expires_on: "10 November 2026" }, "new sign-up: /join/<token> link");
   add(17, "team_join_request", "camille.durand@example.com", { first_name: "Camille", org_name: "Port Azur Marina", requester_name: "Sam Rivera", requester_email: "sam.rivera@example.com", requester_job: "Harbour master" }, "to the company owner");
+  add("17b", "team_join_request", "camille.durand@example.com", { first_name: "Camille", org_name: "Port Azur Marina", requester_name: "Sam Rivera", requester_email: "sam.rivera@example.com", requester_job: "", requester_unproven: "yes" }, "requester address not proven (sent by M3 or the service)");
   add(18, "team_join_approved", "sam.rivera@example.com", { first_name: "Sam", org_name: "Port Azur Marina", org_verified: "yes" }, "company verified by M3");
   add("18b", "team_join_approved", "sam.rivera@example.com", { first_name: "Sam", org_name: "Harbourline & Sons", org_verified: "" }, "company not verified yet");
   add(19, "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "new", org_name: "Bluequay Energy", sla: "within 2 working days" }, "person + new company");
@@ -492,8 +493,9 @@ const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_
 
   // Registration Phase 2: account-signup and accept-invite (fictional data).
   add("account-7-already-exists", "account-signup · sign-up tried with the address of an existing account", "alex.martin@example.com", acct.renderAccountAlreadyExists("Alex", acct.signInLinks(SITE)));
-  add("account-8-email-proof", "account-signup · confirm your e-mail address (dashboard banner)", "alex.martin@example.com", acct.renderEmailProof("Alex", "alex.martin@example.com", `${SITE}/verify-email?t=EXAMPLE_PROOF_TOKEN_EXAMPLE_PROOF_TOKEN_1234567`));
+  add("account-8-email-proof", "account-signup · confirm your e-mail address (dashboard banner)", "alex.martin@example.com", acct.renderEmailProof("alex.martin@example.com", `${SITE}/verify-email?t=EXAMPLE_PROOF_TOKEN_EXAMPLE_PROOF_TOKEN_1234567`));
   add("account-9-invite-link", "accept-invite · fresh invitation link asked from an older e-mail", "new.colleague@example.com", invite.renderInviteLink("Sam", "Port Azur Marina & Yacht Club", true, `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`, "10 November 2026"));
+  add("account-9b-invite-link", "accept-invite · fresh invitation link, company not verified by M3 (no name typed by its owner)", "new.colleague@example.com", invite.renderInviteLink("Sam", "Harbourline & Sons", false, `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`, "10 November 2026"));
 }
 
 // ---------------------------------------------------------------- checks on what was rendered
@@ -720,7 +722,7 @@ for (const it of items) {
   }
 
   // The new e-mails: the join link in both parts, no token in a subject, names for types.
-  for (const id of ["notif-15-team-invitation", "notif-16-team-invitation-reminder", "account-9-invite-link"]) {
+  for (const id of ["notif-15-team-invitation", "notif-16-team-invitation-reminder", "account-9-invite-link", "account-9b-invite-link"]) {
     const it = items.find((i) => i.id === id);
     const link = `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`;
     if (!it || !it.html.includes(`href="${link}"`) || !it.text.includes(link)) fail(`${id}: the /join/<token> link is missing`);
@@ -740,6 +742,14 @@ for (const it of items) {
     if (!join || !join.text.includes("asked the owner of Port Azur Marina")) fail("notif-19b-account-under-review: the join wording is missing");
     const none = items.find((i) => i.id === "notif-19d-account-under-review");
     if (!none || /your company,/.test(none.text)) fail("notif-19d-account-under-review: a company is named for a person without one");
+    // The proof e-mail and an unverified company's link carry no name typed by someone else.
+    if (!proof || !/^Hello,$/m.test(proof.text) || /Alex/.test(proof.html)) fail("account-8-email-proof: the greeting must be a plain Hello, (unproven name)");
+    const unv = items.find((i) => i.id === "account-9b-invite-link");
+    if (!unv || !/^Hello,$/m.test(unv.text) || /Sam/.test(unv.html) || /Harbourline/.test(unv.subject)) fail("account-9b-invite-link: an unverified company's link must not carry the invitee name typed by its owner, nor the company in the subject");
+    const unproven = items.find((i) => i.id === "notif-17b-team-join-request");
+    const proven = items.find((i) => i.id === "notif-17-team-join-request");
+    if (!unproven || !unproven.text.includes("not confirmed this e-mail address")) fail("notif-17b-team-join-request: the unproven-address warning is missing");
+    if (!proven || proven.text.includes("not confirmed this e-mail address")) fail("notif-17-team-join-request: a proven requester gets the unproven warning");
   }
   if (acct.typeLabel("partner") !== "Service provider" || acct.typeLabel("media_partner") !== "Media" || acct.typeLabel("x") !== "") fail("account-signup: company type labels");
   const card = acct.companyCard({ id: "00000000-0000-4000-8000-0000000000f1", name: " Port Azur ", logo_url: "javascript:alert(1)", city: "Cannes", country: "France", organization_type: "partner", owner_user_id: "x", claim_code: "SECRET", access_status: "verified" });
@@ -756,9 +766,9 @@ for (const it of items) {
   const u = `${SITE}/unsubscribe`;
   const phase2Evils = {
     "account-signup": acct.renderAccountAlreadyExists(bad, { signIn: `${SITE}/?a="${bad}"`, reset: `${SITE}/?b="${bad}"` }).html +
-      acct.renderEmailProof(evilImg, `${bad}@example.com`, `${SITE}/verify-email?t="${bad}"`).html,
+      acct.renderEmailProof(`${bad}@example.com`, `${SITE}/verify-email?t="${bad}"`).html,
     "accept-invite": invite.renderInviteLink(bad, evilImg, true, `${SITE}/join/"${bad}"`, bad).html + invite.renderInviteLink(bad, evilImg, false, SITE, "").html,
-    "send-notification phase 2": notif.renderNotification("team_join_request", { first_name: bad, org_name: evilImg, requester_name: evilImg, requester_email: bad, requester_job: evilImg }, "", u).html +
+    "send-notification phase 2": notif.renderNotification("team_join_request", { first_name: bad, org_name: evilImg, requester_name: evilImg, requester_email: bad, requester_job: evilImg, requester_unproven: evilImg }, "", u).html +
       notif.renderNotification("team_join_approved", { first_name: bad, org_name: evilImg, org_verified: "" }, "", u).html +
       notif.renderNotification("account_under_review", { first_name: bad, review_path: "new", org_name: evilImg, sla: evilImg }, "", u).html +
       notif.renderNotification("team_invitation", { first_name: bad, org_name: evilImg, join_url: `${SITE}/join/"${bad}"`, expires_on: evilImg }, "", u).html,
@@ -767,6 +777,19 @@ for (const it of items) {
   // The invitation button can only ever point at the site, whatever join_url says.
   const off = notif.renderNotification("team_invitation", { org_name: "X", join_url: "https://evil.example.com/join/x" }, "", u);
   if (off.html.includes("evil.example.com") || off.text.includes("evil.example.com")) fail("send-notification: the invitation button left the site origin");
+  // ACCOUNT_SITE_URL: the signed invitation link (and only it) opens on the account site,
+  // which must be one of our own sites.
+  const PREVIEW = "https://refonte--m3connectv2.netlify.app";
+  const onPreview = load("send-notification", ["renderNotification"], { SITE_URL: SITE, ACCOUNT_SITE_URL: `${PREVIEW}/` });
+  const joinP = onPreview.renderNotification("team_invitation", { org_name: "X", join_url: `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE` }, "", u);
+  if (!joinP.text.includes(`${PREVIEW}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`)) fail("send-notification: with ACCOUNT_SITE_URL the invitation link is not on the account site");
+  const oldP = onPreview.renderNotification("team_invitation", { org_name: "X", signup_url: `${SITE}/join/00000000-0000-4000-8000-0000000000e1` }, "", u);
+  if (oldP.text.includes(PREVIEW) || !oldP.text.includes(`${SITE}/join/00000000-0000-4000-8000-0000000000e1`)) fail("send-notification: ACCOUNT_SITE_URL moved an old invitation link off the site");
+  const otherP = onPreview.renderNotification("team_join_request", { org_name: "X", requester_email: "a@example.com" }, "", u);
+  if (otherP.text.includes(PREVIEW)) fail("send-notification: ACCOUNT_SITE_URL moved a button that is not the invitation link");
+  const foreign = load("send-notification", ["renderNotification"], { SITE_URL: SITE, ACCOUNT_SITE_URL: "https://evil.example.com" })
+    .renderNotification("team_invitation", { org_name: "X", join_url: `${SITE}/join/x.y` }, "", u);
+  if (foreign.text.includes("evil.example.com") || !foreign.text.includes(`${SITE}/join/x.y`)) fail("send-notification: an ACCOUNT_SITE_URL outside our sites was used");
 }
 
 // Sign-up activation links always open /welcome (forced password step), whatever page

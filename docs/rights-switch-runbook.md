@@ -46,7 +46,9 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
 1. Shadow migration in production: run its dry run (57 PASS, 0 FAIL; INFO lines
    on 11 Oct 2026: "128 verified people, 32 gain, 15 lose" and "SM26-confirmed
    investors: 12 (12 verified), 1 of them without a validated investor
-   company"), then apply it.
+   company"; a read-only count on 15 Oct 2026 gives 129 / 32 / 15 and the same
+   12 / 12 / 1: these figures move with the data, the PASS count does not), then
+   apply it.
 2. Admin > Rights shows the table, the counts, and "Validated companies without
    a type: none". Type any untyped validated company before the day: its members
    would otherwise lose their rights.
@@ -95,9 +97,10 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
    ```
 
    The database applies the new rules at once. A tab that was already open
-   follows the first time the person comes back to it (focus) five minutes or
-   more after its last read of the flag; a reload follows at once. Do the checks
-   below in a freshly loaded tab.
+   follows on its own once its copy of the flag is five minutes old: the next
+   time the person comes back to the tab (focus) or opens a page that reads the
+   switches. A reload follows at once. Do the checks below in a freshly loaded
+   tab.
 5. **Checks.**
 
    ```sql
@@ -143,6 +146,6 @@ an error that starts with `DRYRUN`: that error is the report. Nothing is kept.
    `supabase/migrations/down/20261011090000_capabilities_shadow.down.sql`, only
    after step 1 (it refuses while the switch is on).
 
-The database is back to the old rules at once. An open tab follows the first time
-the person comes back to it five minutes or more after its last read of the flag;
-a reload follows at once.
+The database is back to the old rules at once. An open tab follows on its own once
+its copy of the flag is five minutes old (the next time the person comes back to
+the tab, or opens a page that reads the switches); a reload follows at once.

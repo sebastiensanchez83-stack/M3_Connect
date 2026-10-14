@@ -1,11 +1,12 @@
 /**
- * Netlify edge function: /rss.xml, the articles feed that m3monaco.com imports.
+ * Netlify edge function: the article feeds that partner WordPress sites import.
+ *   /rss.xml     → m3monaco.com, articles ticked "Also publish on m3monaco.com" (resources.share_to_m3)
+ *   /rss-s3.xml  → s3monaco.com, articles ticked "Also publish on s3monaco.com" (resources.share_to_s3)
  *
- * Lists the resources an admin ticked "Also publish on m3monaco.com"
- * (resources.share_to_m3) that are published and public, newest first, at most
- * 50. Each item carries the title, the summary as an excerpt followed by a
- * "Read the full article" link, the cover image and the topic: the M3 Monaco
- * WordPress shows the excerpt and sends readers here for the full text, so no
+ * Each feed lists its ticked resources that are published and public, newest
+ * first, at most 50. Each item carries the title, the summary as an excerpt
+ * followed by a "Read the full article" link, the cover image and the topic:
+ * the site shows the excerpt and sends readers here for the full text, so no
  * article is published twice and Google sees one original.
  *
  * Read with the public anon key (netlify/lib/supabase-rest.ts), under the same
@@ -21,11 +22,22 @@
 import { selectRows, supabaseEnv } from '../lib/supabase-rest.ts';
 
 const SITE_URL = 'https://smartmarinaconnect.com';
-const FEED_PATH = '/rss.xml';
 const LOOKUP_TIMEOUT_MS = 3000;
 const MAX_ITEMS = 50;
-/** Marks the visits that come from the M3 Monaco website in Google Analytics. */
-const TRACKING = 'utm_source=m3monaco.com&utm_medium=rss&utm_campaign=article_feed';
+
+interface Feed {
+  path: string;
+  /** The resources column an admin ticks for this site. */
+  column: 'share_to_m3' | 'share_to_s3';
+  /** Marks the visits that come from that site in Google Analytics. */
+  tracking: string;
+}
+
+/** Keep the paths in step with the [[edge_functions]] entries in netlify.toml. */
+const FEEDS: Feed[] = [
+  { path: '/rss.xml', column: 'share_to_m3', tracking: 'utm_source=m3monaco.com&utm_medium=rss&utm_campaign=article_feed' },
+  { path: '/rss-s3.xml', column: 'share_to_s3', tracking: 'utm_source=s3monaco.com&utm_medium=rss&utm_campaign=article_feed' },
+];
 
 interface Article {
   id: string;
@@ -59,10 +71,10 @@ function rfc822(value: string | null): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toUTCString();
 }
 
-export function renderFeed(articles: Article[]): string {
+export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
   const items = articles.map((a) => {
     const url = `${SITE_URL}/resources/${a.id}`;
-    const tracked = `${url}?${TRACKING}`;
+    const tracked = `${url}?${feed.tracking}`;
     const title = (a.title || 'Article').trim();
     const paragraphs = (a.summary || '').split(/\n+/).map((p) => p.trim()).filter(Boolean);
     const excerpt = `${paragraphs.map((p) => `<p>${htmlEscape(p)}</p>`).join('')}<p><a href="${htmlEscape(tracked)}">Read the full article on Smart Marina Connect</a></p>`;
@@ -87,7 +99,7 @@ export function renderFeed(articles: Article[]): string {
   <channel>
     <title>Smart Marina Connect — Articles</title>
     <link>${SITE_URL}/resources</link>
-    <atom:link href="${SITE_URL}${FEED_PATH}" rel="self" type="application/rss+xml" />
+    <atom:link href="${SITE_URL}${feed.path}" rel="self" type="application/rss+xml" />
     <description>Articles from Smart Marina Connect, the B2B network of the marina industry.</description>
     <language>en</language>
 ${newest ? `    <lastBuildDate>${newest}</lastBuildDate>\n` : ''}${items.join('\n')}
@@ -97,12 +109,14 @@ ${newest ? `    <lastBuildDate>${newest}</lastBuildDate>\n` : ''}${items.join('\
 }
 
 export default async function rss(request: Request): Promise<Response> {
+  const path = new URL(request.url).pathname;
+  const feed = FEEDS.find((f) => f.path === path) ?? FEEDS[0];
   const env = supabaseEnv();
   const articles = env
     ? await selectRows<Article>(
       env,
       'resources',
-      `select=id,title,summary,thumbnail_url,topic,published_at,created_at&share_to_m3=eq.true&published=eq.true&access_level=eq.public&order=published_at.desc.nullslast&limit=${MAX_ITEMS}`,
+      `select=id,title,summary,thumbnail_url,topic,published_at,created_at&${feed.column}=eq.true&published=eq.true&access_level=eq.public&order=published_at.desc.nullslast&limit=${MAX_ITEMS}`,
       LOOKUP_TIMEOUT_MS,
     )
     : null;
@@ -119,5 +133,5 @@ export default async function rss(request: Request): Promise<Response> {
     'Netlify-CDN-Cache-Control': 'public, s-maxage=900, stale-while-revalidate=3600',
     'X-SMC-Feed': 'live',
   });
-  return new Response(request.method === 'HEAD' ? null : renderFeed(articles), { status: 200, headers });
+  return new Response(request.method === 'HEAD' ? null : renderFeed(articles, feed), { status: 200, headers });
 }

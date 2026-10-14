@@ -86,6 +86,22 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
   rules, codes and answers as `guest-list`. The acknowledgement gets a "View my request"
   button to `/{slug}/guest?t=`. Field-by-field proof and the live comparison on
   canary-onsite: `scripts/contract/wys-parity.mjs` (its header lists the known differences).
+  - Linked to the caller (`user_id`) only when the session's address is PROVEN and equals
+    the form's e-mail (the DB guard drops any other `user_id` on a guest-list insert). If that
+    account already holds another row of the event (unique event + user), the request is
+    written again unlinked: it is never lost because of the link.
+  - Differences that are on purpose (none changes the row guest-list writes): the switch
+    (403 `not_available` while `wys_form_v2` is off, except on a hidden canary); Turnstile is
+    also required when the `turnstile` switch is on (guest-list: `TURNSTILE_ENFORCE` only);
+    an expired session answers 401 `session_expired` (the page then posts to guest-list); a
+    database error answers 500 `server` (guest-list: the raw message); the e-mails go out
+    after the answer, with a retry on Resend's rate limit and a plain-text part; a request
+    cancelled from its personal link is brought back (below).
+  - E-MAIL LOOK: the deployed guest-list (version 6, frozen until 28 Nov) still sends the
+    pre-refonte HTML frame (no text part, reply-to fallback `contact@smartmarinaconnect.com`);
+    the repo's guest-list and this function use the SMC e-mail layout v1 (reply-to fallback
+    `events@m3monaco.com`). Subjects, sender, recipients, wording and log kinds are the same;
+    wys26 sets `settings.contact_email`, so its reply-to is the same too.
 
 Status view (`status`, `update`):
 ```
@@ -143,10 +159,12 @@ parity form, so `scripts/contract/wys-parity.mjs` runs with every switch off):
 - `attach` (signed in, "Add to my account").
 
 A request cancelled from this page comes back as a new request (same row, same token,
-`request_ack` + `staff_notify` again) when the person sends the `/wys26` form again, but ONLY
-through the parity form (`wys_form_v2` on): while it is off, `/wys26` posts to the frozen
-guest-list, which answers `{ ok: true }` and records nothing. The page says so before the
-person confirms the cancellation.
+`request_ack` again; `staff_notify` again at most once a day for that row) when the person
+sends the `/wys26` form again, but ONLY through the parity form (`wys_form_v2` on): while it
+is off, `/wys26` posts to the frozen guest-list, which answers `{ ok: true }` and records
+nothing. The page says so before the person confirms the cancellation. A request cancelled
+by staff (guest-list stamps `decided_at` / `decided_by`) never comes back this way. The
+revived row keeps its `created_at`, so it keeps its first place in `AdminGuestList`.
 
 ### Staff (verified admin or moderator session)
 

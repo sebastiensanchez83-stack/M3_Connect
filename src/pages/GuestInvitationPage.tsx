@@ -498,17 +498,23 @@ export function GuestInvitationPage() {
               <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Link2 className="h-5 w-5" /></span>
               <h2 id="inv-account" className="text-card-title text-navy">{t('wysGuest.account.title', 'Keep it in your account')}</h2>
             </div>
-            <p className="mt-3 text-sm leading-6 text-ink">{t('wysGuest.account.body', 'Add this invitation to the account you are signed in with, to find it in My events.')}</p>
+            <p className="mt-3 text-sm leading-6 text-ink">
+              {guest.status === 'requested'
+                ? t('wysGuest.account.bodyRequest', 'Add this request to the account you are signed in with, to find it in My events.')
+                : t('wysGuest.account.body', 'Add this invitation to the account you are signed in with, to find it in My events.')}
+            </p>
             {attachError && <FieldError className="mt-3">{attachError}</FieldError>}
             <Button variant="ctaNavy" size="sm" className="mt-4 w-full sm:w-auto" onClick={() => void doAttach()} disabled={reqBusy} arrow={!reqBusy} roll={!reqBusy}>
               {reqBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysGuest.account.add', 'Add to my account')}</> : t('wysGuest.account.add', 'Add to my account')}
             </Button>
           </section>
         )}
-        {req && user && req.linked_to_me && (
+        {req && user && req.linked_to_me && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
           <p className="flex flex-wrap items-center justify-center gap-x-2 text-center text-sm leading-6 text-meta">
             <Link2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-            {t('wysGuest.account.in', 'This invitation is in your account.')}{' '}
+            {guest.status === 'requested'
+              ? t('wysGuest.account.inRequest', 'This request is in your account.')
+              : t('wysGuest.account.in', 'This invitation is in your account.')}{' '}
             <Link to={accountHref('registrations')} className="inline-flex min-h-11 items-center font-semibold text-navy underline underline-offset-4">{t('wysGuest.account.myEvents', 'My events')}</Link>
           </p>
         )}

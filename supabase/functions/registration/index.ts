@@ -1643,6 +1643,7 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   // Linked only to an account that PROVED this very address (the DB guard drops anything else).
   const proven = !!caller && caller.proven && caller.email === g.email;
   let row: Json | null = null;
+  let revivedRow = false;
   if (existing) {
     // Same answer as a new request, whatever the existing status: this form must not reveal
     // who is on the list. One exception: a request its author cancelled from the personal
@@ -1651,19 +1652,31 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
     // decided_at and decided_by (decided_at stays even if that staff account is deleted).
     const e = existing as Json;
     if (e.source !== "request" || e.status !== "cancelled" || e.decided_by || e.decided_at) return json(req, { ok: true });
-    const { data: revived, error: reviveErr } = await db.from("gl_guest")
-      .update({ ...g, ...extra, ...(proven && !e.user_id ? { user_id: caller!.id } : {}), status: "requested", cancelled_at: null })
+    const revive = (withUser: boolean) => db.from("gl_guest")
+      .update({ ...g, ...extra, ...(withUser ? { user_id: caller!.id } : {}), status: "requested", cancelled_at: null })
       .eq("id", e.id).eq("status", "cancelled").is("decided_by", null).is("decided_at", null).select("*").maybeSingle();
+    const linkIt = proven && !e.user_id;
+    let { data: revived, error: reviveErr } = await revive(linkIt);
+    // 23505 with a user_id: this account already holds another row of the event
+    // (gl_guest_event_user_uq). The request still comes back, unlinked.
+    if (reviveErr && reviveErr.code === "23505" && linkIt) ({ data: revived, error: reviveErr } = await revive(false));
     if (reviveErr) {
       console.error("registration: parity revive failed", reviveErr.code, reviveErr.message);
       return json(req, { ok: true });
     }
     if (!revived) return json(req, { ok: true });
     row = revived as Json;
+    revivedRow = true;
   } else {
-    if (proven) extra.user_id = caller!.id;
-    const { data: inserted, error } = await db.from("gl_guest")
-      .insert({ ...g, ...extra, event_id: ev.id, source: "request", status: "requested" }).select("*").single();
+    const insert = (withUser: boolean) => db.from("gl_guest")
+      .insert({ ...g, ...extra, ...(withUser ? { user_id: caller!.id } : {}), event_id: ev.id, source: "request", status: "requested" })
+      .select("*").single();
+    let { data: inserted, error } = await insert(proven);
+    // guest-list reads 23505 as "this address is already on the list" (unique event + e-mail).
+    // With a user_id it may instead be gl_guest_event_user_uq (this account already holds
+    // another row of the event, under another address): the request must not be lost, so it
+    // is written again without the link, exactly as guest-list would write it.
+    if (error && error.code === "23505" && proven) ({ data: inserted, error } = await insert(false));
     if (error) {
       if (error.code === "23505") return json(req, { ok: true });
       console.error("registration: parity insert failed", error.code, error.message);
@@ -1673,20 +1686,25 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   }
   const evRow: Ev = { id: ev.id, slug: ev.slug, title: ev.title, capacity: ev.capacity, notify_email: ev.notify_email, requests_open: ev.requests_open, settings: ev.settings || {} };
   const sent = row as Json;
-  await inBackground("wys26 request e-mails", () => sendParityMails(evRow, sent));
+  await inBackground("wys26 request e-mails", () => sendParityMails(evRow, sent, revivedRow));
   return json(req, { ok: true });
 }
 
 /** The two e-mails of a parity request, as guest-list sends them after its "request" insert
  *  (sendRequestAck + notifyStaff): same sender, reply-to, recipients, subjects and log kinds;
  *  the acknowledgement adds "View my request". scripts/contract/wys-parity.mjs renders this
- *  function next to guest-list's for the same row. */
-function sendParityMails(ev: Ev, g: Guest): Promise<boolean[]> {
+ *  function next to guest-list's for the same row.
+ *  A REVIVED request (cancelled from its link, then sent again) is not counted by the flood
+ *  guard (its created_at is old), and its holder could cancel and send it again in a loop:
+ *  the staff notice of a revived row goes out at most once a day. The acknowledgement always
+ *  goes (to the row's own inbox: each revival needs a cancel from that inbox's link first). */
+async function sendParityMails(ev: Ev, g: Guest, revived = false): Promise<boolean[]> {
   const from = `${ev.title.replace(/[<>"]/g, "")} <${FROM_ADDRESS}>`;
   const replyTo = ev.settings?.contact_email || EM.contact;
+  const staffRecent = revived && ev.notify_email ? await sentRecently(g.id, "staff_notify", STAFF_NEW_MAIL_GAP_MS) : false;
   return Promise.all([
     sendMail({ from, to: g.email, replyTo, mail: renderParityAck(ev, g), log: { guestId: g.id, eventId: ev.id, kind: "request_ack" } }),
-    ev.notify_email
+    ev.notify_email && !staffRecent
       ? sendMail({ from, to: ev.notify_email, replyTo, mail: renderParityStaffNotice(ev, g), log: { guestId: g.id, eventId: ev.id, kind: "staff_notify" } })
       : Promise.resolve(false),
   ]);

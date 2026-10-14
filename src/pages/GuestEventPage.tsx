@@ -37,6 +37,9 @@ registerWysRefonteStrings();
 // "View my request" link), and a signed-in member's e-mail is the account's,
 // locked, so a member who proved that address finds the request in My events.
 // Switch off: guest-list's `request`, exactly as before.
+// The parity form is this page's own form, not the three-step RegistrationForm
+// of /register/:slug: the spec asks for the same layout, words and fields as
+// today, which that form's steps would change. Proof: scripts/contract/wys-parity.mjs.
 
 const ERRORS: Record<string, string> = {
   missing_fields: 'Please fill in every required field with a valid email address.',
@@ -214,8 +217,8 @@ export function GuestEventPage({ slug }: { slug: string }) {
   // A signed-in member does not type what the platform knows (design audit,
   // 8 Oct 2026): name, e-mail and job title from the profile, company and
   // country from the active organisation. Only empty fields are filled, so
-  // nothing typed is ever overwritten; every field stays editable. The request
-  // itself is unchanged (same guest-list call, no account needed).
+  // nothing typed is ever overwritten; every field stays editable (except the
+  // e-mail on the parity form, below). No account is needed to send a request.
   const { user, profile, organization } = useAuth();
   const userId = user?.id;
   const userEmail = user?.email;

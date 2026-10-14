@@ -15,7 +15,7 @@ import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
 import { ScreenLoader } from '@/components/LoadingSkeleton';
 import { RedirectKeepingQuery } from '@/components/RedirectKeepingQuery';
-import { FrontDoorOnly, OnboardingRedirect } from '@/components/auth/FrontDoorRoutes';
+import { FrontDoorOnly, OnboardingRoute } from '@/components/auth/FrontDoorRoutes';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Capture ?invite= param on initial page load (before React renders)
@@ -231,9 +231,10 @@ function App() {
               <Route path="/dashboard" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
               {/* The inbox keeps a page of its own; it is also a block of the home dashboard. */}
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
-              {/* front_door: no company wizard. /onboarding goes to the dashboard, except a claim
-                  code (?code=): signed out the sign-up page, signed in "Add my company". */}
-              <Route path="/onboarding" element={<FrontDoorOnly fallback={<ProtectedRoute><OnboardingPage /></ProtectedRoute>}><OnboardingRedirect legacy={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} /></FrontDoorOnly>} />
+              {/* front_door (or a sign-up v2 account): no company wizard. /onboarding goes to the
+                  dashboard, except a claim code (?code=): signed out the sign-up page, signed in
+                  "Add my company". */}
+              <Route path="/onboarding" element={<OnboardingRoute legacy={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />

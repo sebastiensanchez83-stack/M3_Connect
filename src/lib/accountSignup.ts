@@ -215,6 +215,28 @@ export async function sendSignupNotices(signup: unknown): Promise<void> {
 }
 
 /**
+ * After mark_email_proven stamped the proof (/welcome, /reset-password): it ran the
+ * sign-up intent (on_email_proven -> complete_signup_for) but does not return its
+ * answer, so the profile's intent is read back. The notices go out only when that
+ * intent was run in the last few minutes, i.e. by this very proof: an older account
+ * (no intent), or an intent run long ago, sends nothing.
+ */
+const JUST_RUN_MS = 10 * 60 * 1000;
+export async function sendNoticesAfterProof(): Promise<void> {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const uid = s.session?.user?.id;
+    if (!uid) return;
+    const { data } = await supabase.from('profiles').select('signup_intent').eq('user_id', uid).maybeSingle();
+    const raw = isObj(data) && isObj(data.signup_intent) ? data.signup_intent : null;
+    if (!raw || typeof raw.done_at !== 'string') return;
+    const at = Date.parse(raw.done_at);
+    if (!Number.isFinite(at) || Date.now() - at > JUST_RUN_MS) return;
+    await sendSignupNotices({ done: true, result: isObj(raw.result) ? raw.result : {} });
+  } catch { /* the e-mails are a courtesy: never block the page */ }
+}
+
+/**
  * "Add my company" (signed in, in no company yet), or a claim link opened while signed
  * in: the same intent as the sign-up form. The database runs it now when the address
  * is proven, else as soon as it is. Codes: no_profile, account_suspended,
@@ -273,6 +295,16 @@ export interface StoredIntent {
   path?: string;
   /** matched | invalid | throttled | refused_has_owner */
   code?: string;
+}
+
+/**
+ * A profile made by the sign-up v2 (or that sent "Add my company"): it carries the
+ * intent the database cleaned. Such an account never goes through the old company
+ * wizard (create_organization), whatever the flags: with account_signup_v2 on and
+ * front_door still off, its draft status would otherwise send it there.
+ */
+export function isV2Signup(profile: unknown): boolean {
+  return readStoredIntent(profile) !== null;
 }
 
 export function readStoredIntent(profile: unknown): StoredIntent | null {
@@ -373,9 +405,10 @@ export async function signUpAccount(input: AccountSignupInput): Promise<SignupOu
     declared_type: input.type,
     sector_ids: input.sectorIds.slice(0, 5),
     signup_intent: intent,
-    // The old main client's keys, read by its onboarding (and harmless elsewhere).
-    company_name: participant ? '' : (input.intent.name || '').trim(),
-    company_website: participant ? '' : (input.intent.website || '').trim(),
+    // The old main client's keys, which prefill its company wizard: only for a company the
+    // person declared as new (a listed company picked here must never be created again).
+    company_name: input.intent.action === 'new' ? (input.intent.name || '').trim() : '',
+    company_website: input.intent.action === 'new' ? (input.intent.website || '').trim() : '',
     // Language of the auth e-mails (send-email hook): English only.
     lang: 'en',
   };

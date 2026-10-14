@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { accountHref, legacyTabTarget, memberHomeHref } from '@/lib/accountNav';
 import { useRegistrationFlags } from '@/lib/flags';
+import { isV2Signup } from '@/lib/accountSignup';
 import { cn } from '@/lib/utils';
 
 /**
@@ -81,6 +82,9 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     const target = legacyTabTarget(tab, searchParams.get('section'));
     return <Navigate to={target ? memberHomeHref(target.panel, target.section) : '/'} replace />;
   }
+  // A sign-up v2 account (account_signup_v2 on, front_door still off) never gets the old
+  // wizard: its company request is with M3, and the dashboard says where it stands.
+  if (isV2Signup(profile) && (tab === 'complete-registration' || isDraft)) return <Navigate to="/#dashboard" replace />;
 
   // A member whose registration was just submitted (not yet reviewed) still
   // gets the wizard's "submitted for review" step on this address.

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { sendNoticesAfterProof } from '@/lib/accountSignup';
 
 /**
  * Tell the database that this session was opened from an e-mailed link
@@ -36,8 +37,12 @@ export async function markEmailProven(): Promise<void> {
       }
       // Not proven (link_session_too_old, email_changed_since...): a short, personal-data-free
       // line for whoever helps the person; staff also see the late case in review_log.
-      const out = data as { proven?: boolean; reason?: string } | null;
+      const out = data as { proven?: boolean; stamped?: boolean; reason?: string } | null;
       if (out && out.proven === false && out.reason) console.info('mark_email_proven: not proven:', out.reason);
+      // Stamped just now: a sign-up v2 intent ran with it (complete_signup_for), and the
+      // e-mails it owes (under review; the owner's join request) are sent from here
+      // (registration contract §10.5). An account with no v2 intent sends nothing.
+      if (out && out.stamped === true) return sendNoticesAfterProof();
     });
     await Promise.race([call, new Promise<void>((resolve) => window.setTimeout(resolve, 4000))]);
   } catch {

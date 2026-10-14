@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRegistrationFlags } from '@/lib/flags';
 import { ScreenLoader } from '@/components/LoadingSkeleton';
 import { SIGNUP_PATH } from '@/lib/authModal';
+import { isV2Signup } from '@/lib/accountSignup';
 
 /**
  * The redirects of the front door (flag front_door; spec regspec-en.md §6
@@ -16,6 +17,20 @@ export function FrontDoorOnly({ children, fallback }: { children: ReactNode; fal
   const { flags, ready } = useRegistrationFlags();
   if (!ready) return <ScreenLoader />;
   return <>{flags.front_door ? children : fallback}</>;
+}
+
+/**
+ * /onboarding: the redirect below with front_door on, and for a signed-in sign-up v2
+ * account even while front_door is off (its company goes to M3 as a request; the old
+ * wizard would make a company row with create_organization). Anyone else with the
+ * flag off: the wizard of before (`legacy`).
+ */
+export function OnboardingRoute({ legacy }: { legacy: ReactNode }) {
+  const { flags, ready } = useRegistrationFlags();
+  const { profile } = useAuth();
+  if (!ready) return <ScreenLoader />;
+  if (flags.front_door || isV2Signup(profile)) return <OnboardingRedirect legacy={legacy} />;
+  return <>{legacy}</>;
 }
 
 /**

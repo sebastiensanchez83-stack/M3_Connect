@@ -24,6 +24,7 @@ import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { sm26Kind, sm26TeamWent, useSm26Participation } from '@/hooks/useSm26Participation';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
+import { isV2Signup } from '@/lib/accountSignup';
 import { CREATE_ACTIONS, canCreate } from '@/lib/nav';
 import {
   accountHref, getHomeSection, homeSectionVisible, isHomePanel, legacyOpenTarget,
@@ -112,10 +113,13 @@ export default function MemberDashboard() {
   // Flag front_door (spec regspec-en.md §6 /dashboard): one status card instead of the
   // alerts, the e-mail proof banner, "Add my company"; a draft account (a new sign-up
   // waiting for its proof, an old unfinished one) gets the dashboard, not the wizard.
-  const frontDoor = regFlags.front_door;
+  // A sign-up v2 account gets the same (its company request is with M3), even while
+  // front_door is still off: the old "finish your registration" would send it to the wizard.
+  const v2Account = isV2Signup(profile);
+  const frontDoor = regFlags.front_door || v2Account;
   const draftRaw = profile?.onboarding_status === 'draft';
   // Until the switches are known, a draft waits (no flash of the old "finish your registration").
-  const draftWaiting = draftRaw && !regFlagsReady;
+  const draftWaiting = draftRaw && !regFlagsReady && !v2Account;
   const isDraft = draftRaw && !frontDoor;
   const active = !!user && !!profile && !isDraft && !draftWaiting;
   const access = useMemberAccess(active);

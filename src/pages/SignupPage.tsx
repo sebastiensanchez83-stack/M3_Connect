@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -37,10 +37,29 @@ export function SignupPage() {
   const email = (params.get('email') || '').trim().slice(0, 254);
   const code = (params.get('code') || '').trim().slice(0, 40);
   const [loginOpen, setLoginOpen] = useState(false);
+  // Signed in when the page opened, not by the sign-up made here: with Confirm email off,
+  // signUp signs the new account in at once, and its "Confirm your e-mail" step must stay
+  // on screen until the person presses Continue.
+  const arrivedSignedIn = useRef<boolean | null>(null);
+  if (!loading && arrivedSignedIn.current === null) arrivedSignedIn.current = !!user;
 
-  if (!ready || loading) return <AuthLoading className="min-h-[100svh]" />;
+  // The claim code leaves the address bar once the sign-up v2 holds it (a copied or shared
+  // link must not carry it). The form of before reads it from the address itself: kept then.
+  const showForm = ready && flags.front_door && flags.account_signup_v2 && !(user && arrivedSignedIn.current);
+  useEffect(() => {
+    if (!showForm || !code) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('code');
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    } catch { /* ignore */ }
+  }, [showForm, code]);
+
+  // The loader only while the page first opens: the account loading again after the
+  // sign-up must not unmount the form (its "Confirm your e-mail" step would be lost).
+  if (!ready || (loading && arrivedSignedIn.current === null)) return <AuthLoading className="min-h-[100svh]" />;
   if (!flags.front_door) return <NotFoundPage />;
-  if (user) {
+  if (user && arrivedSignedIn.current) {
     // A claim code: "Add my company" on the dashboard (sign-up v2), else the wizard of before.
     if (code) return <Navigate to={flags.account_signup_v2 ? `/?code=${encodeURIComponent(code)}#dashboard` : `/onboarding?code=${encodeURIComponent(code)}`} replace />;
     return <Navigate to={then ?? MEMBER_HOME} replace />;
@@ -68,16 +87,18 @@ export function SignupPage() {
         ) : (
           <SignupForm onSuccess={() => navigate('/onboarding')} />
         )}
-        <div className="mt-6 space-y-2 border-t border-rule pt-5 text-center text-sm leading-6 text-meta">
-          <p>
-            {t('auth.haveAccount', 'Already have an account?')}{' '}
-            <UnderlineLink arrow={false} onClick={() => setLoginOpen(true)} className="min-h-11 !text-sm">{t('auth.login', 'Sign in')}</UnderlineLink>
-          </p>
-          <p>
-            {t('signupPage.eventOnly', 'Only here for an event?')}{' '}
-            <UnderlineLink to="/events" arrow={false} className="min-h-11 !text-sm">{t('signupPage.openEvents', 'See open events')}</UnderlineLink>
-          </p>
-        </div>
+        {!user && (
+          <div className="mt-6 space-y-2 border-t border-rule pt-5 text-center text-sm leading-6 text-meta">
+            <p>
+              {t('auth.haveAccount', 'Already have an account?')}{' '}
+              <UnderlineLink arrow={false} onClick={() => setLoginOpen(true)} className="min-h-11 !text-sm">{t('auth.login', 'Sign in')}</UnderlineLink>
+            </p>
+            <p>
+              {t('signupPage.eventOnly', 'Only here for an event?')}{' '}
+              <UnderlineLink to="/events" arrow={false} className="min-h-11 !text-sm">{t('signupPage.openEvents', 'See open events')}</UnderlineLink>
+            </p>
+          </div>
+        )}
       </AuthShell>
       <AuthDialog mode="login" open={loginOpen} onOpenChange={setLoginOpen} sheet={flags.password_only_login}>
         <LoginForm

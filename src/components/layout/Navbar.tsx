@@ -20,6 +20,7 @@ import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import { useRegistrationFlags } from '@/lib/flags';
 import { safeNext } from '@/lib/safeNext';
+import { isV2Signup } from '@/lib/accountSignup';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
   Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock, HelpCircle,
@@ -313,8 +314,9 @@ export function Navbar() {
   const isInvestor = profile?.persona === 'investor';
   // A draft account (sign-up not finished): the dashboard, Create and the inbox
   // would all send it back to its registration, so the bar offers that instead.
-  // front_door: no registration wizard, a draft uses the dashboard like everyone.
-  const isDraft = profile?.onboarding_status === 'draft' && !regFlags.front_door;
+  // front_door: no registration wizard, a draft uses the dashboard like everyone (so does
+  // a sign-up v2 account while front_door is still off).
+  const isDraft = profile?.onboarding_status === 'draft' && !regFlags.front_door && !isV2Signup(profile);
   const member = !!user && !isDraft;
   const createCtx = {
     isVerified,
@@ -885,7 +887,8 @@ export function Navbar() {
         open={signupOpen}
         onOpenChange={setSignupOpen}
         sheet={regFlags.account_signup_v2}
-        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+        // Signed in by the sign-up just made (Confirm email off): no "Already have an account?".
+        switchTo={regFlags.account_signup_v2 && user ? undefined : { onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
       >
         {regFlags.account_signup_v2 ? (
           // The sign-up v2 (Victor, 8 Oct 2026: "Sign up" opens the form itself, no chooser).

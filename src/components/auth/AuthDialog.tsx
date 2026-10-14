@@ -89,7 +89,9 @@ export function AuthDialog({
       <DialogContent
         className={cn(
           'max-h-[92vh] w-[calc(100%-2rem)] max-w-lg gap-0 overflow-y-auto rounded-card border-0 bg-white p-0 shadow-drawer sm:rounded-card',
-          sheet && 'max-sm:inset-0 max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:data-[state=open]:slide-in-from-left-0 max-sm:data-[state=open]:slide-in-from-top-0 max-sm:data-[state=closed]:slide-out-to-left-0 max-sm:data-[state=closed]:slide-out-to-top-0 max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=closed]:zoom-out-100',
+          // content-start: a short form (sign-in) stays at the top of the sheet, the grid rows
+          // are not stretched to fill the screen.
+          sheet && 'max-sm:content-start max-sm:inset-0 max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:data-[state=open]:slide-in-from-left-0 max-sm:data-[state=open]:slide-in-from-top-0 max-sm:data-[state=closed]:slide-out-to-left-0 max-sm:data-[state=closed]:slide-out-to-top-0 max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=closed]:zoom-out-100',
           // The close (x), the content's last child (ui/dialog): a 44 px target, on a
           // white disc so that it shows on any photo (a dark x vanished on dark ones).
           '[&>button:last-child]:right-2 [&>button:last-child]:top-2 [&>button:last-child]:grid [&>button:last-child]:h-11 [&>button:last-child]:w-11 [&>button:last-child]:place-items-center',

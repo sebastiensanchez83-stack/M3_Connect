@@ -121,7 +121,7 @@ function load(fn, names, env = {}) {
 const auth = load("send-email", ["COPY", "buildEmail", "buildEmailText"]);
 const notif = load("send-notification", ["renderNotification", "TYPE_TO_CATEGORY"]);
 const claim = load("claim-code-signup", ["buildConfirmationEmail"]);
-const status = load("send-status-notification", ["renderStatusEmail"]);
+const status = load("send-status-notification", ["renderStatusEmail", "renderDecisionEmail", "DECISION_TYPES"]);
 const contact = load("contact-submit", ["renderInboxEmail"]);
 const refMail = load("send-reference-email", ["buildReferenceEmail"]);
 const webReg = load("guest-webinar-register", ["buildConfirmationEmail"]);
@@ -137,6 +137,8 @@ const reg = load("registration", [
 ]);
 const regCron = load("registration-cron", [
   "ctxOf", "durationMs", "remindersOf", "renderReminder", "renderFollowup", "renderReplayAvailable", "renderEventDigest", "renderReviewDigest", "signUnsubToken",
+  // Registration Phase 3: the daily review digest by queue tab, and the notification outbox sender.
+  "digestTotal", "normOrgName", "outboxDueAt", "outboxRequest", "heldNote", "OUTBOX_SENDERS",
 ]);
 const provision = load("provision-person", ["renderAccountReady", "renderTeamMemberAdded"]);
 const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
@@ -440,6 +442,20 @@ const regQuestions = [
   { key: "sectors", label: "Sectors", kind: "sectors" },
 ];
 const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_TOKEN_123`;
+const sampleDigest = {
+  tabs: [
+    { label: "People & companies", count: 8, oldestDays: 6, detail: "5 people, 2 companies, 1 company claim", url: `${SITE}/admin/review` },
+    { label: "Event registrations", count: 6, oldestDays: 3, detail: "2 events, 1 waiting for an answer", url: `${SITE}/admin/review` },
+    { label: "Team joins", count: 2, oldestDays: null, detail: "", url: `${SITE}/admin/review`, fyi: "new in the last 24 hours" },
+    { label: "Duplicates", count: 1, oldestDays: null, detail: "possible duplicate companies, e.g. Port Azur Marina / Port Azur Marina SAS", url: `${SITE}/admin/review`, fyi: "to check" },
+  ],
+  registrations: [
+    { title: "World Yachting Summit 2026", slug: "wys26", requested: 4, needs_info: 0, oldestDays: 3, url: `${SITE}/admin/guest-list/wys26` },
+    { title: "Marina Days 2027", slug: "marina-days-2027", requested: 2, needs_info: 1, oldestDays: 1, url: `${SITE}/admin/events/00000000-0000-4000-8000-0000000000d3` },
+  ],
+  provisioning: { failed: 1, queued: 0 },
+  emails: { gaveUp: 2, gaveUpRecent: 1, held: 2 },
+};
 {
   const add = (id, source, to, mail, o = {}) => items.push({ id, source, to, ...mail, ...o });
   const wctx = reg.ctxOf(regWebinarEv, { ...webinar, id: webinar.id });
@@ -481,16 +497,19 @@ const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_
     { first_name: "Sam", last_name: "Rivera", company: "Nautic Systems", status: "requested" },
     { first_name: "Alex", last_name: "Martin", company: "Port Azur Marina", status: "confirmed" },
   ], 2));
-  add("cron-10-review-digest", "registration-cron · M3 daily review digest", "events@m3monaco.com", regCron.renderReviewDigest({
-    registrations: [
-      { title: "World Yachting Summit 2026", slug: "wys26", requested: 4, needs_info: 0, oldestDays: 3, url: `${SITE}/admin/guest-list/wys26` },
-      { title: "Marina Days 2027", slug: "marina-days-2027", requested: 2, needs_info: 1, oldestDays: 1, url: `${SITE}/admin/events/${regOnsiteCat.id}` },
-    ],
-    people: { pending: 5, submitted: 3, oldestDays: 6 },
-    companies: { pending: 2, byVerifiedMembers: 1, oldestDays: 9 },
-    provisioning: { failed: 1, queued: 0 },
-  }));
+  add("cron-10-review-digest", "registration-cron · M3 daily review digest (queue tabs)", "events@m3monaco.com", regCron.renderReviewDigest(sampleDigest));
   add("account-5-ready-set-password", "provision-person · account created at confirmation (set password)", regGuest.email, provision.renderAccountReady("Sam", "Marina Days 2027", `${SITE}/welcome?token_hash=EXAMPLE_TOKEN_HASH&type=invite&next=%2Fdashboard`));
+  add("account-5b-ready-after-pass", "provision-person · account e-mail one minute after the World Yachting Summit QR e-mail", wysGuest.email, provision.renderAccountReady(wysGuest.first_name, "World Yachting Summit 2026", `${SITE}/welcome?token_hash=EXAMPLE_TOKEN_HASH&type=recovery&next=%2Fdashboard`, true));
+  // Registration Phase 3: decisions of the M3 review queue (send-status-notification, sent
+  // by the notification outbox of registration-cron).
+  const dec = (type, f) => status.renderDecisionEmail(type, { firstName: "Alex", orgName: "", orgVerified: false, note: "", ...f });
+  add("decision-1-approved-member", "send-status-notification · user_account_approved, member of a validated company", "alex.martin@example.com", dec("user_account_approved", { orgName: "Port Azur Marina & Yacht Club", orgVerified: true }));
+  add("decision-2-approved-participant", "send-status-notification · user_account_approved, participant (no validated company)", "alex.martin@example.com", dec("user_account_approved", {}));
+  add("decision-3-rejected", "send-status-notification · user_account_rejected, with reason and Ask M3 to review again", "camille.durand@example.com", dec("user_account_rejected", { firstName: "Camille", note: "We could not link this account to a company of the marina sector.\nAdd your company website to your profile." }));
+  add("decision-4-info-requested", "send-status-notification · account_info_requested", "sam.rivera@example.com", dec("account_info_requested", { firstName: "Sam", note: "Which marina or company do you work for? A website is enough." }));
+  add("decision-5-company-validated", "send-status-notification · company_validated", "camille.durand@example.com", dec("company_validated", { firstName: "Camille", orgName: "Harbourline & Sons", orgVerified: true }));
+  add("decision-6-claim-approved", "send-status-notification · claim_approved (verified company)", "harbour.master@example.com", dec("claim_approved", { firstName: "Marie", orgName: "Port Azur Marina & Yacht Club", orgVerified: true }));
+  add("decision-7-claim-declined", "send-status-notification · claim_declined, with a note", "jordan.lee@example.com", dec("claim_declined", { firstName: "Jordan", orgName: "Port Azur Marina & Yacht Club", orgVerified: true, note: "The marina already has a manager on the platform." }));
   add("account-6-team-member-added", "provision-person · FYI to the company owner", "camille.durand@example.com", provision.renderTeamMemberAdded("Camille", "Sam Rivera", regGuest.email, "Port Azur Marina & Yacht Club", "Marina Days 2027"));
 
   // Registration Phase 2: account-signup and accept-invite (fictional data).
@@ -674,9 +693,11 @@ for (const it of items) {
     "registration-cron reminder": regCron.renderReminder(evilCron, evilG, { key: "P7D", ms: 7 * D }, { status: STATUS_LINK, join: null, qr: true, optOut: { label: evilImg, url: `${SITE}/?a="${bad}"` } }).html,
     "registration-cron follow-up": regCron.renderFollowup(evilCron, evilG, { replay: null, attendanceKnown: true, optOut: { label: "x", url: SITE } }).html,
     "registration-cron digests": regCron.renderEventDigest(evilCron, [evilG], 1).html + regCron.renderReviewDigest({
+      tabs: [{ label: evilImg, count: 1, oldestDays: 0, detail: `${bad} ${evilImg}`, url: `${SITE}/?a="${bad}"` }, { label: bad, count: 1, oldestDays: null, detail: evilImg, url: SITE, fyi: evilImg }],
       registrations: [{ title: evilImg, slug: "x", requested: 1, needs_info: 0, oldestDays: 0, url: `${SITE}/?a="${bad}"` }],
-      people: { pending: 0, submitted: 0, oldestDays: 0 }, companies: { pending: 0, byVerifiedMembers: 0, oldestDays: 0 }, provisioning: { failed: 0, queued: 0 },
+      provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, gaveUpRecent: 0, held: 0 },
     }).html,
+    "send-status-notification decisions": status.DECISION_TYPES.map((t) => status.renderDecisionEmail(t, { firstName: bad, orgName: evilImg, orgVerified: true, note: `${evilImg}\n<script>x</script>` }).html).join(""),
     "provision-person": provision.renderAccountReady(bad, evilImg, `${SITE}/?a="${bad}"`).html + provision.renderTeamMemberAdded(bad, evilImg, bad, evilImg, evilImg).html,
   };
   for (const [fn, html] of Object.entries(regEvils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
@@ -794,6 +815,101 @@ for (const it of items) {
   const foreign = load("send-notification", ["renderNotification"], { SITE_URL: SITE, ACCOUNT_SITE_URL: "https://evil.example.com" })
     .renderNotification("team_invitation", { org_name: "X", join_url: `${SITE}/join/x.y` }, "", u);
   if (foreign.text.includes("evil.example.com") || !foreign.text.includes(`${SITE}/join/x.y`)) fail("send-notification: an ACCOUNT_SITE_URL outside our sites was used");
+}
+
+// ---------------------------------------------------------------- registration Phase 3 checks
+{
+  const get = (id) => items.find((i) => i.id === id);
+  // Decision e-mails: wording, links, no company name of an unverified company in a subject.
+  const member = get("decision-1-approved-member");
+  if (!member || !member.text.includes("member of Smart Marina Connect for Port Azur Marina & Yacht Club") || member.text.includes("participant")) fail("decision-1-approved-member: the 'member of <company>' wording is missing");
+  const part = get("decision-2-approved-participant");
+  if (!part || !part.text.includes("You are a participant") || /member of Smart Marina Connect for/.test(part.text)) fail("decision-2-approved-participant: the participant wording is missing");
+  const rej = get("decision-3-rejected");
+  if (!rej || !rej.text.includes("Ask M3 to review again") || !rej.text.includes(`${SITE}/dashboard`) || !rej.html.includes("We could not link this account")) fail("decision-3-rejected: reason or Ask M3 to review again missing");
+  const info = get("decision-4-info-requested");
+  if (!info || !info.text.includes("Which marina or company do you work for?")) fail("decision-4-info-requested: M3's question is missing");
+  const unverified = status.renderDecisionEmail("claim_approved", { firstName: "", orgName: "Harbourline & Sons", orgVerified: false, note: "" });
+  if (!unverified || unverified.subject.includes("Harbourline")) fail("claim_approved: an unverified company named in the subject");
+  if (!/^Hello,$/m.test(unverified.text)) fail("decision e-mails: no first name must give a plain Hello,");
+  for (const t of status.DECISION_TYPES) {
+    const m = status.renderDecisionEmail(t, { firstName: "A", orgName: "B", orgVerified: true, note: "C" });
+    if (!m || !m.subject || /undefined/.test(m.subject + m.text)) fail(`send-status-notification: ${t} does not render`);
+  }
+  if (status.renderDecisionEmail("verified", { firstName: "", orgName: "", orgVerified: false, note: "" }) !== null) fail("send-status-notification: an old status must not be a decision type");
+  // The three account e-mails of the old live site keep their words.
+  if (status.renderStatusEmail("verified", "Alex", "").subject !== "Your Smart Marina Connect account has been approved!") fail("send-status-notification: the old 'verified' e-mail changed");
+  if (!status.renderStatusEmail("rejected", "Alex", "R").text.includes("resubmit your application")) fail("send-status-notification: the old 'rejected' e-mail changed");
+
+  // Account e-mail after the QR e-mail: says the pass is separate; never without an event.
+  const after = get("account-5b-ready-after-pass");
+  if (!after || !after.text.includes("Your entry pass is in a separate e-mail")) fail("account-5b-ready-after-pass: no mention of the separate entry pass");
+  if (get("account-5-ready-set-password")?.text.includes("entry pass")) fail("account-5-ready-set-password: mentions a pass it does not follow");
+  if (provision.renderAccountReady("Sam", "", `${SITE}/welcome`, true).text.includes("entry pass")) fail("provision-person: the pass note without an event");
+
+  // Review digest: tabs, FYI tabs never send it alone, the queue link.
+  const dg = get("cron-10-review-digest");
+  for (const label of ["People & companies", "Event registrations", "Team joins", "Duplicates"]) if (!dg || !dg.text.includes(label)) fail(`cron-10-review-digest: tab ${label} missing`);
+  if (!dg || !dg.text.includes("oldest: 6 days") || !dg.text.includes(`${SITE}/admin/review`)) fail("cron-10-review-digest: oldest age or queue link missing");
+  if (regCron.digestTotal(sampleDigest) !== 8 + 6 + 1 + 1) fail(`registration-cron: digest total ${regCron.digestTotal(sampleDigest)}`);
+  const fyiOnly = { ...sampleDigest, tabs: sampleDigest.tabs.map((t) => (t.fyi ? t : { ...t, count: 0 })), provisioning: { failed: 0, queued: 3 }, emails: { gaveUp: 3, gaveUpRecent: 0, held: 4 } };
+  if (regCron.digestTotal(fyiOnly) !== 0) fail("registration-cron: team joins, duplicates, held e-mails or e-mails that gave up days ago alone would send the digest");
+  if (!dg || !dg.text.includes("2 e-mails gave up after 5 attempts, 1 of them in the last 24 hours")) fail("cron-10-review-digest: the e-mails that gave up are not counted as expected");
+  if (regCron.normOrgName("Pört Àzur Marina S.A.S.") !== "port azur marina" || regCron.normOrgName("Spa Resorts SpA") !== "spa resorts" || regCron.normOrgName("D.O.O.") !== "doo") fail("registration-cron: normOrgName differs from normalize_org_name");
+
+  // Outbox sender: routes, requests, back-off.
+  const S = regCron.OUTBOX_SENDERS;
+  if (S.account_under_review !== "send-notification" || S.team_join_request !== "send-notification" || S.user_account_approved !== "send-status-notification" || S.claim_declined !== "send-status-notification") fail("registration-cron: outbox routes");
+  for (const t of status.DECISION_TYPES) if (S[t] !== "send-status-notification") fail(`registration-cron: no outbox route for ${t}`);
+  const uid = "00000000-0000-4000-8000-0000000000a1";
+  const inv = "00000000-0000-4000-8000-0000000000a2";
+  const row = (o) => ({ id: 7, kind: "account_under_review", user_id: uid, subject_id: uid, data: {}, created_at: "2026-10-20T10:00:00.000Z", claimed_at: null, attempts: 0, last_error: null, ...o });
+  const r1 = regCron.outboxRequest(row({}));
+  if (JSON.stringify(r1) !== JSON.stringify({ type: "account_under_review", user_id: uid })) fail(`outbox: account_under_review request ${JSON.stringify(r1)}`);
+  const r2 = regCron.outboxRequest(row({ kind: "team_join_request", subject_id: inv }));
+  if (r2.type !== "team_join_request" || r2.data?.invitation_id !== inv || r2.user_id) fail(`outbox: team_join_request request ${JSON.stringify(r2)}`);
+  const r3 = regCron.outboxRequest(row({ kind: "user_account_rejected", data: { reason: "x" } }));
+  if (r3.outbox_id !== 7 || r3.user_id !== uid || r3.data?.reason !== "x") fail(`outbox: decision request ${JSON.stringify(r3)}`);
+  const T0 = Date.parse("2026-10-20T10:00:00.000Z");
+  const M = 60000;
+  const due = (o) => regCron.outboxDueAt(row(o)) - T0;
+  if (due({}) !== 2 * M) fail("outbox: a new row is not left 2 minutes to the page that queued it");
+  const claimedAt = "2026-10-20T11:00:00.000Z";
+  const C = Date.parse(claimedAt) - T0;
+  if (due({ claimed_at: claimedAt, attempts: 1 }) !== C + 10 * M) fail("outbox: a claim without a result is not a 10-minute lease");
+  if (due({ claimed_at: claimedAt, attempts: 1, last_error: "attempt 1 failed: x" }) !== C + 2 * M) fail("outbox: back-off after attempt 1 is not 2 minutes");
+  if (due({ claimed_at: claimedAt, attempts: 3, last_error: "attempt 3 failed: x" }) !== C + 30 * M) fail("outbox: back-off after attempt 3 is not 30 minutes");
+  if (due({ claimed_at: claimedAt, attempts: 4, last_error: "attempt 4 failed: x" }) !== C + 120 * M) fail("outbox: back-off after attempt 4 is not 2 hours");
+  if (due({ claimed_at: claimedAt, attempts: 2, last_error: "attempt 1 failed: x" }) !== C + 10 * M) fail("outbox: an older failure must not shorten the lease of a new claim");
+  // send-notification's duplicate window: 11 minutes, whatever the back-off; its daily cap (429): a day.
+  if (due({ claimed_at: claimedAt, attempts: 1, last_error: 'attempt 1 failed: send-notification answered "duplicate" for a row nobody marked sent: the same e-mail was tried less than 10 minutes ago (duplicate window), tried again after it' }) !== C + 11 * M) fail("outbox: a duplicate answer does not wait out the 10-minute window");
+  if (due({ claimed_at: claimedAt, attempts: 4, last_error: "attempt 4 failed: x (duplicate window)" }) !== C + 120 * M) fail("outbox: the duplicate wait must not shorten a longer back-off");
+  if (due({ claimed_at: claimedAt, attempts: 2, last_error: "attempt 2 failed: send-notification 429 Too many e-mails for this organization today, try again tomorrow" }) !== C + 1440 * M) fail("outbox: a 429 is not retried a day later");
+  // A forced run naming its rows: no wait for a new row or a back-off, but the lease and the duplicate window stay.
+  const fdue = (o) => regCron.outboxDueAt(row(o), true);
+  if (fdue({}) !== 0) fail("outbox: a forced row still waits 2 minutes");
+  if (fdue({ claimed_at: claimedAt, attempts: 3, last_error: "attempt 3 failed: x" }) !== 0) fail("outbox: a forced row still backs off");
+  if (fdue({ claimed_at: claimedAt, attempts: 1 }) !== Date.parse(claimedAt) + 10 * M) fail("outbox: a forced run may take a row whose attempt may be in flight");
+  if (fdue({ claimed_at: claimedAt, attempts: 1, last_error: "attempt 1 failed: x (duplicate window)" }) !== Date.parse(claimedAt) + 11 * M) fail("outbox: a forced run ignores the duplicate window");
+  if (!regCron.heldNote("account_under_review").startsWith("held: ") || !regCron.heldNote("something_else").startsWith("held: ")) fail("outbox: held notes must start with 'held: '");
+
+  // The source rules of the lane, read from the functions.
+  const src = (fn) => fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
+  const ccs = src("claim-code-signup");
+  if (!ccs.includes("This company already has an owner on Smart Marina Connect. Ask them to invite you to the team.")) fail("claim-code-signup: the owned-company refusal (same words as the database) is missing");
+  const sm26 = src("sm26-attendee-invite");
+  if (!/access_status: isStaff \? "verified" : "pending"/.test(sm26)) fail("sm26-attendee-invite: the Q5 rule (staff = validated, others = pending) is missing");
+  const sp = src("sponsor-invite");
+  if (!/access_status: isStaff \? "verified" : "pending"/.test(sp) || !sp.includes("as_owner")) fail("sponsor-invite: the Q5 rule is missing");
+  if (!sp.includes("review_queue === true") || !/if \(!q5\)/.test(sp)) fail("sponsor-invite: the Q5 rule must wait for registration_flags.review_queue (the July behaviour with the flag off)");
+  const pp = src("provision-person");
+  if (!pp.includes('"pass"') || !pp.includes('"reg_confirmed"') || !pp.includes("CONFIRMATION_MAIL_GAP_MS")) fail("provision-person: the 'QR e-mail first' rule is missing");
+  if (!pp.includes("force && order.giveUp && !order.strict")) fail("provision-person: a staff send-now may skip the wys26 QR e-mail");
+  const rc = src("registration-cron");
+  if (!rc.includes("force_needs_ids") || !rc.includes("force_needs_job_ids")) fail("registration-cron: a forced run with the flag off must name its rows");
+  const ssn = src("send-status-notification");
+  if (!ssn.includes("queuedDecisionFor(supabase, user_id, status)")) fail("send-status-notification: the old shape must not send a decision the outbox holds");
+  if (/from\("sm_/.test(pp) || /from\("sm_/.test(src("registration-cron"))) fail("provision-person / registration-cron must not touch sm_* tables");
 }
 
 // Sign-up activation links always open /welcome (forced password step), whatever page

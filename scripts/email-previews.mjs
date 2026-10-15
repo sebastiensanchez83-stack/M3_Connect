@@ -454,7 +454,7 @@ const sampleDigest = {
     { title: "Marina Days 2027", slug: "marina-days-2027", requested: 2, needs_info: 1, oldestDays: 1, url: `${SITE}/admin/events/00000000-0000-4000-8000-0000000000d3` },
   ],
   provisioning: { failed: 1, queued: 0 },
-  emails: { gaveUp: 1, held: 2 },
+  emails: { gaveUp: 2, gaveUpRecent: 1, held: 2 },
 };
 {
   const add = (id, source, to, mail, o = {}) => items.push({ id, source, to, ...mail, ...o });
@@ -695,7 +695,7 @@ for (const it of items) {
     "registration-cron digests": regCron.renderEventDigest(evilCron, [evilG], 1).html + regCron.renderReviewDigest({
       tabs: [{ label: evilImg, count: 1, oldestDays: 0, detail: `${bad} ${evilImg}`, url: `${SITE}/?a="${bad}"` }, { label: bad, count: 1, oldestDays: null, detail: evilImg, url: SITE, fyi: evilImg }],
       registrations: [{ title: evilImg, slug: "x", requested: 1, needs_info: 0, oldestDays: 0, url: `${SITE}/?a="${bad}"` }],
-      provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, held: 0 },
+      provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, gaveUpRecent: 0, held: 0 },
     }).html,
     "send-status-notification decisions": status.DECISION_TYPES.map((t) => status.renderDecisionEmail(t, { firstName: bad, orgName: evilImg, orgVerified: true, note: `${evilImg}\n<script>x</script>` }).html).join(""),
     "provision-person": provision.renderAccountReady(bad, evilImg, `${SITE}/?a="${bad}"`).html + provision.renderTeamMemberAdded(bad, evilImg, bad, evilImg, evilImg).html,
@@ -852,8 +852,9 @@ for (const it of items) {
   for (const label of ["People & companies", "Event registrations", "Team joins", "Duplicates"]) if (!dg || !dg.text.includes(label)) fail(`cron-10-review-digest: tab ${label} missing`);
   if (!dg || !dg.text.includes("oldest: 6 days") || !dg.text.includes(`${SITE}/admin/review`)) fail("cron-10-review-digest: oldest age or queue link missing");
   if (regCron.digestTotal(sampleDigest) !== 8 + 6 + 1 + 1) fail(`registration-cron: digest total ${regCron.digestTotal(sampleDigest)}`);
-  const fyiOnly = { ...sampleDigest, tabs: sampleDigest.tabs.map((t) => (t.fyi ? t : { ...t, count: 0 })), provisioning: { failed: 0, queued: 3 }, emails: { gaveUp: 0, held: 4 } };
-  if (regCron.digestTotal(fyiOnly) !== 0) fail("registration-cron: team joins, duplicates or held e-mails alone would send the digest");
+  const fyiOnly = { ...sampleDigest, tabs: sampleDigest.tabs.map((t) => (t.fyi ? t : { ...t, count: 0 })), provisioning: { failed: 0, queued: 3 }, emails: { gaveUp: 3, gaveUpRecent: 0, held: 4 } };
+  if (regCron.digestTotal(fyiOnly) !== 0) fail("registration-cron: team joins, duplicates, held e-mails or e-mails that gave up days ago alone would send the digest");
+  if (!dg || !dg.text.includes("2 e-mails gave up after 5 attempts, 1 of them in the last 24 hours")) fail("cron-10-review-digest: the e-mails that gave up are not counted as expected");
   if (regCron.normOrgName("Pört Àzur Marina S.A.S.") !== "port azur marina" || regCron.normOrgName("Spa Resorts SpA") !== "spa resorts" || regCron.normOrgName("D.O.O.") !== "doo") fail("registration-cron: normOrgName differs from normalize_org_name");
 
   // Outbox sender: routes, requests, back-off.
@@ -880,6 +881,16 @@ for (const it of items) {
   if (due({ claimed_at: claimedAt, attempts: 3, last_error: "attempt 3 failed: x" }) !== C + 30 * M) fail("outbox: back-off after attempt 3 is not 30 minutes");
   if (due({ claimed_at: claimedAt, attempts: 4, last_error: "attempt 4 failed: x" }) !== C + 120 * M) fail("outbox: back-off after attempt 4 is not 2 hours");
   if (due({ claimed_at: claimedAt, attempts: 2, last_error: "attempt 1 failed: x" }) !== C + 10 * M) fail("outbox: an older failure must not shorten the lease of a new claim");
+  // send-notification's duplicate window: 11 minutes, whatever the back-off; its daily cap (429): a day.
+  if (due({ claimed_at: claimedAt, attempts: 1, last_error: 'attempt 1 failed: send-notification answered "duplicate" for a row nobody marked sent: the same e-mail was tried less than 10 minutes ago (duplicate window), tried again after it' }) !== C + 11 * M) fail("outbox: a duplicate answer does not wait out the 10-minute window");
+  if (due({ claimed_at: claimedAt, attempts: 4, last_error: "attempt 4 failed: x (duplicate window)" }) !== C + 120 * M) fail("outbox: the duplicate wait must not shorten a longer back-off");
+  if (due({ claimed_at: claimedAt, attempts: 2, last_error: "attempt 2 failed: send-notification 429 Too many e-mails for this organization today, try again tomorrow" }) !== C + 1440 * M) fail("outbox: a 429 is not retried a day later");
+  // A forced run naming its rows: no wait for a new row or a back-off, but the lease and the duplicate window stay.
+  const fdue = (o) => regCron.outboxDueAt(row(o), true);
+  if (fdue({}) !== 0) fail("outbox: a forced row still waits 2 minutes");
+  if (fdue({ claimed_at: claimedAt, attempts: 3, last_error: "attempt 3 failed: x" }) !== 0) fail("outbox: a forced row still backs off");
+  if (fdue({ claimed_at: claimedAt, attempts: 1 }) !== Date.parse(claimedAt) + 10 * M) fail("outbox: a forced run may take a row whose attempt may be in flight");
+  if (fdue({ claimed_at: claimedAt, attempts: 1, last_error: "attempt 1 failed: x (duplicate window)" }) !== Date.parse(claimedAt) + 11 * M) fail("outbox: a forced run ignores the duplicate window");
   if (!regCron.heldNote("account_under_review").startsWith("held: ") || !regCron.heldNote("something_else").startsWith("held: ")) fail("outbox: held notes must start with 'held: '");
 
   // The source rules of the lane, read from the functions.
@@ -890,8 +901,14 @@ for (const it of items) {
   if (!/access_status: isStaff \? "verified" : "pending"/.test(sm26)) fail("sm26-attendee-invite: the Q5 rule (staff = validated, others = pending) is missing");
   const sp = src("sponsor-invite");
   if (!/access_status: isStaff \? "verified" : "pending"/.test(sp) || !sp.includes("as_owner")) fail("sponsor-invite: the Q5 rule is missing");
+  if (!sp.includes("review_queue === true") || !/if \(!q5\)/.test(sp)) fail("sponsor-invite: the Q5 rule must wait for registration_flags.review_queue (the July behaviour with the flag off)");
   const pp = src("provision-person");
   if (!pp.includes('"pass"') || !pp.includes('"reg_confirmed"') || !pp.includes("CONFIRMATION_MAIL_GAP_MS")) fail("provision-person: the 'QR e-mail first' rule is missing");
+  if (!pp.includes("force && order.giveUp && !order.strict")) fail("provision-person: a staff send-now may skip the wys26 QR e-mail");
+  const rc = src("registration-cron");
+  if (!rc.includes("force_needs_ids") || !rc.includes("force_needs_job_ids")) fail("registration-cron: a forced run with the flag off must name its rows");
+  const ssn = src("send-status-notification");
+  if (!ssn.includes("queuedDecisionFor(supabase, user_id, status)")) fail("send-status-notification: the old shape must not send a decision the outbox holds");
   if (/from\("sm_/.test(pp) || /from\("sm_/.test(src("registration-cron"))) fail("provision-person / registration-cron must not touch sm_* tables");
 }
 

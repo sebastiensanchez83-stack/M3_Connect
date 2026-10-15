@@ -9,11 +9,15 @@
 //
 // Callers (verify_jwt = TRUE; the caller is checked again here):
 //   service role (registration-cron, every minute)  {action:"run"}
-//       up to 25 jobs (queued or failed, attempts < 5; a queued job with 5 attempts, i.e.
-//       a run that kept crashing, is marked failed), then up to 50 due account e-mails
-//       (an e-mail that failed 5 times is given up: email_due_at cleared, last_error
-//       "e-mail: gave up ..."). Only while flag registration_flags.provisioning is on
-//       ({force:true} from registration-cron's manual run skips that check).
+//       jobs (queued or failed, attempts < 5) for up to 30 s, then up to 50 due account
+//       e-mails until 45 s (the rest on the next run; an e-mail that failed 5 times is
+//       given up: email_due_at cleared, last_error "e-mail: gave up ..."). A queued job
+//       left at 5 attempts (a run that kept crashing) is marked failed once it has shown
+//       no result for 10 minutes (see capStalledJobs). Only while flag
+//       registration_flags.provisioning is on. {force:true} from registration-cron's manual
+//       run skips that check, but then needs job_ids and takes only jobs of hidden (test)
+//       events, as staff do: a canary test never provisions the real queue. With job_ids
+//       (flag on or off) the run is limited to those jobs and their e-mails.
 //   verified staff JWT  {action:"run", job_ids:[...]}         those jobs now (whatever
 //                                                             their attempts; a 'done'
 //                                                             job left 'pending_link'
@@ -75,11 +79,14 @@
 // second ("about one minute later": the database makes it due about a minute after the
 // confirmation and registration-cron runs the job every minute). Until then the e-mail
 // waits (last_error "e-mail: waiting ..." for staff, the run moves on to the next one).
-// A staff "send now" keeps the order too, but no longer waits for a confirmation
-// e-mail that never came once the confirmation is CONFIRMATION_MAIL_GIVE_UP_MS old (a
-// lost log row must not block the account e-mail forever). A registration no longer
-// confirmed gets no account e-mail from a run (staff can still send it: it then names
-// no event).
+// A staff "send now" keeps the order too. For a core_v2 event it no longer waits for a
+// confirmation e-mail that never came once the confirmation is CONFIRMATION_MAIL_GIVE_UP_MS
+// old (a decision made without e-mail, a lost log row); for guest-list's QR e-mail (wys26)
+// it never skips the wait: staff resend the entry pass first (guest-list logs it as
+// 'pass'), then the account e-mail follows. A registration no longer confirmed gets no
+// account e-mail from a run (staff can still send it: it then names no event). How often
+// pg_cron wakes the run for e-mails that keep waiting is the database's (the wake condition
+// of invoke_registration_cron).
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles them).
 
@@ -93,7 +100,13 @@ const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").
 const REG_SITE = (Deno.env.get("REGISTRATION_SITE_URL") || SITE_URL).replace(/\/+$/, "");
 const PLATFORM_FROM = "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 
-const BATCH_JOBS = 25;
+// Jobs read per run: processed until RUN_JOBS_MS has passed (a job takes about one to two
+// seconds), then the due e-mails until RUN_TOTAL_MS; the rest goes on the next run, a minute
+// later. The run thus ends before pg_net's 60 s timeout and before the next run starts, and
+// a bulk approval flows at about 20 to 40 accounts a minute.
+const BATCH_JOBS = 60;
+const RUN_JOBS_MS = 30_000;
+const RUN_TOTAL_MS = 45_000;
 const BATCH_EMAILS = 50;
 // Due e-mails read per run: those still waiting for their confirmation e-mail are skipped
 // without counting towards BATCH_EMAILS, so they never hold the others back.
@@ -894,15 +907,65 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
   }
 }
 
+// ─── Jobs whose run never finished ──────────────────────────────────────────
+// A job whose run crashed or timed out stays 'queued' with its attempts counted. One left at
+// MAX_ATTEMPTS is either being processed right now (its last attempt, by a run that overlaps
+// this one) or abandoned. The table has no claim time, so it is stamped first (last_error
+// STALL_MARK + the time), and marked failed only if the stamp is still there STALL_MS later:
+// every end of processJob writes last_error (done: null, skipped: null, failed: the error),
+// so a run that finishes the job removes the stamp. Staff can still run a failed job by
+// hand; it is never retried forever.
+const STALL_MARK = "check: no result yet for the last attempt, seen at ";
+const STALL_MS = 10 * 60_000;
+
+async function capStalledJobs(): Promise<void> {
+  const { data, error } = await db.from("account_provision_job").select("id, attempts, last_error")
+    .eq("status", "queued").gte("attempts", MAX_ATTEMPTS).limit(100);
+  if (error) {
+    console.error("provision-person: attempts cap read failed", error.message);
+    return;
+  }
+  for (const c of (data as Json[] | null) || []) {
+    const note = typeof c.last_error === "string" ? c.last_error : null;
+    const seenAt = note && note.startsWith(STALL_MARK) ? Date.parse(note.slice(STALL_MARK.length)) : NaN;
+    if (!Number.isFinite(seenAt)) {
+      let q = db.from("account_provision_job").update({ last_error: `${STALL_MARK}${new Date().toISOString()}` })
+        .eq("id", c.id).eq("status", "queued").eq("attempts", c.attempts);
+      q = note === null ? q.is("last_error", null) : q.eq("last_error", note);
+      const { error: e1 } = await q;
+      if (e1) console.error("provision-person: attempts cap stamp failed", c.id, e1.message);
+    } else if (Date.now() - seenAt >= STALL_MS) {
+      const { error: e2 } = await db.from("account_provision_job")
+        .update({ status: "failed", last_error: `stopped after ${MAX_ATTEMPTS} attempts (the run never finished)` })
+        .eq("id", c.id).eq("status", "queued").eq("last_error", note as string);
+      if (e2) console.error("provision-person: attempts cap failed", c.id, e2.message);
+    }
+  }
+}
+
 // ─── Account e-mail ──────────────────────────────────────────────────────────
 const EMAIL_GAVE_UP = "e-mail: gave up";
 const emailAttemptsOf = (lastError: unknown) => Number(/^e-mail \(attempt ([0-9]+)\)/.exec(String(lastError || ""))?.[1] || 0);
 
 type MailOrder =
   | { state: "ok"; confirmationMailAt: number | null }
-  | { state: "waiting"; giveUp: boolean }
+  // strict: the event's confirmation e-mail is guest-list's QR e-mail (guest_list_v1, wys26):
+  // the account e-mail never goes before it, not even on a staff "send now" (Victor, 15 Oct).
+  | { state: "waiting"; giveUp: boolean; strict: boolean }
   | { state: "too_soon" }
   | { state: "not_confirmed" };
+
+/** gl_event.engine per event, read once per request (many due e-mails share an event). */
+const engineCache = new Map<string, string>();
+async function engineOf(eventId: string): Promise<string> {
+  const known = engineCache.get(eventId);
+  if (known !== undefined) return known;
+  const { data: ev, error } = await db.from("gl_event").select("engine").eq("id", eventId).maybeSingle();
+  if (error) throw new Error(`event read: ${error.message}`);
+  const engine = String((ev as Json | null)?.engine || "");
+  engineCache.set(eventId, engine);
+  return engine;
+}
 
 /**
  * Where the account e-mail of this job stands against the event's own confirmation e-mail
@@ -918,8 +981,8 @@ async function confirmationMailOf(job: Json): Promise<MailOrder> {
   const guest = g as Json | null;
   if (!guest) return { state: "ok", confirmationMailAt: null }; // gone: the send finds no account and stops
   if (guest.status !== "confirmed") return { state: "not_confirmed" };
-  const { data: ev } = await db.from("gl_event").select("engine").eq("id", guest.event_id).maybeSingle();
-  const kind = (ev as Json | null)?.engine === "core_v2" ? "reg_confirmed" : "pass";
+  const coreV2 = (await engineOf(String(guest.event_id))) === "core_v2";
+  const kind = coreV2 ? "reg_confirmed" : "pass";
   const times = [guest.decided_at, guest.responded_at].map((t) => Date.parse(String(t || ""))).filter((t) => Number.isFinite(t));
   const confirmedAt = times.length ? Math.max(...times) : Date.parse(String(job.created_at || "")) || Date.now();
   const { data: logs, error: logErr } = await db.from("gl_email_log").select("sent_at")
@@ -927,7 +990,7 @@ async function confirmationMailOf(job: Json): Promise<MailOrder> {
     .order("sent_at", { ascending: false }).limit(1);
   if (logErr) throw new Error(`e-mail log read: ${logErr.message}`);
   const last = Date.parse(String(((logs as Json[] | null) || [])[0]?.sent_at || ""));
-  if (!Number.isFinite(last)) return { state: "waiting", giveUp: Date.now() - confirmedAt >= CONFIRMATION_MAIL_GIVE_UP_MS };
+  if (!Number.isFinite(last)) return { state: "waiting", giveUp: Date.now() - confirmedAt >= CONFIRMATION_MAIL_GIVE_UP_MS, strict: !coreV2 };
   if (Date.now() - last < CONFIRMATION_MAIL_GAP_MS) return { state: "too_soon" };
   return { state: "ok", confirmationMailAt: last };
 }
@@ -945,7 +1008,10 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
   // A run stops looking at an e-mail held for a week (the cron's own wake-up window):
   // email_due_at cleared, last_error says why; staff can still send it ("send now").
   const heldTooLong = !force && Date.now() - Date.parse(String(job.email_due_at || "")) > HOLD_LIMIT_MS;
-  if (order.state === "too_soon" || (order.state === "waiting" && !(force && order.giveUp))) {
+  // A staff "send now" stops waiting for a confirmation e-mail that never came once the
+  // confirmation is CONFIRMATION_MAIL_GIVE_UP_MS old, but never for guest-list's QR e-mail
+  // (strict): staff resend the entry pass first, then this e-mail follows.
+  if (order.state === "too_soon" || (order.state === "waiting" && !(force && order.giveUp && !order.strict))) {
     if (order.state === "waiting" && heldTooLong) {
       await db.from("account_provision_job").update({ email_due_at: null, last_error: `${EMAIL_GAVE_UP} waiting for the confirmation e-mail (entry pass): resend it from the event admin, then send this one` })
         .eq("id", job.id).is("email_sent_at", null);
@@ -954,7 +1020,14 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
     if (order.state === "waiting" && !job.last_error) {
       await db.from("account_provision_job").update({ last_error: EMAIL_WAITING }).eq("id", job.id).is("last_error", null).is("email_sent_at", null);
     }
-    return { id: job.id, email: order.state === "waiting" ? "waiting_for_confirmation_email" : "too_soon" };
+    if (order.state === "waiting") {
+      return {
+        id: job.id,
+        email: "waiting_for_confirmation_email",
+        ...(force ? { hint: order.strict ? "Resend the entry pass first: the account e-mail never leaves before it." : "The confirmation e-mail has not left yet: try again in a few minutes." } : {}),
+      };
+    }
+    return { id: job.id, email: "too_soon" };
   }
   if (order.state === "not_confirmed" && !force) {
     // Left due: if the registration is confirmed again within a week, it goes then.
@@ -1046,6 +1119,7 @@ Deno.serve(async (req: Request) => {
     const action = String(body.action || "run");
     const ids: string[] = (Array.isArray(body.job_ids) ? body.job_ids : []).filter((x: unknown) => typeof x === "string" && UUID_RE.test(x)).slice(0, 100);
     const flagOn = await provisioningOn();
+    engineCache.clear();
 
     if (staff) {
       if (!ids.length) return json(req, { error: "job_ids required" }, 400);
@@ -1078,25 +1152,44 @@ Deno.serve(async (req: Request) => {
 
     // Service role (registration-cron).
     if (!flagOn && body.force !== true) return json(req, { ok: true, skipped: "flag provisioning is off" });
-    // A job whose run crashed or timed out stays 'queued' with its attempts counted: after
-    // MAX_ATTEMPTS it is marked failed (staff can still run it by hand), never retried forever.
-    const { error: capErr } = await db.from("account_provision_job")
-      .update({ status: "failed", last_error: `stopped after ${MAX_ATTEMPTS} attempts (the run never finished)` })
-      .eq("status", "queued").gte("attempts", MAX_ATTEMPTS);
-    if (capErr) console.error("provision-person: attempts cap failed", capErr.message);
-    const { data: jobs } = await db.from("account_provision_job").select("*")
-      .in("status", ["queued", "failed"]).lt("attempts", MAX_ATTEMPTS)
-      .order("created_at", { ascending: true }).limit(BATCH_JOBS);
+    // A forced run while the flag is off (registration-cron's manual run: a canary test) takes
+    // only the jobs it names, and only jobs of hidden (test) events, as a staff run does: it
+    // never provisions the real queue.
+    if (!flagOn) {
+      if (!ids.length) return json(req, { error: "job_ids required: provisioning is off" }, 400);
+      const { data } = await db.from("account_provision_job").select("*").in("id", ids);
+      for (const j of (data as Json[] | null) || []) {
+        if (!(await eventTitleOf(j)).hidden) return json(req, { error: "provisioning_off" }, 409);
+      }
+    }
+    const started = Date.now();
+    if (!ids.length) await capStalledJobs();
+    let jobsQ = db.from("account_provision_job").select("*").in("status", ["queued", "failed"]).lt("attempts", MAX_ATTEMPTS);
+    if (ids.length) jobsQ = jobsQ.in("id", ids);
+    const { data: jobs } = await jobsQ.order("created_at", { ascending: true }).limit(BATCH_JOBS);
     const results: Json[] = [];
-    for (const j of (jobs as Json[] | null) || []) results.push(await processJob(j, null));
-    const { data: due } = await db.from("account_provision_job").select("*")
-      .eq("status", "done").is("email_sent_at", null).not("email_due_at", "is", null).lte("email_due_at", new Date().toISOString())
-      .order("email_due_at", { ascending: true }).limit(SCAN_EMAILS);
+    let more = false;
+    for (const j of (jobs as Json[] | null) || []) {
+      // Within the time budget (see RUN_JOBS_MS): the rest goes on the next run, a minute later.
+      if (Date.now() - started > RUN_JOBS_MS) {
+        more = true;
+        break;
+      }
+      results.push(await processJob(j, null));
+    }
+    let dueQ = db.from("account_provision_job").select("*")
+      .eq("status", "done").is("email_sent_at", null).not("email_due_at", "is", null).lte("email_due_at", new Date().toISOString());
+    if (ids.length) dueQ = dueQ.in("id", ids);
+    const { data: due } = await dueQ.order("email_due_at", { ascending: true }).limit(SCAN_EMAILS);
     const emails: Json[] = [];
     const waiting: Json[] = [];
     let tried = 0;
     for (const j of (due as Json[] | null) || []) {
       if (tried >= BATCH_EMAILS) break;
+      if (Date.now() - started > RUN_TOTAL_MS) {
+        more = true;
+        break;
+      }
       const r = await sendAccountEmail(j, false);
       // Waiting for the confirmation e-mail (or for the registration to be confirmed again):
       // nothing was attempted, the next e-mail gets the slot.
@@ -1106,7 +1199,7 @@ Deno.serve(async (req: Request) => {
         emails.push(r);
       }
     }
-    return json(req, { ok: true, jobs: results, emails, waiting: waiting.length });
+    return json(req, { ok: true, jobs: results, emails, waiting: waiting.length, ...(more ? { more: true } : {}) });
   } catch (e) {
     console.error("provision-person: error", e instanceof Error ? e.message : JSON.stringify(e));
     return json(req, { error: "server" }, 500);

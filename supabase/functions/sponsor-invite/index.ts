@@ -3,7 +3,11 @@
 // email a magic link to set their password → they land on their Sponsorship tab.
 // Staff-triggered (M3 admin/moderator OR a Yacht Club de Monaco manager).
 //
-// Q5 rule (registration spec §4.7, Phase 3; Victor 7 and 11 Oct 2026):
+// Q5 rule (registration spec §4.7, Phase 3; Victor 7 and 11 Oct 2026), applied only while
+// registration_flags.review_queue is JSON true (M3's review queue is where the pending
+// accounts it makes are decided). With the flag off the behaviour of July stays: a fresh
+// or not yet verified account is verified, and it becomes the company's owner when the
+// company has no owner member. An unreadable flag refuses the request (503).
 //   - a NEW account is validated when verified M3 staff invite; a Yacht Club manager's
 //     invitation leaves it pending M3's review (onboarding "submitted": it shows in the
 //     review queue);
@@ -415,6 +419,12 @@ Deno.serve(async (req) => {
   if (!spData) return json(req, { error: "Sponsor not found" }, 404);
   const sponsor = spData as { id: string; company_name: string; organization_id: string | null };
 
+  // The Q5 rule applies once M3's review queue is on (registration_flags.review_queue, see
+  // the header); until then the behaviour of July stays. Read before anything is created: an
+  // unreadable switch is never taken for "off" (nor for "on").
+  const q5 = await reviewQueueOn(admin);
+  if (q5 === null) return json(req, { error: "Could not read the platform settings. Please try again in a minute." }, 503);
+
   // 1) Ensure an auth account.
   let userId: string | null = null;
   let createdAccount = false;
@@ -436,7 +446,16 @@ Deno.serve(async (req) => {
   // 2) Bootstrap a NEW account only (Q5, see the header): validated on a staff invitation,
   //    pending M3's review on a Yacht Club manager's. An existing account is left as it is.
   let accessStatus: "verified" | "pending" | "unchanged" = "unchanged";
-  if (createdAccount) {
+  if (!q5) {
+    // Before the review queue (the behaviour of July): verify a fresh or not yet verified
+    // account (never staff, never an already verified profile).
+    const { data: tprof } = await admin.from("profiles").select("persona, access_status").eq("user_id", userId).maybeSingle();
+    const tp = tprof as { persona?: string; access_status?: string } | null;
+    if (tp && !["admin", "moderator"].includes(tp.persona || "") && tp.access_status !== "verified") {
+      await admin.from("profiles").update({ persona: "partner", access_status: "verified", onboarding_status: "completed" }).eq("user_id", userId);
+      accessStatus = "verified";
+    }
+  } else if (createdAccount) {
     const { error: profErr } = await admin.from("profiles")
       .update({ persona: "partner", access_status: isStaff ? "verified" : "pending", onboarding_status: isStaff ? "completed" : "submitted" })
       .eq("user_id", userId);
@@ -451,7 +470,14 @@ Deno.serve(async (req) => {
   if (sponsor.organization_id) {
     const { data: mem } = await admin.from("organization_members").select("id").eq("organization_id", sponsor.organization_id).eq("user_id", userId).maybeSingle();
     if (mem) membership = "existing";
-    else if (!createdAccount && !isStaff) membership = "skipped";
+    else if (!q5) {
+      // Before the review queue (July): the owner when the company has no owner member.
+      const { data: owner } = await admin.from("organization_members").select("id").eq("organization_id", sponsor.organization_id).eq("role", "owner").limit(1).maybeSingle();
+      const role: "owner" | "collaborator" = owner ? "collaborator" : "owner";
+      const { error: memErr } = await admin.from("organization_members").insert({ organization_id: sponsor.organization_id, user_id: userId, role });
+      if (memErr) console.error("membership failed", memErr);
+      else membership = role;
+    } else if (!createdAccount && !isStaff) membership = "skipped";
     else {
       let role: "owner" | "collaborator" = "collaborator";
       if (isStaff && body.as_owner === true) {
@@ -485,6 +511,18 @@ Deno.serve(async (req) => {
 
   return json(req, { ok: true, user_id: userId, created_account: createdAccount, emailed, access_status: accessStatus, membership });
 });
+
+/** registration_flags.review_queue is JSON true; null = the settings cannot be read. */
+// deno-lint-ignore no-explicit-any
+async function reviewQueueOn(admin: any): Promise<boolean | null> {
+  const { data, error } = await admin.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
+  if (error) {
+    console.error("registration_flags unreadable", error);
+    return null;
+  }
+  const v = (data as { value?: unknown } | null)?.value;
+  return !!v && typeof v === "object" && !Array.isArray(v) && (v as Record<string, unknown>).review_queue === true;
+}
 
 /** The account whose SIGN-IN address is this one (profiles.email only finds candidates). */
 // deno-lint-ignore no-explicit-any

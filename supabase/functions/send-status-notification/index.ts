@@ -20,15 +20,25 @@
 //
 // Registration Phase 3 (spec regspec-en.md §7, §8.1; 15 Oct 2026). Same callers
 // (service role or verified staff). Three request shapes:
-//   {user_id, status}        verified | rejected | suspended: UNCHANGED (the old
-//                            live site's AdminUsers calls it this way).
+//   {user_id, status}        verified | rejected | suspended: same words and answers (the
+//                            old live site's AdminUsers calls it this way), with one
+//                            guard: when the outbox holds the same decision for that
+//                            person (user_account_approved for verified,
+//                            user_account_rejected for rejected: unsent with fewer than 5
+//                            attempts, or sent by the outbox in the last 30 minutes),
+//                            nothing is sent and the answer is 200 {success, skipped,
+//                            reason: "queued"}: the person never gets both e-mails. Until
+//                            the review RPCs queue decisions no such row exists, and an
+//                            unreadable queue sends as before.
 //   {action: "types"}        the decision types below, so registration-cron can tell
 //                            this version from the old one before it claims a queued
 //                            e-mail (the old one answers 400 "user_id and status are
 //                            required" and the e-mail stays queued).
 //   {type, user_id, outbox_id?, subject_id?, data?}  an M3 review decision:
 //     user_account_approved   the person is verified: wording "member of <company>"
-//                             (a verified company they belong to) or "participant";
+//                             (a verified company they belong to) or "participant"
+//                             (none, or M3 chose "Validate as participant only":
+//                             data.action = "participant");
 //     user_account_rejected   the person is rejected: reason + "Ask M3 to review again";
 //     account_info_requested  the person is still pending: M3's question (data.question,
 //                             data.message or data.reason);
@@ -48,8 +58,11 @@
 //   cron passes outbox_id; the row's subject and data win over the body's, a row already
 //   sent is skipped ({skipped: true, reason: "duplicate"}), and the row is marked sent
 //   (notification_outbox_done) once the e-mail has left. A staff call without outbox_id
-//   for an e-mail that is queued and unsent is refused (409 {queued: true}): the outbox
-//   sends it, never twice.
+//   for an e-mail the outbox will still send (unsent, fewer than 5 attempts; for a company
+//   decision, a row about the same company) is refused (409 {queued: true, outbox_id}):
+//   the outbox sends it, never twice. Staff may pass outbox_id themselves ("send now",
+//   e.g. a row the outbox gave up on), except while an attempt of the outbox may still be
+//   in flight (claimed less than 10 minutes ago, no result recorded: 409).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -465,6 +478,11 @@ Deno.serve(async (req: Request) => {
       return reply({ error: "Status does not match the member's current status" }, 409);
     }
 
+    // The same decision queued in the outbox (the review RPCs, Phase 3) gets its own e-mail:
+    // this older request then sends nothing, so the person never gets both (see the header).
+    const queued = await queuedDecisionFor(supabase, user_id, status);
+    if (queued) return reply({ success: true, skipped: true, reason: "queued", detail: queued }, 200);
+
     let email: string = profile.email || "";
     let firstName: string = profile.first_name || "";
     if (!email) {
@@ -613,6 +631,45 @@ const DECISION_TYPES = [
 ];
 const ORG_NAME_CHARS = 120;
 const NAME_CHARS = 100;
+/** notification_outbox_claim's limit: a row with 5 attempts is never sent by the outbox. */
+const OUTBOX_MAX_ATTEMPTS = 5;
+/** The decision kinds that name a company: a queued row is matched on it. */
+const COMPANY_DECISIONS = new Set(["company_validated", "claim_approved", "claim_declined"]);
+
+/** The old statuses and the decision kind that announces the same thing. */
+const LEGACY_STATUS_KINDS: Record<string, string> = { verified: "user_account_approved", rejected: "user_account_rejected" };
+/** An outbox e-mail of the same decision sent this recently also stops an old-shape request. */
+const QUEUED_DECISION_WINDOW_MS = 30 * 60000;
+
+/**
+ * Why an old-shape request {user_id, status} must not send (the outbox sends, or just sent,
+ * the same decision), or "" (none, or the queue cannot be read: the e-mail goes as before).
+ * Rows the outbox gave up on (5 attempts) and rows settled unsent ("not sent: ...") do not count.
+ */
+async function queuedDecisionFor(db: Db, userId: string, status: string): Promise<string> {
+  const kind = LEGACY_STATUS_KINDS[status];
+  if (!kind) return "";
+  const { data, error } = await db
+    .from("notification_outbox")
+    .select("sent_at, attempts, last_error")
+    .eq("kind", kind)
+    .eq("user_id", userId)
+    .order("id", { ascending: false })
+    .limit(5);
+  if (error) {
+    console.error("send-status-notification: notification_outbox unreadable, sending as before:", error.message);
+    return "";
+  }
+  const since = Date.now() - QUEUED_DECISION_WINDOW_MS;
+  for (const r of (data || []) as Rec[]) {
+    if (!r.sent_at && Number(r.attempts) < OUTBOX_MAX_ATTEMPTS) return `${kind} is queued: the outbox sends it`;
+    if (r.sent_at && Date.parse(String(r.sent_at)) >= since && !String(r.last_error || "").startsWith("not sent")) return `${kind} was just sent by the outbox`;
+  }
+  return "";
+}
+
+/** The company a decision's data names (organization_id, or org_id), or "". */
+const orgOfData = (d: Rec) => [d.organization_id, d.org_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -816,11 +873,15 @@ async function decisionFacts(
     note: "",
   };
   const status = String(prof.access_status || "");
-  const givenOrg = [data.organization_id, data.org_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
+  const givenOrg = orgOfData(data);
 
   switch (type) {
     case "user_account_approved": {
       if (status !== "verified") return { stale: `the account is ${status || "unknown"}, not validated` };
+      // M3 chose "Validate as participant only" (admin_validate_person action 'participant',
+      // carried in the queued data as action = "participant"): the participant wording,
+      // whatever companies the person belongs to.
+      if (data.action === "participant" || data.as_participant === true) break;
       // "Member of <company>": a verified company the person belongs to (the one M3 named,
       // else an owned one, else the oldest membership); otherwise a participant.
       const mems = await membershipsOf(db, userId);
@@ -920,26 +981,41 @@ async function handleDecision(db: Db, body: Rec, serviceCaller: boolean): Promis
     if (!Number.isSafeInteger(id) || id <= 0) return { status: 400, body: { error: "Invalid outbox_id" } };
     const { data: row, error } = await db
       .from("notification_outbox")
-      .select("id, kind, user_id, subject_id, data, sent_at")
+      .select("id, kind, user_id, subject_id, data, sent_at, claimed_at, attempts, last_error")
       .eq("id", id)
       .maybeSingle();
     if (error) return { status: 500, body: { error: "The e-mail queue cannot be read" } };
     if (!row || row.kind !== type || row.user_id !== userId) return { status: 400, body: { error: "outbox_id does not match this e-mail" } };
     if (row.sent_at) return { status: 200, body: { success: true, skipped: true, reason: "duplicate" } };
+    // A staff "send now" of a queued row (e.g. one the outbox gave up on) never races an
+    // attempt of the outbox still in flight: claimed less than 10 minutes ago, no result yet.
+    if (!serviceCaller && row.claimed_at && Date.now() - Date.parse(String(row.claimed_at)) < 10 * 60000 &&
+      !String(row.last_error || "").startsWith(`attempt ${row.attempts} failed`) && !String(row.last_error || "").startsWith("gave up")) {
+      return { status: 409, body: { error: "The outbox is sending this e-mail right now: try again in 10 minutes.", queued: true } };
+    }
     outboxId = id;
     subjectId = UUID_RE.test(String(row.subject_id || "")) ? String(row.subject_id) : "";
     data = asRec(row.data);
   } else {
-    // Never twice: an e-mail the outbox holds is the outbox's to send.
+    // Never twice: an e-mail the outbox will still send is the outbox's to send. Rows it
+    // gave up on (5 attempts) do not count (staff may send those, or pass their outbox_id),
+    // and for a company decision only a row about the same company does.
     const { data: queued, error } = await db
       .from("notification_outbox")
-      .select("id")
+      .select("id, subject_id, data")
       .eq("kind", type)
       .eq("user_id", userId)
       .is("sent_at", null)
-      .limit(1);
+      .lt("attempts", OUTBOX_MAX_ATTEMPTS)
+      .limit(20);
     if (error) return { status: 500, body: { error: "The e-mail queue cannot be read" } };
-    if ((queued || []).length) return { status: 409, body: { error: "This e-mail is queued: the outbox sends it.", queued: true } };
+    const want = [subjectId, orgOfData(data)].filter(Boolean);
+    const same = ((queued || []) as Rec[]).filter((q) => {
+      if (!COMPANY_DECISIONS.has(type) || !want.length) return true;
+      const theirs = [String(q.subject_id || ""), orgOfData(asRec(q.data))].filter(Boolean);
+      return !theirs.length || theirs.some((x) => want.includes(x));
+    });
+    if (same.length) return { status: 409, body: { error: "This e-mail is queued: the outbox sends it.", queued: true, outbox_id: Number(same[0].id) } };
   }
 
   const resolved = await decisionFacts(db, type, userId, subjectId, data, callerText);

@@ -13,7 +13,11 @@
 //   POST {"job": "digest"}     08:00 Monaco  -> staff_review_digest
 // The SQL invoker already skips a job whose flag is off; this function checks again
 // (kill switch). {"force": true} runs a job whatever its flag (manual run by staff of
-// M3 with the service key, e.g. a canary test).
+// M3 with the service key, e.g. a canary test). While its flag is off, a forced outbox or
+// provision run must NAME its rows, or it is refused (400): {"job":"outbox","force":true,
+// "ids":[notification_outbox ids]} (those rows go at once: no wait for a new row or a
+// back-off), {"job":"provision","force":true,"job_ids":[...]} (provision-person then takes
+// only jobs of hidden test events). A canary test never e-mails the real queue.
 //
 // Notification outbox (Phase 3; registration contract §10.5). The database queues e-mails
 // in public.notification_outbox (Phase 2: account_under_review, team_join_request; Phase 3
@@ -37,15 +41,30 @@
 //     used: it cannot skip a kind, wait out a back-off or leave the newest rows alone;
 //   - rows younger than OUTBOX_MIN_AGE_MS are left to the page that queued them (it asks
 //     send-notification right away; two senders at once could both pass its checks);
+//   - held rows are read apart from the others, and only on a recheck (once a quarter of an
+//     hour), so however many pile up they never push the rows that can go out of the scan;
+//     a held account_under_review or team_join_request whose news is out of date (below) is
+//     settled then, without waiting for its sender;
 //   - a row whose news is out of date is settled WITHOUT sending (sent_at set, last_error
 //     "not sent: ..."): a team_join_request whose invitation is no longer join_requested
 //     (or is past its expiry), an account_under_review whose person is no longer pending
 //     or that waited more than 3 days, a decision the database no longer shows
-//     (send-status-notification answers 409 stale);
-//   - sent: notification_outbox_done(id) (the sending function marks it too);
+//     (send-status-notification answers 409 stale), a row the go-live send-notification
+//     could not resolve twice in a row (no real owner, no address: 400 "Could not resolve
+//     the row this notification is about");
+//   - sent: notification_outbox_done(id) (the sending function marks it too). An answer
+//     {skipped, reason: "duplicate"} is NOT taken for a send: send-notification also gives
+//     it when the same e-mail was only TRIED less than 10 minutes ago (it logs the try
+//     before calling the provider, so a provider error leaves the log). The row is read
+//     again: marked sent = done; otherwise it counts as a failed attempt and waits 11
+//     minutes (out of that window) before the next one;
 //   - failed: last_error "attempt n failed: ...", the claim kept; retried after 2 min,
-//     10 min, 30 min, then 2 h; after the 5th attempt the row stays unsent ("gave up ...",
-//     counted in the daily review digest).
+//     10 min, 30 min, then 2 h (a 429 of send-notification's daily cap: a day later);
+//     after the 5th attempt the row stays unsent ("gave up ...", in the daily review
+//     digest; only those that gave up within the last 24 hours make it go out).
+//   Never twice, with one exception: send-notification sent the e-mail but could not mark
+//   the row (notification_outbox_done failed). The duplicate answer then comes back, the
+//   row is retried after the 10-minute window, and the person gets it a second time.
 //
 // verify_jwt = TRUE, and the caller must hold a service-role key (checked below: any
 // valid user JWT passes the gateway, so the gateway check alone is not enough).
@@ -876,16 +895,20 @@ type DigestData = {
   /** The Event registrations tab, event by event. */
   registrations: Array<{ title: string; slug: string; requested: number; needs_info: number; oldestDays: number; url: string }>;
   provisioning: { failed: number; queued: number };
-  /** notification_outbox: e-mails that gave up after 5 attempts / held until the go-live version of their sender. */
-  emails: { gaveUp: number; held: number };
+  /**
+   * notification_outbox: e-mails that gave up after 5 attempts (all of them / those whose
+   * last attempt was within 24 hours: only these make the digest go out, so one old row
+   * does not send it every morning) / held until the go-live version of their sender.
+   */
+  emails: { gaveUp: number; gaveUpRecent: number; held: number };
 };
 
 const ageText = (days: number) => (days < 1 ? "today" : days === 1 ? "1 day" : `${days} days`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** Items that make the digest go out: everything but the FYI tabs (team joins, duplicates). */
+/** Items that make the digest go out: everything but the FYI tabs (team joins, duplicates), held e-mails and e-mails that gave up more than a day ago. */
 function digestTotal(d: DigestData): number {
-  return d.tabs.filter((t) => !t.fyi).reduce((n, t) => n + t.count, 0) + d.provisioning.failed + d.emails.gaveUp;
+  return d.tabs.filter((t) => !t.fyi).reduce((n, t) => n + t.count, 0) + d.provisioning.failed + d.emails.gaveUpRecent;
 }
 
 /** staff_review_digest: what waits for M3, tab by tab, once a day. */
@@ -906,7 +929,10 @@ function renderReviewDigest(d: DigestData): Mail {
   );
   const ops: Array<[string, string]> = [];
   if (d.provisioning.failed || d.provisioning.queued) ops.push(["Account creation", `${d.provisioning.failed} failed, ${d.provisioning.queued} waiting`]);
-  if (d.emails.gaveUp) ops.push(["E-mails not sent", `${plural(d.emails.gaveUp, "e-mail")} gave up after 5 attempts (notification outbox)`]);
+  if (d.emails.gaveUp) {
+    const recent = d.emails.gaveUpRecent ? `, ${d.emails.gaveUpRecent} of them in the last 24 hours` : "";
+    ops.push(["E-mails not sent", `${plural(d.emails.gaveUp, "e-mail")} gave up after 5 attempts${recent} (notification outbox)`]);
+  }
   if (d.emails.held) ops.push(["E-mails on hold", `${plural(d.emails.held, "e-mail")} wait for the go-live version of their sender`]);
   const a = `${plural(total, "item")} wait${total === 1 ? "s" : ""} for M3 this morning.`;
   const note = "Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings.";
@@ -1284,8 +1310,8 @@ async function collectDigest(): Promise<DigestData> {
   const now = Date.now();
   const since24h = new Date(now - 86400000).toISOString();
   const review = `${SITE_URL}/admin/review`;
-  const oldestOf = (dates: unknown[]) => dates.reduce((m: number, x) => Math.max(m, daysSince(x, now)), 0);
-  const d: DigestData = { tabs: [], registrations: [], provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, held: 0 } };
+  const oldestOf = (dates: unknown[]) => dates.reduce<number>((m, x) => Math.max(m, daysSince(x, now)), 0);
+  const d: DigestData = { tabs: [], registrations: [], provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, gaveUpRecent: 0, held: 0 } };
 
   // People & companies.
   const { data: people, error: pErr } = await db.from("profiles").select("created_at")
@@ -1376,9 +1402,12 @@ async function collectDigest(): Promise<DigestData> {
   d.provisioning = { failed: failed || 0, queued: queued || 0 };
   const { count: gaveUp } = await db.from("notification_outbox").select("id", { count: "exact", head: true })
     .is("sent_at", null).gte("attempts", OUTBOX_MAX_ATTEMPTS);
+  // claimed_at of a row that gave up = the time of its 5th attempt.
+  const { count: gaveUpRecent } = await db.from("notification_outbox").select("id", { count: "exact", head: true })
+    .is("sent_at", null).gte("attempts", OUTBOX_MAX_ATTEMPTS).gte("claimed_at", since24h);
   const { count: held } = await db.from("notification_outbox").select("id", { count: "exact", head: true })
     .is("sent_at", null).like("last_error", "held:%");
-  d.emails = { gaveUp: gaveUp || 0, held: held || 0 };
+  d.emails = { gaveUp: gaveUp || 0, gaveUpRecent: gaveUpRecent || 0, held: held || 0 };
   return d;
 }
 
@@ -1416,7 +1445,7 @@ const OUTBOX_SENDERS: Record<string, OutboxSender> = {
 };
 /** Sent per run (each is one call to a sending function, about a second). */
 const OUTBOX_BATCH = 20;
-/** Unsent rows read per run. */
+/** Unsent rows read per query (rows that may go; held rows apart, on a recheck only). */
 const OUTBOX_SCAN = 300;
 /** notification_outbox_claim's own limit: a row with 5 attempts is never claimed again. */
 const OUTBOX_MAX_ATTEMPTS = 5;
@@ -1426,6 +1455,23 @@ const OUTBOX_MIN_AGE_MS = 2 * 60000;
 const OUTBOX_LEASE_MS = 10 * 60000;
 /** Wait after the n-th failed attempt (index n). */
 const OUTBOX_BACKOFF_MS = [0, 2 * 60000, 10 * 60000, 30 * 60000, 2 * 3600000];
+/**
+ * send-notification answers {success, skipped, reason: "duplicate"} in two cases: the queued
+ * row is already sent, or the same e-mail was TRIED for this recipient less than 10 minutes
+ * ago (it logs the try BEFORE calling the provider, so a provider error leaves the log). Only
+ * the first is a send: in the second case the row is not marked, it waits out the window and
+ * is tried again (the failure note carries this marker).
+ */
+const OUTBOX_DUPLICATE_NOTE = "duplicate window";
+const OUTBOX_DUPLICATE_WAIT_MS = 11 * 60000;
+/** send-notification's daily cap on e-mails naming a company M3 has not verified (429): tried again a day later. */
+const OUTBOX_RATE_LIMITED_WAIT_MS = 24 * 3600000;
+/** The go-live send-notification found no one to send the e-mail to (a company with no real owner, an account without an address). */
+const OUTBOX_UNRESOLVED = "Could not resolve the row this notification is about";
+/** Most rows a forced run may name. */
+const OUTBOX_FORCE_IDS = 50;
+/** Held rows checked for out-of-date news per run (one read each). */
+const OUTBOX_HELD_CHECKS = 50;
 /** account_under_review is news for a few days only. */
 const OUTBOX_UNDER_REVIEW_MAX_AGE_MS = 3 * 86400000;
 const OUTBOX_COLS = "id, kind, user_id, subject_id, data, created_at, claimed_at, attempts, last_error";
@@ -1492,14 +1538,23 @@ const heldNote = (kind: string) =>
     ? `held: the deployed ${senderOf(kind)} cannot send ${kind} yet; it leaves once the go-live version is deployed`
     : `held: registration-cron has no sender for ${kind}`;
 
-/** When the row may be claimed (ms). */
-function outboxDueAt(r: OutboxRow): number {
-  const earliest = Date.parse(r.created_at) + OUTBOX_MIN_AGE_MS;
+/**
+ * When the row may be claimed (ms). forced = a forced run that names its rows: no wait for a
+ * new row or a back-off, but never while an attempt may still be in flight, nor inside
+ * send-notification's duplicate window.
+ */
+function outboxDueAt(r: OutboxRow, forced = false): number {
+  const earliest = forced ? 0 : Date.parse(r.created_at) + OUTBOX_MIN_AGE_MS;
   if (!r.claimed_at) return earliest;
   const claimed = Date.parse(r.claimed_at);
+  const note = String(r.last_error || "");
   // The latest attempt's failure was recorded: back off; otherwise it may still be in flight.
-  const failed = String(r.last_error || "").startsWith(`attempt ${r.attempts} failed`);
-  const wait = failed ? OUTBOX_BACKOFF_MS[r.attempts] ?? OUTBOX_LEASE_MS : OUTBOX_LEASE_MS;
+  if (!note.startsWith(`attempt ${r.attempts} failed`)) return Math.max(earliest, claimed + OUTBOX_LEASE_MS);
+  const backoff = OUTBOX_BACKOFF_MS[r.attempts] ?? OUTBOX_LEASE_MS;
+  if (note.includes(OUTBOX_DUPLICATE_NOTE)) return Math.max(earliest, claimed + Math.max(backoff, OUTBOX_DUPLICATE_WAIT_MS));
+  if (forced) return earliest;
+  // Refused by send-notification's daily cap (429): the next day.
+  const wait = / 429( |$)/.test(note) ? Math.max(backoff, OUTBOX_RATE_LIMITED_WAIT_MS) : backoff;
   return Math.max(earliest, claimed + wait);
 }
 
@@ -1601,7 +1656,16 @@ async function sendOutboxRow(r: OutboxRow): Promise<"sent" | "settled" | "held" 
   const res = await callFunction(fn, outboxRequest(r));
   const err = clean(res.body.error, 200);
   if (res.status >= 200 && res.status < 300 && res.body.success === true) {
-    // Sent, or already sent (duplicate), or the recipient opted out of the category: settled.
+    if (res.body.skipped === true && res.body.reason === "duplicate") {
+      // Already sent (the function read sent_at and marked nothing), or only TRIED less than
+      // 10 minutes ago (see OUTBOX_DUPLICATE_NOTE): only the row itself tells which.
+      const state = await outboxSentState(r.id);
+      if (state === "sent") return "sent";
+      if (state === "gone") return "settled";
+      await failOutbox(r, `${fn} answered "duplicate" for a row ${state === "unsent" ? "nobody marked sent" : "that could not be read again"}: the same e-mail was tried less than 10 minutes ago (${OUTBOX_DUPLICATE_NOTE}), tried again after it`);
+      return "failed";
+    }
+    // Sent, or the recipient opted out of the category: settled (the sending function marks it too).
     await markOutboxSent(r);
     return "sent";
   }
@@ -1617,31 +1681,83 @@ async function sendOutboxRow(r: OutboxRow): Promise<"sent" | "settled" | "held" 
     await unclaimHeld(r, heldNote(r.kind));
     return "held";
   }
+  // No one to send it to (the go-live send-notification: a company with no real owner, an
+  // account without an address). Once may be a passing read error; twice in a row it is
+  // the row: settled unsent, so it never gives up and raises the daily digest for good.
+  if (fn === "send-notification" && res.status === 400 && err === OUTBOX_UNRESOLVED && String(r.last_error || "").includes(OUTBOX_UNRESOLVED)) {
+    await settleOutbox(r, `send-notification found no one to send it to, twice (${OUTBOX_UNRESOLVED.toLowerCase()})`);
+    return "settled";
+  }
   await failOutbox(r, `${fn} ${res.status}${err ? ` ${err}` : ""}`);
   return "failed";
 }
 
-async function jobOutbox(flags: Flags, force: boolean): Promise<Json> {
+/** The row as the database has it now: sent, unsent, gone, or unknown (unreadable). */
+async function outboxSentState(id: number): Promise<"sent" | "unsent" | "gone" | "unknown"> {
+  const { data, error } = await db.from("notification_outbox").select("sent_at").eq("id", id).maybeSingle();
+  if (error) return "unknown";
+  if (!data) return "gone";
+  return (data as Json).sent_at ? "sent" : "unsent";
+}
+
+async function jobOutbox(flags: Flags, force: boolean, ids: number[] = []): Promise<Json> {
   if (!force && flags.outbox_sender !== true) return { skipped: "flag outbox_sender is off" };
-  const { data, error } = await db.from("notification_outbox").select(OUTBOX_COLS)
-    .is("sent_at", null).lt("attempts", OUTBOX_MAX_ATTEMPTS).order("id", { ascending: true }).limit(OUTBOX_SCAN);
-  if (error) throw new Error(`outbox read: ${error.message}`);
-  const rows = (data as OutboxRow[] | null) || [];
-  if (!rows.length) return { sent: 0 };
+  // A forced run while the sender is off (a canary test before go-live) names its rows: it
+  // never drains the queue of real people.
+  if (force && flags.outbox_sender !== true && !ids.length) {
+    return { refused: "force_needs_ids", detail: "outbox_sender is off: a forced run must name its rows ({\"ids\": [notification_outbox ids]})" };
+  }
   const now = Date.now();
+  const forced = force && ids.length > 0;
+  // Rows held for a kind the deployed sender does not know are looked at again once a
+  // quarter of an hour (pg_cron wakes the job for them at minutes 0, 15, 30 and 45; one
+  // minute of slack), or on a forced run, not every minute.
+  const recheckHeld = force || new Date(now).getUTCMinutes() % 15 <= 1;
+  const base = () => db.from("notification_outbox").select(OUTBOX_COLS).is("sent_at", null).lt("attempts", OUTBOX_MAX_ATTEMPTS);
+  // Held rows are read apart, so that however many pile up they never push the rows that
+  // can go out of the scan.
+  const reads = ids.length
+    ? [base().in("id", ids)]
+    : [
+      base().is("last_error", null).order("id", { ascending: true }).limit(OUTBOX_SCAN),
+      base().not("last_error", "like", "held:%").order("id", { ascending: true }).limit(OUTBOX_SCAN),
+      ...(recheckHeld ? [base().like("last_error", "held:%").order("id", { ascending: true }).limit(OUTBOX_SCAN)] : []),
+    ];
+  const byId = new Map<number, OutboxRow>();
+  for (const q of reads) {
+    const { data, error } = await q;
+    if (error) throw new Error(`outbox read: ${error.message}`);
+    for (const r of (data as OutboxRow[] | null) || []) byId.set(Number(r.id), r);
+  }
+  const rows = [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+  if (!rows.length) return { sent: 0 };
   // Only rows that may go now (not too new, not backing off); the senders are asked about
-  // their kinds only. Rows held for an unknown kind are looked at again once a quarter of
-  // an hour (or on a forced run), not every minute.
-  const recheckHeld = force || new Date(now).getUTCMinutes() % 15 === 0;
-  const ready = rows.filter((r) => outboxDueAt(r) <= now && (recheckHeld || !String(r.last_error || "").startsWith("held:")));
+  // their kinds only.
+  const ready = rows.filter((r) => outboxDueAt(r, forced) <= now);
   if (!ready.length) return { sent: 0, waiting: rows.length };
   const kinds = [...new Set(ready.map((r) => r.kind))];
   const support = await outboxSupport(kinds);
   const held: Record<string, number> = {};
   const newlyHeld: Record<string, number> = {};
   const counts = { sent: 0, settled: 0, failed: 0, busy: 0 };
+  let heldChecks = 0;
   for (const r of ready) {
     if (support.get(r.kind) !== "no") continue;
+    // News already out of date is settled now, not when its sender arrives (a held
+    // account_under_review would otherwise wait for go-live to be found too old).
+    if (heldChecks < OUTBOX_HELD_CHECKS && (r.kind === "account_under_review" || r.kind === "team_join_request")) {
+      heldChecks++;
+      try {
+        const why = await outboxOutOfDate(r);
+        if (why) {
+          await settleOutbox(r, why);
+          counts.settled++;
+          continue;
+        }
+      } catch (e) {
+        console.error("registration-cron: held row check failed", r.id, e instanceof Error ? e.message : e);
+      }
+    }
     held[r.kind] = (held[r.kind] || 0) + 1;
     if (await noteHeld(r, heldNote(r.kind))) newlyHeld[r.kind] = (newlyHeld[r.kind] || 0) + 1;
   }
@@ -1663,12 +1779,17 @@ async function jobOutbox(flags: Flags, force: boolean): Promise<Json> {
 }
 
 // ─── Job: provisioning (provision-person does the work) ──────────────────────
-async function jobProvision(flags: Flags, force: boolean): Promise<Json> {
+async function jobProvision(flags: Flags, force: boolean, jobIds: string[] = []): Promise<Json> {
   if (!force && flags.provisioning !== true) return { skipped: "flag provisioning is off" };
+  // A forced run while provisioning is off (a canary test) names its jobs, and provision-person
+  // then takes only jobs of hidden (test) events: it never provisions the real queue.
+  if (force && flags.provisioning !== true && !jobIds.length) {
+    return { refused: "force_needs_job_ids", detail: "provisioning is off: a forced run must name its jobs ({\"job_ids\": [...]}, hidden test events only)" };
+  }
   const r = await fetch(`${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/provision-person`, {
     method: "POST",
     headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json", apikey: ANON_KEY || SERVICE_ROLE },
-    body: JSON.stringify({ action: "run", force }),
+    body: JSON.stringify({ action: "run", force, ...(jobIds.length ? { job_ids: jobIds } : {}) }),
   });
   const body = await r.json().catch(() => ({}));
   return { status: r.status, ...obj(body) };
@@ -1685,12 +1806,16 @@ Deno.serve(async (req: Request) => {
   } catch { /* empty body */ }
   const job = String(body.job || "");
   const force = body.force === true;
+  // The rows a forced run names (see the header): notification_outbox ids / provisioning job ids.
+  const ids = (Array.isArray(body.ids) ? body.ids : []).map((x: unknown) => Number(x)).filter((n: number) => Number.isSafeInteger(n) && n > 0).slice(0, OUTBOX_FORCE_IDS);
+  const jobIds = (Array.isArray(body.job_ids) ? body.job_ids : []).filter((x: unknown) => typeof x === "string" && UUID_RE.test(x)).slice(0, 100);
+  const answer = (r: Json) => jsonRes({ ok: !r.refused, job, ...r }, r.refused ? 400 : 200);
   try {
     const flags = await loadFlags();
     if (job === "reminders") return jsonRes({ ok: true, job, ...(await jobReminders(flags, force)) });
     if (job === "digest") return jsonRes({ ok: true, job, ...(await jobDigest(flags, force)) });
-    if (job === "provision") return jsonRes({ ok: true, job, ...(await jobProvision(flags, force)) });
-    if (job === "outbox") return jsonRes({ ok: true, job, ...(await jobOutbox(flags, force)) });
+    if (job === "provision") return answer(await jobProvision(flags, force, jobIds));
+    if (job === "outbox") return answer(await jobOutbox(flags, force, ids));
     return jsonRes({ ok: false, error: "unknown_job" }, 400);
   } catch (e) {
     console.error("registration-cron: job failed", job, e instanceof Error ? e.message : JSON.stringify(e));

@@ -8,7 +8,7 @@
 // choices on the job (org_action, validate_person).
 //
 // Callers (verify_jwt = TRUE; the caller is checked again here):
-//   service role (registration-cron, every 5 min)  {action:"run"}
+//   service role (registration-cron, every minute)  {action:"run"}
 //       up to 25 jobs (queued or failed, attempts < 5; a queued job with 5 attempts, i.e.
 //       a run that kept crashing, is marked failed), then up to 50 due account e-mails
 //       (an e-mail that failed 5 times is given up: email_due_at cleared, last_error
@@ -67,6 +67,19 @@
 // 'invite' only for an unconfirmed one made by an older version; nothing is sent by
 // GoTrue) and goes through /welcome?token_hash=…, the scanner-proof page that redeems
 // it. Skipped when the person already set a password.
+// The confirmation e-mail first (Victor, 15 Oct 2026, WYS): the account e-mail of a
+// registration never leaves before the event's own confirmation e-mail of THAT
+// confirmation is logged in gl_email_log (guest-list's QR e-mail, kind 'pass', for a
+// guest_list_v1 event such as wys26; the registration function's 'reg_confirmed' for a
+// core_v2 event), and not until CONFIRMATION_MAIL_GAP_MS after it, so it always arrives
+// second ("about one minute later": the database makes it due about a minute after the
+// confirmation and registration-cron runs the job every minute). Until then the e-mail
+// waits (last_error "e-mail: waiting ..." for staff, the run moves on to the next one).
+// A staff "send now" keeps the order too, but no longer waits for a confirmation
+// e-mail that never came once the confirmation is CONFIRMATION_MAIL_GIVE_UP_MS old (a
+// lost log row must not block the account e-mail forever). A registration no longer
+// confirmed gets no account e-mail from a run (staff can still send it: it then names
+// no event).
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles them).
 
@@ -82,7 +95,25 @@ const PLATFORM_FROM = "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 
 const BATCH_JOBS = 25;
 const BATCH_EMAILS = 50;
+// Due e-mails read per run: those still waiting for their confirmation e-mail are skipped
+// without counting towards BATCH_EMAILS, so they never hold the others back.
+const SCAN_EMAILS = 300;
 const MAX_ATTEMPTS = 5;
+// The account e-mail leaves at least this long after the confirmation e-mail (the QR e-mail
+// of guest-list for wys26), so that it arrives second.
+const CONFIRMATION_MAIL_GAP_MS = 60_000;
+// A confirmation e-mail logged up to this long before the confirmation time still counts
+// (clock skew between the database and the sending function).
+const CONFIRMATION_MAIL_SLACK_MS = 5 * 60_000;
+// Staff "send now": no longer waits for a confirmation e-mail that never came this long
+// after the confirmation.
+const CONFIRMATION_MAIL_GIVE_UP_MS = 10 * 60_000;
+// The account e-mail mentions "your entry pass is in a separate e-mail" when it follows the
+// confirmation e-mail within this time.
+const PASS_NOTE_WITHIN_MS = 24 * 3600_000;
+const EMAIL_WAITING = "e-mail: waiting for the confirmation e-mail (entry pass) to leave first";
+// A held account e-mail is given up after this long (staff can still send it).
+const HOLD_LIMIT_MS = 7 * 86400_000;
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -475,12 +506,17 @@ type Mail = { subject: string; html: string; text: string };
 const h = (v: unknown) => emEsc(String(v ?? ""));
 const strong = (v: unknown) => `<strong style="color:${EM.navy};">${h(v)}</strong>`;
 
-/** account_ready_set_password: the account M3 created at the confirmation of an on-site registration. */
-function renderAccountReady(firstName: string, eventTitle: string, url: string): Mail {
+/**
+ * account_ready_set_password: the account M3 created at the confirmation of an on-site
+ * registration. passNote: it follows the event's confirmation e-mail (the entry pass) of
+ * the same day, and says so, so nobody looks for a QR code in it.
+ */
+function renderAccountReady(firstName: string, eventTitle: string, url: string, passNote = false): Mail {
   const greeting = `Hello ${clean(firstName, 80) || "there"},`;
   const a = eventTitle
     ? `M3 has confirmed your place at ${eventTitle}, and we have created your Smart Marina Connect account with this e-mail address.`
     : "M3 has created your Smart Marina Connect account with this e-mail address.";
+  const pass = eventTitle && passNote ? "Your entry pass is in a separate e-mail: keep it for the day of the event." : "";
   const b = "Choose your password to finish. Your account shows your event registrations and opens the Smart Marina Connect network of marinas and maritime businesses.";
   const note = "This link works once and expires after 24 hours. If it has expired, open smartmarinaconnect.com, choose Sign in, then \"Forgot password?\" with this e-mail address.";
   return {
@@ -493,11 +529,11 @@ function renderAccountReady(firstName: string, eventTitle: string, url: string):
       greeting: h(greeting),
       bodyHtml: emP(eventTitle
         ? `M3 has confirmed your place at ${strong(eventTitle)}, and we have created your Smart Marina Connect account with this e-mail address.`
-        : h(a)) + emP(h(b)),
+        : h(a)) + (pass ? emP(h(pass)) : "") + emP(h(b)),
       cta: { label: "Choose my password", url: h(url), showUrl: true },
       footerNote: h(note),
     }),
-    text: emText({ title: "Your account is ready", greeting, body: [a, b].join("\n\n"), cta: { label: "Choose my password", url }, footerNote: note }),
+    text: emText({ title: "Your account is ready", greeting, body: [a, pass, b].filter(Boolean).join("\n\n"), cta: { label: "Choose my password", url }, footerNote: note }),
   };
 }
 
@@ -862,7 +898,72 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
 const EMAIL_GAVE_UP = "e-mail: gave up";
 const emailAttemptsOf = (lastError: unknown) => Number(/^e-mail \(attempt ([0-9]+)\)/.exec(String(lastError || ""))?.[1] || 0);
 
+type MailOrder =
+  | { state: "ok"; confirmationMailAt: number | null }
+  | { state: "waiting"; giveUp: boolean }
+  | { state: "too_soon" }
+  | { state: "not_confirmed" };
+
+/**
+ * Where the account e-mail of this job stands against the event's own confirmation e-mail
+ * (see the header): guest-list logs its QR e-mail as 'pass' (guest_list_v1, wys26), the
+ * registration function its on-site confirmation as 'reg_confirmed' (core_v2). Only a log
+ * row of THIS confirmation counts: sent at or after the latest decision (decided_at: staff
+ * approval) or answer (responded_at: an invitation accepted), minus a little clock slack.
+ */
+async function confirmationMailOf(job: Json): Promise<MailOrder> {
+  if (job.source_kind !== "gl_guest" || !UUID_RE.test(String(job.source_id || ""))) return { state: "ok", confirmationMailAt: null };
+  const { data: g, error } = await db.from("gl_guest").select("id, event_id, status, decided_at, responded_at").eq("id", job.source_id).maybeSingle();
+  if (error) throw new Error(`registration read: ${error.message}`);
+  const guest = g as Json | null;
+  if (!guest) return { state: "ok", confirmationMailAt: null }; // gone: the send finds no account and stops
+  if (guest.status !== "confirmed") return { state: "not_confirmed" };
+  const { data: ev } = await db.from("gl_event").select("engine").eq("id", guest.event_id).maybeSingle();
+  const kind = (ev as Json | null)?.engine === "core_v2" ? "reg_confirmed" : "pass";
+  const times = [guest.decided_at, guest.responded_at].map((t) => Date.parse(String(t || ""))).filter((t) => Number.isFinite(t));
+  const confirmedAt = times.length ? Math.max(...times) : Date.parse(String(job.created_at || "")) || Date.now();
+  const { data: logs, error: logErr } = await db.from("gl_email_log").select("sent_at")
+    .eq("guest_id", guest.id).eq("kind", kind).gte("sent_at", new Date(confirmedAt - CONFIRMATION_MAIL_SLACK_MS).toISOString())
+    .order("sent_at", { ascending: false }).limit(1);
+  if (logErr) throw new Error(`e-mail log read: ${logErr.message}`);
+  const last = Date.parse(String(((logs as Json[] | null) || [])[0]?.sent_at || ""));
+  if (!Number.isFinite(last)) return { state: "waiting", giveUp: Date.now() - confirmedAt >= CONFIRMATION_MAIL_GIVE_UP_MS };
+  if (Date.now() - last < CONFIRMATION_MAIL_GAP_MS) return { state: "too_soon" };
+  return { state: "ok", confirmationMailAt: last };
+}
+
 async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
+  // The confirmation e-mail first (see the header). Checked before the claim: a waiting
+  // e-mail is left exactly as it was, due, for the next run.
+  let order: MailOrder;
+  try {
+    order = await confirmationMailOf(job);
+  } catch (e) {
+    console.error("provision-person: confirmation e-mail check failed", job.id, e instanceof Error ? e.message : e);
+    return { id: job.id, email: "check_failed" };
+  }
+  // A run stops looking at an e-mail held for a week (the cron's own wake-up window):
+  // email_due_at cleared, last_error says why; staff can still send it ("send now").
+  const heldTooLong = !force && Date.now() - Date.parse(String(job.email_due_at || "")) > HOLD_LIMIT_MS;
+  if (order.state === "too_soon" || (order.state === "waiting" && !(force && order.giveUp))) {
+    if (order.state === "waiting" && heldTooLong) {
+      await db.from("account_provision_job").update({ email_due_at: null, last_error: `${EMAIL_GAVE_UP} waiting for the confirmation e-mail (entry pass): resend it from the event admin, then send this one` })
+        .eq("id", job.id).is("email_sent_at", null);
+      return { id: job.id, email: "gave_up_waiting" };
+    }
+    if (order.state === "waiting" && !job.last_error) {
+      await db.from("account_provision_job").update({ last_error: EMAIL_WAITING }).eq("id", job.id).is("last_error", null).is("email_sent_at", null);
+    }
+    return { id: job.id, email: order.state === "waiting" ? "waiting_for_confirmation_email" : "too_soon" };
+  }
+  if (order.state === "not_confirmed" && !force) {
+    // Left due: if the registration is confirmed again within a week, it goes then.
+    if (heldTooLong) {
+      await db.from("account_provision_job").update({ email_due_at: null, last_error: `${EMAIL_GAVE_UP}: the registration is no longer confirmed` })
+        .eq("id", job.id).is("email_sent_at", null);
+    }
+    return { id: job.id, email: "registration_not_confirmed" };
+  }
   const now = new Date().toISOString();
   // Staff "Send account e-mails now" on an e-mail the run gave up on: due again now.
   if (force && !job.email_due_at && !job.email_sent_at && String(job.last_error || "").startsWith(EMAIL_GAVE_UP)) {
@@ -907,7 +1008,10 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
     // The live site's /welcome for real events (wys26 included); the preview only for hidden tests.
     const url = `${hidden ? REG_SITE : SITE_URL}/welcome?token_hash=${encodeURIComponent(hashed)}&type=${encodeURIComponent(clean(props.verification_type, 20) || type)}&next=${encodeURIComponent("/dashboard")}`;
     const p = await profileOf(userId);
-    const ok = await sendMail(user.email, renderAccountReady(String(p?.first_name || obj(j.payload).first_name || ""), title, url));
+    // A registration no longer confirmed (staff sent it anyway): the e-mail names no event.
+    const confirmed = order.state !== "not_confirmed";
+    const passNote = order.state === "ok" && order.confirmationMailAt !== null && Date.now() - order.confirmationMailAt < PASS_NOTE_WITHIN_MS;
+    const ok = await sendMail(user.email, renderAccountReady(String(p?.first_name || obj(j.payload).first_name || ""), confirmed ? title : "", url, passNote));
     if (!ok) throw new Error("resend refused the account e-mail");
     // Sent: the count of earlier failed tries is no longer an error to show staff.
     if (String(j.last_error || "").startsWith("e-mail")) {
@@ -987,10 +1091,22 @@ Deno.serve(async (req: Request) => {
     for (const j of (jobs as Json[] | null) || []) results.push(await processJob(j, null));
     const { data: due } = await db.from("account_provision_job").select("*")
       .eq("status", "done").is("email_sent_at", null).not("email_due_at", "is", null).lte("email_due_at", new Date().toISOString())
-      .order("email_due_at", { ascending: true }).limit(BATCH_EMAILS);
+      .order("email_due_at", { ascending: true }).limit(SCAN_EMAILS);
     const emails: Json[] = [];
-    for (const j of (due as Json[] | null) || []) emails.push(await sendAccountEmail(j, false));
-    return json(req, { ok: true, jobs: results, emails });
+    const waiting: Json[] = [];
+    let tried = 0;
+    for (const j of (due as Json[] | null) || []) {
+      if (tried >= BATCH_EMAILS) break;
+      const r = await sendAccountEmail(j, false);
+      // Waiting for the confirmation e-mail (or for the registration to be confirmed again):
+      // nothing was attempted, the next e-mail gets the slot.
+      if (["waiting_for_confirmation_email", "too_soon", "registration_not_confirmed", "check_failed"].includes(String(r.email))) waiting.push(r);
+      else {
+        tried++;
+        emails.push(r);
+      }
+    }
+    return json(req, { ok: true, jobs: results, emails, waiting: waiting.length });
   } catch (e) {
     console.error("provision-person: error", e instanceof Error ? e.message : JSON.stringify(e));
     return json(req, { error: "server" }, 500);

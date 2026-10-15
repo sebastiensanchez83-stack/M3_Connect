@@ -2,6 +2,21 @@
 // (or find their existing one), grant them portal access (sp_sponsor_user), and
 // email a magic link to set their password → they land on their Sponsorship tab.
 // Staff-triggered (M3 admin/moderator OR a Yacht Club de Monaco manager).
+//
+// Q5 rule (registration spec §4.7, Phase 3; Victor 7 and 11 Oct 2026):
+//   - a NEW account is validated when verified M3 staff invite; a Yacht Club manager's
+//     invitation leaves it pending M3's review (onboarding "submitted": it shows in the
+//     review queue);
+//   - an existing account is never promoted (or demoted): persona and status untouched;
+//   - the invitee becomes the company's owner only when staff tick `as_owner` and the
+//     company has no owner (no owner member, no owner_user_id); otherwise a collaborator;
+//   - an existing account is added to the company only on a staff invitation (only the
+//     owner and M3 add an existing user directly); a Yacht Club manager's invitation gives
+//     it the sponsorship portal only.
+// The existing account is the one whose SIGN-IN address is the typed one (profiles.email
+// only finds candidates; LIKE wildcards in the address are escaped).
+// Response: {ok, user_id, created_account, emailed, access_status: verified | pending |
+// unchanged, membership: owner | collaborator | existing | skipped | none}.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -382,14 +397,15 @@ Deno.serve(async (req) => {
   if (!uid) return json(req, { error: "Unauthorized" }, 401);
   const { data: prof } = await admin.from("profiles").select("persona, access_status").eq("user_id", uid).maybeSingle();
   const p = prof as { persona?: string; access_status?: string } | null;
-  let isManager = !!p && ["admin", "moderator"].includes(p.persona || "") && p.access_status === "verified";
+  const isStaff = !!p && ["admin", "moderator"].includes(p.persona || "") && p.access_status === "verified";
+  let isManager = isStaff;
   if (!isManager) {
     const { data: yc } = await admin.from("sm_event_partner").select("id").eq("user_id", uid).eq("kind", "yacht_club").limit(1).maybeSingle();
     isManager = !!yc;
   }
   if (!isManager) return json(req, { error: "Forbidden" }, 403);
 
-  let body: { sponsor_id?: string; email?: string; first_name?: string; last_name?: string };
+  let body: { sponsor_id?: string; email?: string; first_name?: string; last_name?: string; as_owner?: boolean };
   try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON" }, 400); }
 
   const email = (body.email || "").trim().toLowerCase();
@@ -410,27 +426,47 @@ Deno.serve(async (req) => {
     const msg = (createErr.message || "").toLowerCase();
     const exists = (createErr as { code?: string }).code === "email_exists" || msg.includes("already");
     if (!exists) { console.error("createUser failed", createErr); return json(req, { error: "Could not create the account" }, 500); }
-    const { data: existing } = await admin.from("profiles").select("user_id").ilike("email", email).maybeSingle();
-    userId = (existing as { user_id?: string } | null)?.user_id || null;
+    userId = await accountWithAddress(admin, email);
     if (!userId) return json(req, { error: "An auth user exists for this email but has no profile — resolve in Supabase" }, 409);
   } else {
     userId = created.user!.id;
     createdAccount = true;
   }
 
-  // 2) Verify a fresh account (never touch staff or an already-verified profile).
-  const { data: tprof } = await admin.from("profiles").select("persona, access_status").eq("user_id", userId).maybeSingle();
-  const tp = tprof as { persona?: string; access_status?: string } | null;
-  if (tp && !["admin", "moderator"].includes(tp.persona || "") && tp.access_status !== "verified") {
-    await admin.from("profiles").update({ persona: "partner", access_status: "verified", onboarding_status: "completed" }).eq("user_id", userId);
+  // 2) Bootstrap a NEW account only (Q5, see the header): validated on a staff invitation,
+  //    pending M3's review on a Yacht Club manager's. An existing account is left as it is.
+  let accessStatus: "verified" | "pending" | "unchanged" = "unchanged";
+  if (createdAccount) {
+    const { error: profErr } = await admin.from("profiles")
+      .update({ persona: "partner", access_status: isStaff ? "verified" : "pending", onboarding_status: isStaff ? "completed" : "submitted" })
+      .eq("user_id", userId);
+    if (profErr) console.error("profile bootstrap failed", profErr);
+    else accessStatus = isStaff ? "verified" : "pending";
   }
 
-  // 3) Optional org membership (so they show as a partner team member).
+  // 3) Company membership (so they show as a team member of the sponsor's company).
+  //    Owner only when staff tick as_owner and the company has none; an existing account
+  //    joins only on a staff invitation.
+  let membership: "owner" | "collaborator" | "existing" | "skipped" | "none" = "none";
   if (sponsor.organization_id) {
     const { data: mem } = await admin.from("organization_members").select("id").eq("organization_id", sponsor.organization_id).eq("user_id", userId).maybeSingle();
-    if (!mem) {
-      const { data: owner } = await admin.from("organization_members").select("id").eq("organization_id", sponsor.organization_id).eq("role", "owner").limit(1).maybeSingle();
-      await admin.from("organization_members").insert({ organization_id: sponsor.organization_id, user_id: userId, role: owner ? "collaborator" : "owner" });
+    if (mem) membership = "existing";
+    else if (!createdAccount && !isStaff) membership = "skipped";
+    else {
+      let role: "owner" | "collaborator" = "collaborator";
+      if (isStaff && body.as_owner === true) {
+        const { data: ownerMem } = await admin.from("organization_members").select("id").eq("organization_id", sponsor.organization_id).eq("role", "owner").limit(1).maybeSingle();
+        const { data: orgRow } = await admin.from("organizations").select("owner_user_id").eq("id", sponsor.organization_id).maybeSingle();
+        if (!ownerMem && !(orgRow as { owner_user_id?: string | null } | null)?.owner_user_id) role = "owner";
+      }
+      const { error: memErr } = await admin.from("organization_members").insert({ organization_id: sponsor.organization_id, user_id: userId, role });
+      if (memErr && (memErr as { code?: string }).code !== "23505") console.error("membership failed", memErr);
+      else {
+        membership = role;
+        if (role === "owner") {
+          await admin.from("organizations").update({ owner_user_id: userId }).eq("id", sponsor.organization_id).is("owner_user_id", null);
+        }
+      }
     }
   }
 
@@ -447,5 +483,17 @@ Deno.serve(async (req) => {
     if (actionLink) emailed = await sendInviteEmail(email, body.first_name || "", sponsor.company_name || "", actionLink);
   } catch (e) { console.error("invite email failed", e); }
 
-  return json(req, { ok: true, user_id: userId, created_account: createdAccount, emailed });
+  return json(req, { ok: true, user_id: userId, created_account: createdAccount, emailed, access_status: accessStatus, membership });
 });
+
+/** The account whose SIGN-IN address is this one (profiles.email only finds candidates). */
+// deno-lint-ignore no-explicit-any
+async function accountWithAddress(admin: any, email: string): Promise<string | null> {
+  const pattern = email.replace(/[\\%_]/g, (c) => "\\" + c);
+  const { data } = await admin.from("profiles").select("user_id").ilike("email", pattern).limit(5);
+  for (const row of (data as Array<{ user_id: string }> | null) || []) {
+    const { data: u } = await admin.auth.admin.getUserById(row.user_id);
+    if ((u?.user?.email || "").trim().toLowerCase() === email) return row.user_id;
+  }
+  return null;
+}

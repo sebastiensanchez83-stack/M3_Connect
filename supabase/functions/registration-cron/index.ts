@@ -3,12 +3,49 @@
 //
 // Called by pg_cron through public.invoke_registration_cron(job) with the Vault service
 // key (migration 20261009210000_registration_core):
-//   POST {"job": "provision"}  every 5 min   -> provision-person {action:"run"}
+//   POST {"job": "provision"}  every minute  -> provision-person {action:"run"}
+//                              (Phase 3: was every 5 min; every minute makes the account
+//                              e-mail of a WYS guest arrive one to two minutes after the QR
+//                              e-mail. The schedule is the database's: cron job
+//                              registration-cron-provision.)
+//   POST {"job": "outbox"}     every minute  -> the notification outbox (Phase 3, below)
 //   POST {"job": "reminders"}  hourly at :10 -> reminders, absentee follow-up, event digests
 //   POST {"job": "digest"}     08:00 Monaco  -> staff_review_digest
 // The SQL invoker already skips a job whose flag is off; this function checks again
 // (kill switch). {"force": true} runs a job whatever its flag (manual run by staff of
 // M3 with the service key, e.g. a canary test).
+//
+// Notification outbox (Phase 3; registration contract §10.5). The database queues e-mails
+// in public.notification_outbox (Phase 2: account_under_review, team_join_request; Phase 3
+// review decisions: user_account_approved, user_account_rejected, account_info_requested,
+// company_validated, claim_approved, claim_declined). This job sends the ones nobody sent:
+//   - only while registration_flags.outbox_sender is JSON true (off until go-live; M3 may
+//     turn it on earlier), or with force;
+//   - each kind goes through the function that owns its template: send-notification
+//     (Phase 2 kinds) or send-status-notification (decisions), with the service key;
+//   - before claiming anything, it asks each function whether the DEPLOYED version knows
+//     the kind (a request that cannot send: send-notification {type} alone answers 400
+//     "Could not resolve the row ..." when it knows the type and 400 "Unknown notification
+//     type" when it is main's older version; send-status-notification {action:"types"}
+//     lists its types, the old version answers 400). A kind the deployed version does not
+//     know is NOT claimed: its rows stay queued with their attempts untouched, and each
+//     row is marked once (last_error "held: ...") and logged once; they leave on their own
+//     once the go-live version is deployed;
+//   - a row is claimed alone with a compare-and-set on attempts (the same claim
+//     notification_outbox_claim makes: claimed_at = now, attempts + 1), so two runs, or a
+//     run and the RPC, never send one row twice. notification_outbox_claim itself is not
+//     used: it cannot skip a kind, wait out a back-off or leave the newest rows alone;
+//   - rows younger than OUTBOX_MIN_AGE_MS are left to the page that queued them (it asks
+//     send-notification right away; two senders at once could both pass its checks);
+//   - a row whose news is out of date is settled WITHOUT sending (sent_at set, last_error
+//     "not sent: ..."): a team_join_request whose invitation is no longer join_requested
+//     (or is past its expiry), an account_under_review whose person is no longer pending
+//     or that waited more than 3 days, a decision the database no longer shows
+//     (send-status-notification answers 409 stale);
+//   - sent: notification_outbox_done(id) (the sending function marks it too);
+//   - failed: last_error "attempt n failed: ...", the claim kept; retried after 2 min,
+//     10 min, 30 min, then 2 h; after the 5th attempt the row stays unsent ("gave up ...",
+//     counted in the daily review digest).
 //
 // verify_jwt = TRUE, and the caller must hold a service-role key (checked below: any
 // valid user JWT passes the gateway, so the gateway check alone is not enough).
@@ -77,6 +114,7 @@ type Json = Record<string, any>;
 const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
 const clean = (s: unknown, max = 200) => (typeof s === "string" ? s.trim().slice(0, max) : "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const jsonRes = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -818,57 +856,82 @@ function renderEventDigest(ctx: Ctx, rows: Json[], total: number): Mail {
   });
 }
 
+/** One tab of the review queue (/admin/review, spec §8.1) in the daily digest. */
+type DigestTab = {
+  label: string;
+  /** Items waiting for M3 (for an FYI tab: new items). */
+  count: number;
+  /** Age of the oldest waiting item in days; null = not shown. */
+  oldestDays: number | null;
+  /** What the count is made of ("3 people, 1 company claim"). */
+  detail: string;
+  url: string;
+  /** For information only ("new in the last 24 hours"): never makes the digest go out on its own. */
+  fyi?: string;
+};
+
 type DigestData = {
+  /** In the queue's order: People & companies, Event registrations, Team joins, Duplicates. */
+  tabs: DigestTab[];
+  /** The Event registrations tab, event by event. */
   registrations: Array<{ title: string; slug: string; requested: number; needs_info: number; oldestDays: number; url: string }>;
-  people: { pending: number; submitted: number; oldestDays: number };
-  companies: { pending: number; byVerifiedMembers: number; oldestDays: number };
   provisioning: { failed: number; queued: number };
+  /** notification_outbox: e-mails that gave up after 5 attempts / held until the go-live version of their sender. */
+  emails: { gaveUp: number; held: number };
 };
 
 const ageText = (days: number) => (days < 1 ? "today" : days === 1 ? "1 day" : `${days} days`);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** staff_review_digest: what waits for M3, once a day. */
+/** Items that make the digest go out: everything but the FYI tabs (team joins, duplicates). */
+function digestTotal(d: DigestData): number {
+  return d.tabs.filter((t) => !t.fyi).reduce((n, t) => n + t.count, 0) + d.provisioning.failed + d.emails.gaveUp;
+}
+
+/** staff_review_digest: what waits for M3, tab by tab, once a day. */
 function renderReviewDigest(d: DigestData): Mail {
-  const regTotal = d.registrations.reduce((n, r) => n + r.requested + r.needs_info, 0);
-  const total = regTotal + d.people.pending + d.companies.pending + d.provisioning.failed;
+  const total = digestTotal(d);
   const rows: Array<[string, string]> = [];
   const textRows: string[] = [];
-  for (const r of d.registrations) {
-    const v = `${r.requested} to review${r.needs_info ? `, ${r.needs_info} waiting for an answer` : ""} (oldest: ${ageText(r.oldestDays)})`;
-    rows.push([h(r.title), `${h(v)}<br>${emLink(h("Open"), h(r.url))}`]);
-    textRows.push(`${r.title}: ${v}\n  ${r.url}`);
+  for (const t of d.tabs) {
+    const head = t.fyi
+      ? `${t.count} ${t.fyi}`
+      : `${t.count} to review${t.oldestDays !== null && t.count ? ` (oldest: ${ageText(t.oldestDays)})` : ""}`;
+    const v = [head, t.detail].filter(Boolean).join(" · ");
+    rows.push([h(t.label), `${h(v)}<br>${emLink(h("Open"), h(t.url))}`]);
+    textRows.push(`${t.label}: ${v}\n  ${t.url}`);
   }
-  if (d.people.pending) {
-    const v = `${d.people.pending} waiting (${d.people.submitted} submitted, oldest: ${ageText(d.people.oldestDays)})`;
-    rows.push([h("People"), `${h(v)}<br>${emLink(h("Open"), h(`${SITE_URL}/admin/users`))}`]);
-    textRows.push(`People: ${v}\n  ${SITE_URL}/admin/users`);
-  }
-  if (d.companies.pending) {
-    const v = `${d.companies.pending} waiting${d.companies.byVerifiedMembers ? ` (${d.companies.byVerifiedMembers} created by validated members)` : ""}, oldest: ${ageText(d.companies.oldestDays)}`;
-    rows.push([h("Companies"), `${h(v)}<br>${emLink(h("Open"), h(`${SITE_URL}/admin/organizations`))}`]);
-    textRows.push(`Companies: ${v}\n  ${SITE_URL}/admin/organizations`);
-  }
-  if (d.provisioning.failed || d.provisioning.queued) {
-    const v = `${d.provisioning.failed} failed, ${d.provisioning.queued} waiting`;
-    rows.push([h("Account creation"), h(v)]);
-    textRows.push(`Account creation: ${v}`);
-  }
-  const a = `${total} item${total === 1 ? "" : "s"} wait${total === 1 ? "s" : ""} for M3 this morning.`;
+  const events: string[] = d.registrations.map((r) =>
+    `${r.title}: ${r.requested} to review${r.needs_info ? `, ${r.needs_info} waiting for an answer` : ""} (oldest: ${ageText(r.oldestDays)})`
+  );
+  const ops: Array<[string, string]> = [];
+  if (d.provisioning.failed || d.provisioning.queued) ops.push(["Account creation", `${d.provisioning.failed} failed, ${d.provisioning.queued} waiting`]);
+  if (d.emails.gaveUp) ops.push(["E-mails not sent", `${plural(d.emails.gaveUp, "e-mail")} gave up after 5 attempts (notification outbox)`]);
+  if (d.emails.held) ops.push(["E-mails on hold", `${plural(d.emails.held, "e-mail")} wait for the go-live version of their sender`]);
+  const a = `${plural(total, "item")} wait${total === 1 ? "s" : ""} for M3 this morning.`;
+  const note = "Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings.";
   return {
-    subject: `To review: ${total} item${total === 1 ? "" : "s"} — Smart Marina Connect`,
+    subject: `To review: ${plural(total, "item")} — Smart Marina Connect`,
     html: emailLayout({
       pageTitle: "Daily review",
       eyebrow: "M3 daily review",
       title: "What is waiting for you",
-      bodyHtml: emP(h(a), 10) + emInfoTable(rows),
-      cta: { label: "Open the admin", url: h(`${SITE_URL}/admin`) },
-      footerNote: h("Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings."),
+      bodyHtml: emP(h(a), 10) + emInfoTable(rows) +
+        (events.length ? emP(h("Event registrations, event by event:"), 8) + emBullets(events.map((e) => h(e))) : "") +
+        (ops.length ? emP(h("Needs attention:"), 8) + emInfoTable(ops.map(([k, v]) => [h(k), h(v)])) : ""),
+      cta: { label: h("Open the review queue"), url: h(`${SITE_URL}/admin/review`) },
+      footerNote: h(note),
     }),
     text: emText({
       title: "What is waiting for you",
-      body: [a, textRows.join("\n")].join("\n\n"),
-      cta: { label: "Open the admin", url: `${SITE_URL}/admin` },
-      footerNote: "Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings.",
+      body: [
+        a,
+        textRows.join("\n"),
+        events.length ? `Event registrations, event by event:\n${events.map((e) => `• ${e}`).join("\n")}` : "",
+        ops.length ? `Needs attention:\n${ops.map(([k, v]) => `${k}: ${v}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n\n"),
+      cta: { label: "Open the review queue", url: `${SITE_URL}/admin/review` },
+      footerNote: note,
     }),
   };
 }
@@ -1191,15 +1254,67 @@ const daysSince = (iso: unknown, now: number) => {
   return d ? Math.max(0, Math.floor((now - d.getTime()) / 86400000)) : 0;
 };
 
+// public.normalize_org_name (Phase 2) in JS, for the Duplicates count: lower case, accents
+// and dots off, other punctuation as a space, legal-form suffixes dropped (never a leading
+// word), spaces collapsed.
+const LEGAL_SUFFIXES = new Set(["sas", "sarl", "sa", "sam", "ltd", "llc", "inc", "gmbh", "srl", "spa", "bv", "doo"]);
+function normOrgName(name: unknown): string {
+  const words = String(name || "").toLowerCase().normalize("NFKD").replace(/\p{M}+/gu, "").replace(/\./g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").filter(Boolean);
+  while (words.length > 1 && LEGAL_SUFFIXES.has(words[words.length - 1])) words.pop();
+  return words.join(" ");
+}
+
+const pieces = (parts: Array<[number, string, string?]>) =>
+  parts.filter(([n]) => n > 0).map(([n, one, many]) => plural(n, one, many)).join(", ");
+
+/**
+ * The tabs of the review queue (/admin/review, spec §8.1), counted from the tables (the
+ * queue's RPC is staff-only and this job runs as the service role):
+ *   People & companies   pending people who sent their profile (not drafts, not staff),
+ *                        pending companies (not archived or merged), company claims
+ *                        (organization_invitations claim_requested: M3 decides each);
+ *   Event registrations  gl_guest requested (to review) and needs_info (waiting for an
+ *                        answer), every event, wys26 and plus-ones included;
+ *   Team joins           FYI: invitations and join requests accepted in the last 24 hours;
+ *   Duplicates           FYI: companies sharing a normalised name.
+ * The Retro-review tab (a one-time list) is not counted here.
+ */
 async function collectDigest(): Promise<DigestData> {
   const now = Date.now();
-  const d: DigestData = {
-    registrations: [],
-    people: { pending: 0, submitted: 0, oldestDays: 0 },
-    companies: { pending: 0, byVerifiedMembers: 0, oldestDays: 0 },
-    provisioning: { failed: 0, queued: 0 },
-  };
-  const { data: regs } = await db.from("gl_guest").select("event_id, status, created_at").in("status", ["requested", "needs_info"]).limit(5000);
+  const since24h = new Date(now - 86400000).toISOString();
+  const review = `${SITE_URL}/admin/review`;
+  const oldestOf = (dates: unknown[]) => dates.reduce((m: number, x) => Math.max(m, daysSince(x, now)), 0);
+  const d: DigestData = { tabs: [], registrations: [], provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, held: 0 } };
+
+  // People & companies.
+  const { data: people, error: pErr } = await db.from("profiles").select("created_at")
+    .eq("access_status", "pending").neq("onboarding_status", "draft").not("persona", "in", "(admin,moderator)").limit(5000);
+  if (pErr) throw new Error(`digest people: ${pErr.message}`);
+  const { data: orgRows, error: oErr } = await db.from("organizations").select("id, name, access_status, created_at").limit(5000);
+  if (oErr) throw new Error(`digest companies: ${oErr.message}`);
+  // archived_at / duplicate_of come with the Phase 3 database lane: absent columns = nothing hidden.
+  const hidden = new Set<string>();
+  const { data: gone, error: goneErr } = await db.from("organizations").select("id")
+    .or("archived_at.not.is.null,duplicate_of.not.is.null").limit(5000);
+  if (!goneErr) for (const o of (gone as Json[] | null) || []) hidden.add(String(o.id));
+  const orgs = ((orgRows as Json[] | null) || []).filter((o) => !hidden.has(String(o.id)));
+  const pendingOrgs = orgs.filter((o) => o.access_status === "pending");
+  const { data: claims, error: cErr } = await db.from("organization_invitations").select("created_at").eq("status", "claim_requested").limit(5000);
+  if (cErr) throw new Error(`digest claims: ${cErr.message}`);
+  const ppl = (people as Json[] | null) || [];
+  const cl = (claims as Json[] | null) || [];
+  d.tabs.push({
+    label: "People & companies",
+    count: ppl.length + pendingOrgs.length + cl.length,
+    oldestDays: oldestOf([...ppl, ...pendingOrgs, ...cl].map((x) => x.created_at)),
+    detail: pieces([[ppl.length, "person", "people"], [pendingOrgs.length, "company", "companies"], [cl.length, "company claim"]]),
+    url: review,
+  });
+
+  // Event registrations, event by event.
+  const { data: regs, error: rErr } = await db.from("gl_guest").select("event_id, status, created_at").in("status", ["requested", "needs_info"]).limit(5000);
+  if (rErr) throw new Error(`digest registrations: ${rErr.message}`);
   const byEvent = new Map<string, { requested: number; needs_info: number; oldest: string }>();
   for (const r of (regs as Json[] | null) || []) {
     const e = byEvent.get(r.event_id) || { requested: 0, needs_info: 0, oldest: r.created_at };
@@ -1223,25 +1338,47 @@ async function collectDigest(): Promise<DigestData> {
     }
     d.registrations.sort((a, b) => b.oldestDays - a.oldestDays);
   }
-  const { data: people } = await db.from("profiles").select("onboarding_status, created_at")
-    .eq("access_status", "pending").not("persona", "in", "(admin,moderator)").limit(5000);
-  for (const p of (people as Json[] | null) || []) {
-    d.people.pending++;
-    if (p.onboarding_status === "submitted") d.people.submitted++;
-    d.people.oldestDays = Math.max(d.people.oldestDays, daysSince(p.created_at, now));
+  const requested = d.registrations.reduce((n, r) => n + r.requested, 0);
+  const needsInfo = d.registrations.reduce((n, r) => n + r.needs_info, 0);
+  d.tabs.push({
+    label: "Event registrations",
+    count: requested,
+    oldestDays: d.registrations.length ? Math.max(...d.registrations.map((r) => r.oldestDays)) : 0,
+    detail: [d.registrations.length ? `${plural(d.registrations.length, "event")}` : "", needsInfo ? `${needsInfo} waiting for an answer` : ""].filter(Boolean).join(", "),
+    url: review,
+  });
+
+  // Team joins (FYI).
+  const { count: joins } = await db.from("organization_invitations").select("id", { count: "exact", head: true })
+    .eq("status", "accepted").gte("updated_at", since24h);
+  d.tabs.push({ label: "Team joins", count: joins || 0, oldestDays: null, detail: "", url: review, fyi: "new in the last 24 hours" });
+
+  // Duplicates (FYI): companies sharing a normalised name.
+  const groups = new Map<string, string[]>();
+  for (const o of orgs) {
+    const k = normOrgName(o.name);
+    if (!k) continue;
+    groups.set(k, [...(groups.get(k) || []), clean(o.name, 80)]);
   }
-  const { data: orgs } = await db.from("organizations").select("id, created_at").eq("access_status", "pending").limit(5000);
-  const orgIds = ((orgs as Json[] | null) || []).map((o) => o.id);
-  d.companies.pending = orgIds.length;
-  for (const o of (orgs as Json[] | null) || []) d.companies.oldestDays = Math.max(d.companies.oldestDays, daysSince(o.created_at, now));
-  if (orgIds.length) {
-    const { data: flagged } = await db.from("organization_audit_log").select("organization_id")
-      .eq("event_type", "organization_pending_review").in("organization_id", orgIds.slice(0, 500));
-    d.companies.byVerifiedMembers = new Set(((flagged as Json[] | null) || []).map((f) => f.organization_id)).size;
-  }
+  const dupes = [...groups.values()].filter((g) => g.length > 1);
+  d.tabs.push({
+    label: "Duplicates",
+    count: dupes.length,
+    oldestDays: null,
+    detail: dupes.length ? `possible duplicate companies, e.g. ${dupes.slice(0, 2).map((g) => g.slice(0, 2).join(" / ")).join("; ")}` : "",
+    url: review,
+    fyi: "to check",
+  });
+
+  // Needs attention.
   const { count: failed } = await db.from("account_provision_job").select("id", { count: "exact", head: true }).eq("status", "failed");
   const { count: queued } = await db.from("account_provision_job").select("id", { count: "exact", head: true }).eq("status", "queued");
   d.provisioning = { failed: failed || 0, queued: queued || 0 };
+  const { count: gaveUp } = await db.from("notification_outbox").select("id", { count: "exact", head: true })
+    .is("sent_at", null).gte("attempts", OUTBOX_MAX_ATTEMPTS);
+  const { count: held } = await db.from("notification_outbox").select("id", { count: "exact", head: true })
+    .is("sent_at", null).like("last_error", "held:%");
+  d.emails = { gaveUp: gaveUp || 0, held: held || 0 };
   return d;
 }
 
@@ -1255,7 +1392,7 @@ async function jobDigest(flags: Flags, force: boolean): Promise<Json> {
   const to = (Array.isArray(value) ? value : []).map((x: unknown) => clean(x, 200).toLowerCase()).filter((x: string) => EMAIL_RE.test(x));
   if (!to.length) return { skipped: "no recipients" };
   const d = await collectDigest();
-  const total = d.registrations.reduce((n, r) => n + r.requested + r.needs_info, 0) + d.people.pending + d.companies.pending + d.provisioning.failed;
+  const total = digestTotal(d);
   if (!total) return { sent: 0, nothing_to_review: true };
   const mail = renderReviewDigest(d);
   let sent = 0;
@@ -1263,6 +1400,266 @@ async function jobDigest(flags: Flags, force: boolean): Promise<Json> {
     if (await sendMail({ from: PLATFORM_FROM, to: addr, replyTo: EM.contact, mail, log: { kind: "staff_review_digest" } })) sent++;
   }
   return { sent, total };
+}
+
+// ─── Job: notification outbox (Phase 3; see the header) ──────────────────────
+type OutboxSender = "send-notification" | "send-status-notification";
+const OUTBOX_SENDERS: Record<string, OutboxSender> = {
+  account_under_review: "send-notification",
+  team_join_request: "send-notification",
+  user_account_approved: "send-status-notification",
+  user_account_rejected: "send-status-notification",
+  account_info_requested: "send-status-notification",
+  company_validated: "send-status-notification",
+  claim_approved: "send-status-notification",
+  claim_declined: "send-status-notification",
+};
+/** Sent per run (each is one call to a sending function, about a second). */
+const OUTBOX_BATCH = 20;
+/** Unsent rows read per run. */
+const OUTBOX_SCAN = 300;
+/** notification_outbox_claim's own limit: a row with 5 attempts is never claimed again. */
+const OUTBOX_MAX_ATTEMPTS = 5;
+/** Left to the page that queued the row (it asks send-notification at once). */
+const OUTBOX_MIN_AGE_MS = 2 * 60000;
+/** A claim not followed by a recorded result (a run that died): taken again after this (as notification_outbox_claim). */
+const OUTBOX_LEASE_MS = 10 * 60000;
+/** Wait after the n-th failed attempt (index n). */
+const OUTBOX_BACKOFF_MS = [0, 2 * 60000, 10 * 60000, 30 * 60000, 2 * 3600000];
+/** account_under_review is news for a few days only. */
+const OUTBOX_UNDER_REVIEW_MAX_AGE_MS = 3 * 86400000;
+const OUTBOX_COLS = "id, kind, user_id, subject_id, data, created_at, claimed_at, attempts, last_error";
+const FN_BASE = `${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1`;
+
+type OutboxRow = {
+  id: number;
+  kind: string;
+  user_id: string;
+  subject_id: string | null;
+  data: Json | null;
+  created_at: string;
+  claimed_at: string | null;
+  attempts: number;
+  last_error: string | null;
+};
+type Support = "yes" | "no" | "unknown";
+/** The function that sends this kind, or null (own keys only). */
+const senderOf = (kind: string): OutboxSender | null => (Object.prototype.hasOwnProperty.call(OUTBOX_SENDERS, kind) ? OUTBOX_SENDERS[kind] : null);
+
+async function callFunction(name: string, body: Json): Promise<{ status: number; body: Json }> {
+  try {
+    const r = await fetch(`${FN_BASE}/${name}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: ANON_KEY || SERVICE_ROLE, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await r.text();
+    let parsed: Json = {};
+    try {
+      parsed = obj(JSON.parse(text));
+    } catch {
+      parsed = { error: text.slice(0, 200) };
+    }
+    return { status: r.status, body: parsed };
+  } catch (e) {
+    return { status: 0, body: { error: e instanceof Error ? e.message : String(e) } };
+  }
+}
+
+/** Which kinds the DEPLOYED sending functions know (see the header). Nothing is sent by these calls. */
+async function outboxSupport(kinds: string[]): Promise<Map<string, Support>> {
+  const out = new Map<string, Support>();
+  for (const k of kinds) if (!senderOf(k)) out.set(k, "no");
+  for (const k of kinds.filter((x) => senderOf(x) === "send-notification")) {
+    // No user_id, no data: the go-live version stops at the missing row (400 "Could not
+    // resolve the row this notification is about"), main's at the unknown type.
+    const r = await callFunction("send-notification", { type: k });
+    if (r.status === 400 && r.body.error === "Unknown notification type") out.set(k, "no");
+    else if (r.status === 400) out.set(k, "yes");
+    else out.set(k, "unknown");
+  }
+  const st = kinds.filter((x) => senderOf(x) === "send-status-notification");
+  if (st.length) {
+    const r = await callFunction("send-status-notification", { action: "types" });
+    const types = r.status === 200 && Array.isArray(r.body.types) ? (r.body.types as unknown[]).map(String) : null;
+    for (const k of st) out.set(k, types ? (types.includes(k) ? "yes" : "no") : r.status === 400 ? "no" : "unknown");
+  }
+  return out;
+}
+
+const heldNote = (kind: string) =>
+  senderOf(kind)
+    ? `held: the deployed ${senderOf(kind)} cannot send ${kind} yet; it leaves once the go-live version is deployed`
+    : `held: registration-cron has no sender for ${kind}`;
+
+/** When the row may be claimed (ms). */
+function outboxDueAt(r: OutboxRow): number {
+  const earliest = Date.parse(r.created_at) + OUTBOX_MIN_AGE_MS;
+  if (!r.claimed_at) return earliest;
+  const claimed = Date.parse(r.claimed_at);
+  // The latest attempt's failure was recorded: back off; otherwise it may still be in flight.
+  const failed = String(r.last_error || "").startsWith(`attempt ${r.attempts} failed`);
+  const wait = failed ? OUTBOX_BACKOFF_MS[r.attempts] ?? OUTBOX_LEASE_MS : OUTBOX_LEASE_MS;
+  return Math.max(earliest, claimed + wait);
+}
+
+/** Claims one row: attempts + 1 only if nobody else did since it was read. */
+async function claimOutbox(r: OutboxRow): Promise<OutboxRow | null> {
+  const { data, error } = await db.from("notification_outbox")
+    .update({ claimed_at: new Date().toISOString(), attempts: r.attempts + 1 })
+    .eq("id", r.id).eq("attempts", r.attempts).is("sent_at", null)
+    .select(OUTBOX_COLS).maybeSingle();
+  if (error) {
+    console.error("registration-cron: outbox claim failed", r.id, error.message);
+    return null;
+  }
+  return (data as OutboxRow | null) || null;
+}
+
+/** Marked once (not claimed, attempts untouched): why the row waits. */
+async function noteHeld(r: OutboxRow, note: string): Promise<boolean> {
+  if (r.last_error === note) return false;
+  const { data, error } = await db.from("notification_outbox").update({ last_error: note })
+    .eq("id", r.id).eq("attempts", r.attempts).is("sent_at", null).is("claimed_at", null).select("id");
+  if (error) console.error("registration-cron: outbox note failed", r.id, error.message);
+  return ((data as Json[] | null) || []).length > 0;
+}
+
+/** A claimed row the deployed function turned out not to know: the attempt is given back. */
+async function unclaimHeld(r: OutboxRow, note: string) {
+  const { error } = await db.from("notification_outbox").update({ attempts: Math.max(r.attempts - 1, 0), claimed_at: null, last_error: note })
+    .eq("id", r.id).eq("attempts", r.attempts).is("sent_at", null);
+  if (error) console.error("registration-cron: outbox unclaim failed", r.id, error.message);
+}
+
+/** Settled without sending: the news is out of date. */
+async function settleOutbox(r: OutboxRow, why: string) {
+  const { error } = await db.from("notification_outbox").update({ sent_at: new Date().toISOString(), last_error: `not sent: ${why}`.slice(0, 500) })
+    .eq("id", r.id).is("sent_at", null);
+  if (error) console.error("registration-cron: outbox settle failed", r.id, error.message);
+}
+
+async function markOutboxSent(r: OutboxRow) {
+  const { error } = await db.rpc("notification_outbox_done", { p_id: r.id, p_error: null });
+  if (error) console.error("registration-cron: notification_outbox_done failed", r.id, error.message);
+}
+
+/** The failure of this attempt; the claim stays (see outboxDueAt). */
+async function failOutbox(r: OutboxRow, msg: string) {
+  const text = r.attempts >= OUTBOX_MAX_ATTEMPTS ? `gave up after ${r.attempts} attempts: ${msg}` : `attempt ${r.attempts} failed: ${msg}`;
+  const { error } = await db.from("notification_outbox").update({ last_error: text.slice(0, 500) })
+    .eq("id", r.id).eq("attempts", r.attempts).is("sent_at", null);
+  if (error) console.error("registration-cron: outbox failure note failed", r.id, error.message);
+}
+
+const invitationOf = (r: OutboxRow) =>
+  [r.subject_id, obj(r.data).invitation_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
+
+/** Why this row must not be sent any more, or null. */
+async function outboxOutOfDate(r: OutboxRow): Promise<string | null> {
+  if (r.kind === "team_join_request") {
+    const id = invitationOf(r);
+    if (!id) return "no join request named";
+    const { data, error } = await db.from("organization_invitations").select("status, expires_at").eq("id", id).maybeSingle();
+    if (error) throw new Error(`invitation read: ${error.message}`);
+    const inv = data as Json | null;
+    if (!inv) return "the join request no longer exists";
+    if (inv.status !== "join_requested") return `the join request was already answered (${inv.status})`;
+    const exp = Date.parse(String(inv.expires_at || ""));
+    if (Number.isFinite(exp) && exp < Date.now()) return "the join request has expired";
+  }
+  if (r.kind === "account_under_review") {
+    if (Date.now() - Date.parse(r.created_at) > OUTBOX_UNDER_REVIEW_MAX_AGE_MS) return "queued more than 3 days ago: too late to announce the review";
+    const { data, error } = await db.from("profiles").select("access_status").eq("user_id", r.user_id).maybeSingle();
+    if (error) throw new Error(`profile read: ${error.message}`);
+    const p = data as Json | null;
+    if (!p) return "the account no longer exists";
+    if (p.access_status !== "pending") return `the person is no longer pending (${p.access_status})`;
+  }
+  return null;
+}
+
+/** The request the owning function takes (the row id goes along where the function settles it by id). */
+function outboxRequest(r: OutboxRow): Json {
+  if (r.kind === "account_under_review") return { type: r.kind, user_id: r.user_id };
+  if (r.kind === "team_join_request") return { type: r.kind, data: { invitation_id: invitationOf(r) } };
+  return { type: r.kind, user_id: r.user_id, subject_id: r.subject_id, data: obj(r.data), outbox_id: r.id };
+}
+
+async function sendOutboxRow(r: OutboxRow): Promise<"sent" | "settled" | "held" | "failed"> {
+  try {
+    const why = await outboxOutOfDate(r);
+    if (why) {
+      await settleOutbox(r, why);
+      return "settled";
+    }
+  } catch (e) {
+    await failOutbox(r, e instanceof Error ? e.message : String(e));
+    return "failed";
+  }
+  const fn = senderOf(r.kind) as OutboxSender;
+  const res = await callFunction(fn, outboxRequest(r));
+  const err = clean(res.body.error, 200);
+  if (res.status >= 200 && res.status < 300 && res.body.success === true) {
+    // Sent, or already sent (duplicate), or the recipient opted out of the category: settled.
+    await markOutboxSent(r);
+    return "sent";
+  }
+  if (res.status === 409 && res.body.stale === true) {
+    await settleOutbox(r, clean(res.body.detail, 200) || "the decision changed before the e-mail left");
+    return "settled";
+  }
+  // The deployed version does not know the kind after all (a rollback since the check).
+  const legacy = fn === "send-notification"
+    ? res.status === 400 && err === "Unknown notification type"
+    : res.status === 400 && err === "user_id and status are required";
+  if (legacy) {
+    await unclaimHeld(r, heldNote(r.kind));
+    return "held";
+  }
+  await failOutbox(r, `${fn} ${res.status}${err ? ` ${err}` : ""}`);
+  return "failed";
+}
+
+async function jobOutbox(flags: Flags, force: boolean): Promise<Json> {
+  if (!force && flags.outbox_sender !== true) return { skipped: "flag outbox_sender is off" };
+  const { data, error } = await db.from("notification_outbox").select(OUTBOX_COLS)
+    .is("sent_at", null).lt("attempts", OUTBOX_MAX_ATTEMPTS).order("id", { ascending: true }).limit(OUTBOX_SCAN);
+  if (error) throw new Error(`outbox read: ${error.message}`);
+  const rows = (data as OutboxRow[] | null) || [];
+  if (!rows.length) return { sent: 0 };
+  const now = Date.now();
+  // Only rows that may go now (not too new, not backing off); the senders are asked about
+  // their kinds only. Rows held for an unknown kind are looked at again once a quarter of
+  // an hour (or on a forced run), not every minute.
+  const recheckHeld = force || new Date(now).getUTCMinutes() % 15 === 0;
+  const ready = rows.filter((r) => outboxDueAt(r) <= now && (recheckHeld || !String(r.last_error || "").startsWith("held:")));
+  if (!ready.length) return { sent: 0, waiting: rows.length };
+  const kinds = [...new Set(ready.map((r) => r.kind))];
+  const support = await outboxSupport(kinds);
+  const held: Record<string, number> = {};
+  const newlyHeld: Record<string, number> = {};
+  const counts = { sent: 0, settled: 0, failed: 0, busy: 0 };
+  for (const r of ready) {
+    if (support.get(r.kind) !== "no") continue;
+    held[r.kind] = (held[r.kind] || 0) + 1;
+    if (await noteHeld(r, heldNote(r.kind))) newlyHeld[r.kind] = (newlyHeld[r.kind] || 0) + 1;
+  }
+  // Logged once: when rows are first marked held.
+  for (const [kind, n] of Object.entries(newlyHeld)) console.warn(`registration-cron: ${n} queued ${kind} e-mail(s) held: ${heldNote(kind)}`);
+  const due = ready.filter((r) => support.get(r.kind) === "yes").slice(0, OUTBOX_BATCH);
+  for (const r of due) {
+    const claimed = await claimOutbox(r);
+    if (!claimed) {
+      counts.busy++;
+      continue;
+    }
+    const result = await sendOutboxRow(claimed);
+    if (result === "held") held[r.kind] = (held[r.kind] || 0) + 1;
+    else counts[result]++;
+  }
+  const unknown = kinds.filter((k) => support.get(k) === "unknown");
+  return { ...counts, held, ...(unknown.length ? { sender_unreachable: unknown } : {}) };
 }
 
 // ─── Job: provisioning (provision-person does the work) ──────────────────────
@@ -1293,6 +1690,7 @@ Deno.serve(async (req: Request) => {
     if (job === "reminders") return jsonRes({ ok: true, job, ...(await jobReminders(flags, force)) });
     if (job === "digest") return jsonRes({ ok: true, job, ...(await jobDigest(flags, force)) });
     if (job === "provision") return jsonRes({ ok: true, job, ...(await jobProvision(flags, force)) });
+    if (job === "outbox") return jsonRes({ ok: true, job, ...(await jobOutbox(flags, force)) });
     return jsonRes({ ok: false, error: "unknown_job" }, 400);
   } catch (e) {
     console.error("registration-cron: job failed", job, e instanceof Error ? e.message : JSON.stringify(e));

@@ -10,6 +10,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // Based on the DEPLOYED v4 (always 'collaborator'), not on the older repo copy
 // that made the invitee 'owner' when the company had none.
 //
+// Q5 rule (registration spec §4.7, Phase 3, 15 Oct 2026): a NEW account is validated
+// only when verified M3 staff invite; on a registration owner's or company member's
+// invitation it waits for M3's review (pending). An existing account is never promoted or
+// demoted, and an invitee is never made the company's owner. Nothing else changed.
+//
 // Roster lock (audit S20). This function writes with the service role, so the
 // sm_attendee_guard trigger -- which enforces the admin-set roster deadline only
 // for current_user = 'authenticated' -- never saw it: any member of the
@@ -157,8 +162,10 @@ Deno.serve(async (req) => {
   // Only bootstrap the profile for a BRAND-NEW account — never demote an existing
   // marina/partner/etc. to 'individual'.
   if (createdAccount) {
+    // Q5 (see the header): validated on a staff invitation; otherwise pending M3's review
+    // (onboarding "submitted": it shows in the review queue).
     const { error: profErr } = await admin.from("profiles")
-      .update({ persona: "individual", access_status: "verified", onboarding_status: "completed" })
+      .update({ persona: "individual", access_status: isStaff ? "verified" : "pending", onboarding_status: isStaff ? "completed" : "submitted" })
       .eq("user_id", userId);
     if (profErr) console.error("profile bootstrap failed", profErr);
   }

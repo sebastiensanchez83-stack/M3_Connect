@@ -225,6 +225,8 @@ export function AdminPage() {
             <Route path="/pulse" element={<AdminOnlyGuard><AdminPulse /></AdminOnlyGuard>} />
             <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
             <Route path="/rights" element={<AdminOnlyGuard><AdminRights /></AdminOnlyGuard>} />
+            {/* The spec's address for the rights screen (§8.4). */}
+            <Route path="/settings/rights" element={<Navigate to="/admin/rights" replace />} />
           </Routes>
         </Suspense>
         </div>

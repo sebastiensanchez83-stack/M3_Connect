@@ -8,6 +8,8 @@ import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { RegistrationFlagsPanel } from './settings/RegistrationFlagsPanel';
+import { ReviewSettingsPanel } from './settings/ReviewSettingsPanel';
 
 interface DisplayStats {
   marinas: number;
@@ -104,6 +106,10 @@ export function AdminPlatformSettings() {
           Manage platform-wide configuration and display settings.
         </p>
       </div>
+
+      {/* Registration switches (spec §13) and the review list's settings (spec §8.4). */}
+      <RegistrationFlagsPanel />
+      <ReviewSettingsPanel />
 
       <Card>
         <CardContent className="pt-6 space-y-6">

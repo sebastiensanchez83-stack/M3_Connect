@@ -318,10 +318,13 @@ export function AdminOrganizationDetail() {
   // The code typed in the editor differs from the stored one: it would not work
   // until saved, so it must not be e-mailed.
   const claimCodeDirty = claimCode.trim().toUpperCase() !== savedClaimCode;
+  // A company that already has an owner cannot be claimed with its code (the database refuses
+  // it since 15 Oct, Victor 11 Oct): its Connect link would only lead to that refusal.
+  const orgOwned = !!org?.owner_user_id || members.some(m => m.role === 'owner');
 
   const handleSendConnectLink = async () => {
     // Always the stored code (from admin_get_org_claim_code), never an unsaved edit.
-    if (!inviteEmail.trim() || !savedClaimCode || claimCodeDirty || !org) return;
+    if (!inviteEmail.trim() || !savedClaimCode || claimCodeDirty || !org || orgOwned) return;
     setSendingInvite(true);
     try {
       await sendNotification({
@@ -482,7 +485,18 @@ export function AdminOrganizationDetail() {
                 )}
               </div>
 
-              {savedClaimCode && (
+              {savedClaimCode && orgOwned && (
+                <>
+                  <Separator />
+                  <div>
+                    <Label className="text-xs font-medium text-gray-600 mb-1.5 block">Send Connect Link</Label>
+                    <p className="text-xs text-amber-800">
+                      {t('admin.orgClaimCode.owned', 'This company already has an owner on Smart Marina Connect, so its code cannot add anyone. To bring someone in, ask the owner to invite them to the team, or use "Invite a colleague" in the Members box.')}
+                    </p>
+                  </div>
+                </>
+              )}
+              {savedClaimCode && !orgOwned && (
                 <>
                   <Separator />
                   <div>

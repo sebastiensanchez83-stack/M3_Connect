@@ -52,8 +52,10 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- Down: supabase/migrations/down/20261012112000_org_invitations_expiry.down.sql (refused while
 -- part 1 is applied). Dry run: supabase/dryrun/20261012112000_org_invitations_expiry.dryrun.sql.
 --  1. A pending invitation past expires_at becomes 'expired' (a status of today's CHECK),
---     now and every hour (pg_cron 'org-invitations-expire', minute 23). The old /join/<id>
---     page then shows "no longer valid" (get_invitation_for_join returns the status).
+--     now and every 5 minutes (pg_cron 'org-invitations-expire'; integration review of
+--     15 Oct 2026: hourly left the old site's onboarding offering an Accept button that fails
+--     for up to an hour). The old /join/<id> page then shows "no longer valid"
+--     (get_invitation_for_join returns the status).
 --     On 15 Oct 2026: 1 row (the only pending invitation, 18 May, expired 17 Jun).
 --  2. check_pending_invitation leaves out an invitation past its expiry.
 --  3. approve_join_request never turns a suspended account into a verified one (as
@@ -95,7 +97,7 @@ begin
 end
 $expire$;
 -- cron.schedule with an existing name updates that job (pg_cron 1.6.4). GMT.
-select cron.schedule('org-invitations-expire', '23 * * * *',
+select cron.schedule('org-invitations-expire', '*/5 * * * *',
   $cmd$update public.organization_invitations set status = 'expired' where status = 'pending' and expires_at < now()$cmd$);
 
 -- ---- 2. check_pending_invitation, 3. approve_join_request -------------------------
@@ -260,12 +262,12 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
   tests := jsonb_build_array(
     jsonb_build_object('id', 'X01', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'check_pending_invitation and approve_join_request carry this file''s bodies',
       'q', $q$select count(*) = 2 and bool_and(md5(replace(p.prosrc, chr(13), '')) = x.m) from (values ('public.check_pending_invitation(text)', '870eeb3c5741c0e5d2eb001991529509'), ('public.approve_join_request(uuid)', 'ac9d150a92163841e383c7e80a5028b2')) x(s, m) join pg_proc p on p.oid = to_regprocedure(x.s)$q$),
-    jsonb_build_object('id', 'X02', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'no pending invitation past its expiry is left; hourly job org-invitations-expire scheduled',
-      'q', $q$select not exists (select 1 from public.organization_invitations where status = 'pending' and expires_at < now()) and exists (select 1 from cron.job j where j.jobname = 'org-invitations-expire' and j.schedule = '23 * * * *' and j.active and j.command like '%set status = ''expired'' where status = ''pending'' and expires_at < now()%')$q$),
+    jsonb_build_object('id', 'X02', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'no pending invitation past its expiry is left; job org-invitations-expire scheduled every 5 minutes',
+      'q', $q$select not exists (select 1 from public.organization_invitations where status = 'pending' and expires_at < now()) and exists (select 1 from cron.job j where j.jobname = 'org-invitations-expire' and j.schedule = '*/5 * * * *' and j.active and j.command like '%set status = ''expired'' where status = ''pending'' and expires_at < now()%')$q$),
     jsonb_build_object('id', 'X04', 'who', 'inv', 'expect', 'ret:<inv_j>', 'label', 'check_pending_invitation (both onboarding pages) leaves out an invitation past its expiry',
       'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id, expires_at, created_at) values ({inv_p}, {org_v}, {e_inv}, {owner}, now() - interval '1 day', now() - interval '31 days'); insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_j}, {org_n}, {e_inv}, {owner})$s$,
       'q', $q$select string_agg(invitation_id::text, ',') from public.check_pending_invitation('ignored@example.invalid')$q$),
-    jsonb_build_object('id', 'X05', 'who', 'postgres', 'expect', 'ret:1', 'label', 'the hourly job sets an invitation past its expiry to expired, a valid one stays pending',
+    jsonb_build_object('id', 'X05', 'who', 'postgres', 'expect', 'ret:1', 'label', 'the job sets an invitation past its expiry to expired, a valid one stays pending',
       'setup', $s$insert into public.organization_invitations (id, organization_id, email, invited_by_user_id, expires_at, created_at) values ({inv_p}, {org_v}, {e_inv}, {owner}, now() - interval '1 minute', now() - interval '30 days'); insert into public.organization_invitations (id, organization_id, email, invited_by_user_id) values ({inv_j}, {org_v}, {e_other}, {owner})$s$,
       'q', $q$select pg_temp.dr_cron('org-invitations-expire')::text$q$,
       'chk', $c$select (select status = 'expired' from public.organization_invitations where id = {inv_p}) and (select status = 'pending' from public.organization_invitations where id = {inv_j})$c$),

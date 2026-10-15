@@ -58,8 +58,9 @@ export interface CompanyRequest {
 /**
  * Where the person's company request stands, for a person in no company (flag
  * account_signup_v2). The truth for a join or a claim is the open request row
- * (organization_invitations, status join_requested / claim_requested: the person
- * reads their own), the same test submit_signup_intent makes (request_pending): a
+ * (organization_invitations, status join_requested / claim_requested, not past its
+ * expires_at: the person reads their own), the same test submit_signup_intent makes
+ * (request_pending): a
  * request the owner declined or M3 closed no longer counts, whatever the stored
  * intent still says. A new company, or a company M3 has not verified, waits for M3
  * on the person's card: while the person is under review, or for 30 days.
@@ -86,6 +87,9 @@ export function useCompanyRequest(enabled: boolean): CompanyRequest {
           .select('status, organization_id, email')
           .in('status', ['join_requested', 'claim_requested'])
           .in('email', addresses)
+          // Unanswered past its expiry (30 days), a request no longer blocks a new one:
+          // submit_signup_intent's own rule (request_pending).
+          .gte('expires_at', new Date().toISOString())
           .order('created_at', { ascending: false })
           .limit(1);
         const rows = (data ?? []) as { status: string; organization_id: string; email: string | null }[];
@@ -99,7 +103,9 @@ export function useCompanyRequest(enabled: boolean): CompanyRequest {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- user.email is `email`, normalised
   }, [enabled, uid, email, stamp]);
 
-  const orgName = intent?.name ?? null;
+  // A matching code decides the company (complete_signup_for): the name the person typed for
+  // a new company is then not the company the request is about.
+  const orgName = intent?.code === 'matched' && intent.action !== 'join' ? null : intent?.name ?? null;
   if (open) return { waiting: true, path: open.status, orgName, awaitingProof: false };
   if (!intent || intent.action === 'none') return { waiting: false, path: intent?.path ?? null, orgName, awaitingProof: false };
   if (!intent.done_at) return { waiting: true, path: null, orgName, awaitingProof: true };
@@ -149,7 +155,9 @@ export function AddCompanyForm({ initialCode = '', onDone }: { initialCode?: str
     const inner = (result.result && typeof result.result === 'object' ? result.result : {}) as { path?: string; code?: string };
     // The e-mails this step owes (the owner's join request; "under review" for a pending account).
     void sendSignupNotices(result);
-    const name = choice.mode === 'join' ? choice.org.name : choice.mode === 'new' ? choice.name.trim() : null;
+    // The company the request is about: the one picked (a code of another company is not
+    // used: 'mismatch'), or, when a code decided it, the code's company (name unknown here).
+    const name = choice.mode === 'join' ? choice.org.name : choice.mode === 'new' && inner.code !== 'matched' ? choice.name.trim() : null;
     const badCode = inner.code === 'invalid' || inner.code === 'throttled';
     if (result.done === true && badCode && (inner.path === 'none' || !inner.path)) {
       // The code was all the request had, and it named no company: nothing was sent.
@@ -166,7 +174,9 @@ export function AddCompanyForm({ initialCode = '', onDone }: { initialCode?: str
         ? t('signupV2.add.codeIgnored', 'The company code did not match, so it was not used.')
         : inner.code === 'refused_has_owner'
           ? t('dashStatus.codeHasOwner', 'Your company code was not used: this company already has an owner on the platform.')
-          : '';
+          : inner.code === 'mismatch'
+            ? t('dashStatus.codeMismatch', 'Your company code was not used: it belongs to another company than the one you picked.')
+            : '';
       setSent([line, codeLine].filter(Boolean).join(' '));
     } else if (result.reason === 'not_proven') {
       setSent(t('signupV2.add.afterProofPlain', 'Saved. It goes to the M3 team as soon as you confirm your e-mail address.'));

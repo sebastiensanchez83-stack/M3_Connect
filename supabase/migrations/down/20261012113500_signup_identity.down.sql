@@ -21,7 +21,7 @@ begin
   for v_row in
     select * from (values
       ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', '4729540e868841759ad598be8d1a08f1'),
-      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '090a57e76e712b96bd7e00650064e855')
+      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '67a850075f0e06e93b1ab02a377408ae')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);

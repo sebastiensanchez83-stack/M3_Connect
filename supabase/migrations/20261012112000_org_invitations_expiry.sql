@@ -9,8 +9,10 @@
 -- Down: supabase/migrations/down/20261012112000_org_invitations_expiry.down.sql (refused while
 -- part 1 is applied). Dry run: supabase/dryrun/20261012112000_org_invitations_expiry.dryrun.sql.
 --  1. A pending invitation past expires_at becomes 'expired' (a status of today's CHECK),
---     now and every hour (pg_cron 'org-invitations-expire', minute 23). The old /join/<id>
---     page then shows "no longer valid" (get_invitation_for_join returns the status).
+--     now and every 5 minutes (pg_cron 'org-invitations-expire'; integration review of
+--     15 Oct 2026: hourly left the old site's onboarding offering an Accept button that fails
+--     for up to an hour). The old /join/<id> page then shows "no longer valid"
+--     (get_invitation_for_join returns the status).
 --     On 15 Oct 2026: 1 row (the only pending invitation, 18 May, expired 17 Jun).
 --  2. check_pending_invitation leaves out an invitation past its expiry.
 --  3. approve_join_request never turns a suspended account into a verified one (as
@@ -52,7 +54,7 @@ begin
 end
 $expire$;
 -- cron.schedule with an existing name updates that job (pg_cron 1.6.4). GMT.
-select cron.schedule('org-invitations-expire', '23 * * * *',
+select cron.schedule('org-invitations-expire', '*/5 * * * *',
   $cmd$update public.organization_invitations set status = 'expired' where status = 'pending' and expires_at < now()$cmd$);
 
 -- ---- 2. check_pending_invitation, 3. approve_join_request -------------------------

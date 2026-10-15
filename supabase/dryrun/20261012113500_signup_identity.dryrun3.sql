@@ -1,8 +1,9 @@
 -- DRY RUN 3 of supabase/migrations/20261012113500_signup_identity.sql: e-mail proof
--- (issue_email_proof_token, confirm_email_proof) and notification_outbox. NOT A MIGRATION.
+-- (issue_email_proof_token, confirm_email_proof), notification_outbox, and a code typed with a
+-- company picked in the list (C17-C19, 15 Oct 2026). NOT A MIGRATION.
 -- ONE query text, ONE execute_sql call, AFTER 20261012113000_signup_identity_orgs is applied.
 -- Same harness as dry run 1. Ends with RAISE EXCEPTION 'DRYRUN ...'; everything rolls back.
--- Expected: "21 PASS, 0 FAIL".
+-- Expected: "24 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -79,7 +80,7 @@ begin
      or to_regclass('public.admin_impersonation_log') is null then
     raise exception 'signup_identity: apply 20261009210000_registration_core first';
   end if;
-  if to_regprocedure('public.org_invitation_resolve(text)') is null
+  if to_regprocedure('public.company_search(text,integer)') is null
      or not exists (select 1 from pg_attribute a where a.attrelid = 'public.organization_invitations'::regclass
                      and a.attname = 'code_matched' and not a.attisdropped) then
     raise exception 'signup_identity: apply 20261012113000_signup_identity_orgs first';
@@ -87,7 +88,7 @@ begin
   for v_row in
     select * from (values
       ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', '4729540e868841759ad598be8d1a08f1'),
-      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '090a57e76e712b96bd7e00650064e855')
+      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '67a850075f0e06e93b1ab02a377408ae')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);
@@ -303,7 +304,9 @@ $function$;
 --   none             no company (participant)
 --   invitation_pending | already_member | org_not_found | join_declined_recently (owner declined < 30 days)
 -- result.code: matched | invalid | throttled | refused_has_owner (a code never claims a company
--- that has an owner: Victor, 11 Oct 2026; the request then goes to its owner).
+-- that has an owner: Victor, 11 Oct 2026; the request then goes to its owner) | mismatch (the
+-- code is another company's than the one picked in the list: the pick stands, the code claims
+-- nothing and counts as a failed attempt; integration review, 15 Oct 2026).
 -- A pending person goes from onboarding 'draft' to 'submitted' (M3's review list) and gets
 -- ONE account_under_review e-mail (notification_outbox, one per person, ever).
 create or replace function public.complete_signup_for(p_user_id uuid)
@@ -384,6 +387,9 @@ begin
       if v_code_org is null then
         insert into public.org_claim_attempt (user_id) values (p_user_id);
         v_code_res := 'invalid';
+      elsif v_target is not null and v_target <> v_code_org then
+        insert into public.org_claim_attempt (user_id) values (p_user_id);
+        v_code_res := 'mismatch';
       else
         v_code_res := 'matched';
         v_target := v_code_org;
@@ -433,10 +439,11 @@ begin
           values (v_target, v_email, nullif(split_part(v_email, '@', 2), ''), v_first, v_last, 'join_requested', null)
           returning id into v_inv;
           v_path := 'join_requested';
-          select coalesce(o.owner_user_id,
-                          (select m.user_id from public.organization_members m
-                            where m.organization_id = o.id and m.role = 'owner' order by m.joined_at limit 1))
-            into v_owner from public.organizations o where o.id = v_target;
+          -- The owner of record, when also an owner member (send-notification's realOwnerOf).
+          select o.owner_user_id into v_owner from public.organizations o
+           where o.id = v_target
+             and exists (select 1 from public.organization_members m
+                          where m.organization_id = o.id and m.user_id = o.owner_user_id and m.role = 'owner');
           if v_owner is not null then
             insert into public.notification_outbox (kind, user_id, actor_id, subject_id, dedupe_key, data)
             values ('team_join_request', v_owner, p_user_id, v_inv, 'team_join_request:' || v_inv,
@@ -881,7 +888,19 @@ select pg_temp.dr_person({p1}, {e_p1}, '{"action": "none"}', false, 'pending')$s
       'q', $q$select count(*)::text from public.notification_outbox_claim(10, null, null)$q$),
     jsonb_build_object('id', 'O06', 'who', 'owner', 'expect', 'ret:true', 'label', 'a verified admin reads the outbox',
       'setup', $s$update public.profiles set persona = 'admin' where user_id = {owner}; update public.profiles set email_proven_at = now() where user_id = {p1}; select public.complete_signup_for({p1})$s$,
-      'q', $q$select (count(*) >= 1)::text from public.notification_outbox where user_id = {p1}$q$)
+      'q', $q$select (count(*) >= 1)::text from public.notification_outbox where user_id = {p1}$q$),
+    jsonb_build_object('id', 'C17', 'who', 'service', 'expect', 'ret:join_requested/mismatch', 'label', 'a code of another company than the one picked: the pick stands, the code claims nothing (one failed attempt)',
+      'setup', $s$select pg_temp.dr_person({p2}, {e_p2}, jsonb_build_object('action', 'join', 'org_id', {org_v}, 'code', {code_n}), true, 'pending')$s$,
+      'q', $q$select (r ->> 'path') || '/' || (r ->> 'code') from (select public.complete_signup_for({p2}) -> 'result' as r) x$q$,
+      'chk', $c$select (select count(*) = 1 from public.organization_invitations where organization_id = {org_v} and email = {e_p2} and status = 'join_requested') and not exists (select 1 from public.organization_invitations where organization_id = {org_n} and email = {e_p2}) and (select count(*) = 1 from public.org_claim_attempt where user_id = {p2})$c$),
+    jsonb_build_object('id', 'C18', 'who', 'service', 'expect', 'ret:claim_requested/matched', 'label', 'the code of the company picked: a claim with code_matched',
+      'setup', $s$select pg_temp.dr_person({p2}, {e_p2}, jsonb_build_object('action', 'join', 'org_id', {org_n}, 'code', {code_n}), true, 'pending')$s$,
+      'q', $q$select (r ->> 'path') || '/' || (r ->> 'code') from (select public.complete_signup_for({p2}) -> 'result' as r) x$q$,
+      'chk', $c$select count(*) = 1 from public.organization_invitations where organization_id = {org_n} and email = {e_p2} and status = 'claim_requested' and code_matched$c$),
+    jsonb_build_object('id', 'C19', 'who', 'service', 'expect', 'ret:join_requested', 'label', 'an owner of record who is not an owner member: request filed, no team_join_request queued (as send-notification)',
+      'setup', $s$update public.organizations set owner_user_id = {p1} where id = {org_v}; select pg_temp.dr_person({p2}, {e_p2}, jsonb_build_object('action', 'join', 'org_id', {org_v}), true, 'pending')$s$,
+      'q', $q$select public.complete_signup_for({p2}) -> 'result' ->> 'path'$q$,
+      'chk', $c$select not exists (select 1 from public.notification_outbox where kind = 'team_join_request' and actor_id = {p2})$c$)
   );
 
   -- ── Runner ── each case: common setup s0 (unless bare), its setup (postgres), the

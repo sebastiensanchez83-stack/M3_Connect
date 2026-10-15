@@ -39,7 +39,7 @@ begin
      or to_regclass('public.admin_impersonation_log') is null then
     raise exception 'signup_identity: apply 20261009210000_registration_core first';
   end if;
-  if to_regprocedure('public.org_invitation_resolve(text)') is null
+  if to_regprocedure('public.company_search(text,integer)') is null
      or not exists (select 1 from pg_attribute a where a.attrelid = 'public.organization_invitations'::regclass
                      and a.attname = 'code_matched' and not a.attisdropped) then
     raise exception 'signup_identity: apply 20261012113000_signup_identity_orgs first';
@@ -47,7 +47,7 @@ begin
   for v_row in
     select * from (values
       ('public.handle_new_user()', '7155140fe02bab9470760711b36342fa', '4729540e868841759ad598be8d1a08f1'),
-      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '090a57e76e712b96bd7e00650064e855')
+      ('public.complete_signup_for(uuid)', '2baf4cc8093e56ae2541290378f49f69', '67a850075f0e06e93b1ab02a377408ae')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);
@@ -263,7 +263,9 @@ $function$;
 --   none             no company (participant)
 --   invitation_pending | already_member | org_not_found | join_declined_recently (owner declined < 30 days)
 -- result.code: matched | invalid | throttled | refused_has_owner (a code never claims a company
--- that has an owner: Victor, 11 Oct 2026; the request then goes to its owner).
+-- that has an owner: Victor, 11 Oct 2026; the request then goes to its owner) | mismatch (the
+-- code is another company's than the one picked in the list: the pick stands, the code claims
+-- nothing and counts as a failed attempt; integration review, 15 Oct 2026).
 -- A pending person goes from onboarding 'draft' to 'submitted' (M3's review list) and gets
 -- ONE account_under_review e-mail (notification_outbox, one per person, ever).
 create or replace function public.complete_signup_for(p_user_id uuid)
@@ -344,6 +346,9 @@ begin
       if v_code_org is null then
         insert into public.org_claim_attempt (user_id) values (p_user_id);
         v_code_res := 'invalid';
+      elsif v_target is not null and v_target <> v_code_org then
+        insert into public.org_claim_attempt (user_id) values (p_user_id);
+        v_code_res := 'mismatch';
       else
         v_code_res := 'matched';
         v_target := v_code_org;
@@ -393,10 +398,11 @@ begin
           values (v_target, v_email, nullif(split_part(v_email, '@', 2), ''), v_first, v_last, 'join_requested', null)
           returning id into v_inv;
           v_path := 'join_requested';
-          select coalesce(o.owner_user_id,
-                          (select m.user_id from public.organization_members m
-                            where m.organization_id = o.id and m.role = 'owner' order by m.joined_at limit 1))
-            into v_owner from public.organizations o where o.id = v_target;
+          -- The owner of record, when also an owner member (send-notification's realOwnerOf).
+          select o.owner_user_id into v_owner from public.organizations o
+           where o.id = v_target
+             and exists (select 1 from public.organization_members m
+                          where m.organization_id = o.id and m.user_id = o.owner_user_id and m.role = 'owner');
           if v_owner is not null then
             insert into public.notification_outbox (kind, user_id, actor_id, subject_id, dedupe_key, data)
             values ('team_join_request', v_owner, p_user_id, v_inv, 'team_join_request:' || v_inv,

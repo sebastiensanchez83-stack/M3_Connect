@@ -6,7 +6,7 @@ import { getStoredInvite } from '@/lib/invite-store'
 import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
 import { loadRegistrationFlags } from '@/lib/flags'
-import { completeMySignupOnce } from '@/lib/accountSignup'
+import { completeMySignupOnce, stripClaimCodeFromMetadata } from '@/lib/accountSignup'
 
 /**
  * attach_my_records (registration core): once per browser tab session and account,
@@ -189,6 +189,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (ran) void refreshProfile().catch(() => {})
     })
   }, [profile, authEmail, refreshProfile])
+
+  // ─── A claim code left in the account's own metadata (sign-up v2) ──────────
+  // The database took it at sign-up (signup_claim_code); the copy every access token
+  // carries goes, once per session. Only an account whose metadata holds one: nothing is
+  // called for any other.
+  const codeStripRef = useRef<string | null>(null)
+  useEffect(() => {
+    const meta = user?.user_metadata as Record<string, unknown> | undefined
+    const intent = meta?.signup_intent
+    if (!user || codeStripRef.current === user.id || !intent || typeof intent !== 'object' || !('code' in intent)) return
+    codeStripRef.current = user.id
+    void stripClaimCodeFromMetadata(meta)
+  }, [user])
 
   // ─── Core auth effect ─────────────────────────────────────────────
   //

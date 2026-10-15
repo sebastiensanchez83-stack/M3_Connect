@@ -82,9 +82,9 @@ export function passwordProblem(pw: string): 'short' | 'long' | null {
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 
-async function invoke<T>(fn: 'account-signup' | 'accept-invite', body: Record<string, unknown>): Promise<Result<T>> {
+async function invoke<T>(fn: 'account-signup' | 'accept-invite', body: Record<string, unknown>, headers?: Record<string, string>): Promise<Result<T>> {
   try {
-    const { data, error } = await supabase.functions.invoke(fn, { body });
+    const { data, error } = await supabase.functions.invoke(fn, headers ? { body, headers } : { body });
     if (!error) {
       if (isObj(data)) {
         if (typeof data.error === 'string') return { ...(data as object), ok: false, error: data.error } as Failure;
@@ -118,6 +118,22 @@ function statusCode(status: number | undefined): string {
 /** The account-signup function, or accept-invite (the team invitation page). */
 export const callAccountSignup = <T>(body: Record<string, unknown>) => invoke<T>('account-signup', body);
 export const callAcceptInvite = <T>(body: Record<string, unknown>) => invoke<T>('accept-invite', body);
+
+/**
+ * /join/<token>, signed in on an account that already has the invited address: joins from
+ * the signed link (accept-invite accept_existing), with this session's access token. An
+ * address not proven yet is proven there only when the session was opened with the
+ * password (else password_session_required). At go-live accept_org_invitation needs a
+ * proven address, so this is the way in for an older account from a new invitation e-mail.
+ */
+export async function acceptInviteAsMe<T>(token: string): Promise<Result<T>> {
+  let jwt = '';
+  try {
+    const { data } = await supabase.auth.getSession();
+    jwt = data.session?.access_token ?? '';
+  } catch { /* no session: the function answers sign_in_required */ }
+  return invoke<T>('accept-invite', { action: 'accept_existing', token }, jwt ? { Authorization: `Bearer ${jwt}` } : undefined);
+}
 
 /** "My company is already listed": up to 8 public cards for at least 3 letters. */
 export async function searchCompanies(q: string): Promise<Result<{ results: CompanyCard[] }>> {
@@ -365,7 +381,7 @@ export interface StoredIntent {
   done_at?: string;
   /** join_requested | claim_requested | company_pending | new_company | none | invitation_pending | already_member | org_not_found | join_declined_recently */
   path?: string;
-  /** matched | invalid | throttled | refused_has_owner */
+  /** matched | invalid | throttled | refused_has_owner | mismatch (a code of another company than the one picked: not used) */
   code?: string;
 }
 
@@ -432,6 +448,24 @@ export function linkSessionAt(session: Session | null | undefined): number | nul
   }
 }
 
+/* ------------------------------------------------------------------ the claim code */
+
+/**
+ * A claim code typed at sign-up goes to the database once (handle_new_user copies it to the
+ * private signup_claim_code table, which complete_signup_for empties after one check), but
+ * supabase.auth.signUp also leaves it in the account's own user_metadata, carried by every
+ * access token. AuthContext takes it out as soon as a session exists (right after the sign-up
+ * with Confirm email off, at the first sign-in otherwise); the rest of signup_intent stays.
+ * Nothing reads the metadata copy (registration contract §10.2). Never throws.
+ */
+export async function stripClaimCodeFromMetadata(meta: unknown): Promise<void> {
+  try {
+    if (!isObj(meta) || !isObj(meta.signup_intent) || !('code' in meta.signup_intent)) return;
+    const rest = Object.fromEntries(Object.entries(meta.signup_intent).filter(([k]) => k !== 'code'));
+    await supabase.auth.updateUser({ data: { signup_intent: rest } });
+  } catch { /* a courtesy: the database never reads it */ }
+}
+
 /* ------------------------------------------------------------------ the sign-up */
 
 export interface AccountSignupInput {
@@ -478,10 +512,9 @@ export async function signUpAccount(input: AccountSignupInput): Promise<SignupOu
     declared_type: input.type,
     sector_ids: input.sectorIds.slice(0, 5),
     signup_intent: intent,
-    // The old main client's keys, which prefill its company wizard: only for a company the
-    // person declared as new (a listed company picked here must never be created again).
-    company_name: input.intent.action === 'new' ? (input.intent.name || '').trim() : '',
-    company_website: input.intent.action === 'new' ? (input.intent.website || '').trim() : '',
+    // No company_name / company_website (the old main client's keys): main's onboarding
+    // would prefill its wizard with them and create the company itself (create_organization),
+    // which the v2 sign-up leaves to M3. The intent carries the name, website and country.
     // Language of the auth e-mails (send-email hook): English only.
     lang: 'en',
   };

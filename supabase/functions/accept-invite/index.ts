@@ -1,9 +1,11 @@
 // accept-invite -- the team invitation page /join/<token> (spec regspec-en.md §3.9, §4.5,
 // §5; database contract docs/registration-contract.md). Phase 2 EDGE lane, 11 Oct 2026.
 //
-// verify_jwt = FALSE: the invitee usually has no account yet. Nothing here acts for a
-// session: an invitee who already has an account signs in on the page and accepts with the
-// RPC accept_org_invitation(p_invitation_id), as before.
+// verify_jwt = FALSE: the invitee usually has no account yet. Only accept_existing acts for
+// a session (the Authorization header, checked by GoTrue): an invitee who already has an
+// account signs in on the page with the PASSWORD, then joins from the signed link there.
+// The RPC accept_org_invitation(p_invitation_id) stays for /join/<id> links; at go-live
+// (held/signup_identity_golive.sql) it requires a PROVEN address.
 //
 // The link. New invitation e-mails (send-notification, team_invitation and
 // team_invitation_reminder, flags invite_links_v2 AND account_signup_v2) link to
@@ -60,6 +62,26 @@
 //                          email_mismatch, missing_fields (+ fields), weak_password,
 //                          password_too_long, rate_limited, not_enabled; server (try the
 //                          same link again).
+//   accept_existing { token } + Authorization: Bearer <the account's access token>
+//                          signed token only. For an account that already has the invited
+//                          address (integration review of 15 Oct 2026: with Confirm email off
+//                          from May, a confirmed address proves nothing). The session's
+//                          account must have the invited address; the invitation open; the
+//                          person not suspended or rejected. An address not proven yet is
+//                          proven here only in a session opened with the PASSWORD (JWT amr
+//                          "password"): the link proves the inbox, the password the account
+//                          (on_email_proven). A squatter who signed up with somebody else's
+//                          address has the password but not the link; the address's owner
+//                          has the link but must first choose a new password ("Forgot
+//                          password?"). Then accept_org_invitation's effects, server side:
+//                          the invitation 'accepted', collaborator of the company, verified
+//                          only if M3 verified the company (never un-suspend), else onboarding
+//                          'submitted'; a review_log row (subject 'join', action
+//                          'invitation_accepted', account 'existing').
+//                          200 { ok: true, email, verified, organization_name, proven_now }.
+//                          401 sign_in_required; 403 wrong_account, password_session_required,
+//                          account_closed; 409 expired / accepted / closed; invalid_link,
+//                          legacy_link, rate_limited, not_enabled, server.
 //   send_link  { token }   legacy id only: e-mails a fresh signed link to the invited
 //                          address. 200 { ok: true, email (masked) }; 409 expired / accepted
 //                          / closed. 1 per invitation per 10 minutes, 3 per day; 10 per
@@ -975,7 +997,7 @@ async function actionAccept(req: Request, body: Json): Promise<Response> {
   }
   if (state !== "open") return json(req, { error: state }, 409);
 
-  // An account already has this address: its owner signs in and accepts with the RPC.
+  // An account already has this address: its owner signs in with the password, then accept_existing.
   if (existing) return json(req, { sign_in_required: true, invitation_id: inv.id, email });
 
   // The account first (GoTrue's unique address settles a double click), CONFIRMED with the
@@ -1005,6 +1027,93 @@ async function actionAccept(req: Request, body: Json): Promise<Response> {
     return json(req, { error: again ? stateOf({ ...link, inv: again }) : "closed" }, 409);
   }
   return done(await finishAccept(uid, inv, org, names, "created"));
+}
+
+/** The caller's session: its account (checked by GoTrue) and whether it was opened with the
+ *  account's password (the JWT's amr, read once GoTrue accepted the token). null = none. */
+async function sessionOf(req: Request): Promise<{ user: AuthUser; password: boolean } | null> {
+  const header = req.headers.get("authorization") || "";
+  const jwt = /^bearer /i.test(header) ? header.slice(7).trim() : "";
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return null;
+  const { data, error } = await db.auth.getUser(jwt);
+  const user = data?.user as AuthUser | undefined;
+  if (error || !user?.id) return null;
+  let amr: unknown = null;
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    amr = obj(JSON.parse(atob(b64 + "===".slice((b64.length + 3) % 4)))).amr;
+  } catch {
+    amr = null;
+  }
+  const password = Array.isArray(amr) && amr.some((a) => obj(a).method === "password");
+  return { user, password };
+}
+
+async function actionAcceptExisting(req: Request, body: Json): Promise<Response> {
+  if (!(await pageEnabled())) return json(req, { error: "not_enabled" }, 403);
+  await ipLimit(req, "invite_accept", ACCEPT_IP_PER_HOUR, true);
+  const link = await resolveLink(body.token);
+  if (!link) return json(req, { error: "invalid_link" }, 404);
+  if (link.kind === "legacy") return json(req, { error: "legacy_link" }, 400);
+  const { inv, org } = link;
+  const email = inv.email.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return json(req, { error: "invalid_link" }, 404);
+  const session = await sessionOf(req);
+  if (!session) return json(req, { error: "sign_in_required" }, 401);
+  const uid = session.user.id;
+  if ((session.user.email || "").trim().toLowerCase() !== email) return json(req, { error: "wrong_account" }, 403);
+  const state = stateOf(link);
+  if (state !== "open") return json(req, { error: state }, 409);
+
+  const { data: prof, error: profErr } = await db.from("profiles").select("access_status, email, email_proven_at").eq("user_id", uid).maybeSingle();
+  if (profErr) throw profErr;
+  if (!prof) throw new Error("accept_existing: no profile");
+  const p = prof as Json;
+  if (["suspended", "rejected"].includes(String(p.access_status || ""))) return json(req, { error: "account_closed" }, 403);
+  const proven = !!p.email_proven_at && String(p.email || "").trim().toLowerCase() === email;
+  // Not proven yet: the signed link proves the inbox; only a PASSWORD session proves the
+  // account (a magic-link or one-time-code session proves the inbox again, nothing more).
+  if (!proven && !session.password) return json(req, { error: "password_session_required" }, 403);
+  if (!proven) {
+    const { error } = await db.rpc("on_email_proven", { p_user_id: uid });
+    if (error) throw new Error(`on_email_proven: ${error.message}`);
+  }
+
+  if (!(await claimInvitation(inv.id))) {
+    const again = await loadInvitation(inv.id);
+    return json(req, { error: again ? stateOf({ ...link, inv: again }) : "closed" }, 409);
+  }
+  // accept_org_invitation's effects for this account.
+  const { error: memErr } = await db.from("organization_members").insert({ organization_id: inv.organization_id, user_id: uid, role: "collaborator" });
+  if (memErr && memErr.code !== "23505") throw new Error(`membership: ${memErr.message}`);
+  const orgVerified = org.access_status === "verified";
+  const { error: upErr } = orgVerified
+    ? await db.from("profiles").update({ access_status: "verified", onboarding_status: "completed" }).eq("user_id", uid).neq("access_status", "suspended")
+    : await db.from("profiles").update({ onboarding_status: "submitted" }).eq("user_id", uid).neq("access_status", "verified");
+  if (upErr) throw new Error(`profile: ${upErr.message}`);
+  const { data: after, error: reReadErr } = await db.from("profiles").select("access_status").eq("user_id", uid).maybeSingle();
+  if (reReadErr) throw reReadErr;
+  const verified = (after as Json | null)?.access_status === "verified";
+  const { error: logErr } = await db.from("review_log").insert({
+    subject_type: "join",
+    subject_id: inv.id,
+    action: "invitation_accepted",
+    details: {
+      organization_id: inv.organization_id,
+      user_id: uid,
+      org_verified: orgVerified,
+      person_status: verified ? "verified" : String((after as Json | null)?.access_status || "pending"),
+      invited_by: inv.invited_by_user_id,
+      account: "existing",
+      proven: true,
+      proven_now: !proven,
+      via: "accept-invite",
+    },
+    actor_id: uid,
+  });
+  if (logErr) console.error("accept-invite: review_log failed", logErr.message);
+  return json(req, { ok: true, email, verified, organization_name: orgCard(org).name, proven_now: !proven });
 }
 
 async function actionSendLink(req: Request, body: Json): Promise<Response> {
@@ -1044,6 +1153,7 @@ async function actionSendLink(req: Request, body: Json): Promise<Response> {
 const ACTIONS: Record<string, (req: Request, body: Json) => Promise<Response>> = {
   preview: actionPreview,
   accept: actionAccept,
+  accept_existing: actionAcceptExisting,
   send_link: actionSendLink,
 };
 

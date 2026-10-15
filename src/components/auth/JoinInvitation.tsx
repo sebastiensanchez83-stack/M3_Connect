@@ -15,7 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { clearStoredInvite } from '@/lib/invite-store';
 import { isInvalidCredentials, signInErrorMessage } from '@/lib/authErrors';
-import { PASSWORD_MIN, callAcceptInvite, passwordProblem } from '@/lib/accountSignup';
+import { PASSWORD_MIN, acceptInviteAsMe, callAcceptInvite, passwordProblem } from '@/lib/accountSignup';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import { cn } from '@/lib/utils';
 
@@ -27,7 +27,9 @@ import { cn } from '@/lib/utils';
  * company) and proves the address (the link reached that inbox).
  *
  *  - /join/<token>: the signed link of the new invitation e-mails. Already an
- *    account at that address: the person signs in, then accept_org_invitation.
+ *    account at that address: the person signs in with the password, then joins from
+ *    the link (accept-invite accept_existing: the link proves the inbox, the password
+ *    session the account; an address proven before needs no password session).
  *  - /join/<invitation id> (flag account_signup_v2): an old e-mail. The id proves
  *    nothing (company members can read it), so a signed-out visitor gets a fresh
  *    signed link by e-mail; signed in, joining goes through accept_org_invitation,
@@ -67,6 +69,8 @@ export function JoinInvitation({ token }: { token: string }) {
   const [linkState, setLinkState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [loginOpen, setLoginOpen] = useState(false);
+  // accept_existing answered password_session_required (a magic-link or code session).
+  const [needPassword, setNeedPassword] = useState(false);
   // The visitor asked to join on this page (sign-in form): join as soon as the session is here.
   const joinAsked = useRef(false);
 
@@ -105,10 +109,47 @@ export function JoinInvitation({ token }: { token: string }) {
   const orgName = preview?.organization.name ?? '';
   const emailMatches = !!user && !!preview && preview.kind === 'token' && (user.email || '').toLowerCase() === preview.email.toLowerCase();
 
+  const joined = useCallback(async (verified: boolean) => {
+    clearStoredInvite();
+    await refreshProfile().catch(() => {});
+    toast({
+      title: t('joinInvite.welcomeTitle', 'Welcome!'),
+      description: verified
+        ? t('org.joined', 'You have joined {{orgName}}!', { orgName })
+        : t('joinV2.joinedPending', { org: orgName, defaultValue: 'You have joined {{org}}. The M3 team checks the company, then everything opens.' }),
+    });
+    navigate(MEMBER_HOME, { replace: true });
+  }, [refreshProfile, navigate, orgName, t]);
+
   const accept = useCallback(async () => {
     if (!preview || accepting) return;
     setAccepting(true);
     setFormError(null);
+    setNeedPassword(false);
+    if (preview.kind === 'token') {
+      // The signed link and this session (accept-invite accept_existing): the link proves the
+      // inbox; an address not proven yet needs a session opened with the password.
+      const res = await acceptInviteAsMe<{ verified?: boolean }>(token);
+      setAccepting(false);
+      if (res.ok) {
+        await joined(res.verified === true);
+        return;
+      }
+      if (res.error === 'expired' || res.error === 'accepted' || res.error === 'closed') {
+        setPreview({ ...preview, state: res.error });
+      } else if (res.error === 'password_session_required') {
+        setNeedPassword(true);
+      } else if (res.error === 'wrong_account') {
+        setFormError(t('joinV2.wrongAccount', { email: user?.email ?? '', defaultValue: 'This invitation was sent to another address. You are signed in as {{email}}.' }));
+      } else if (res.error === 'account_closed') {
+        setFormError(t('joinV2.accountClosed', 'This account cannot join a team. Please write to the M3 team at events@m3monaco.com.'));
+      } else if (res.error === 'rate_limited') {
+        setFormError(t('joinV2.tooMany', 'Too many attempts. Please wait a few minutes, then try again.'));
+      } else {
+        setFormError(t('joinV2.acceptFailed', "We couldn't add you to the team just now. Please try again in a moment."));
+      }
+      return;
+    }
     const { error } = await supabase.rpc('accept_org_invitation', { p_invitation_id: preview.invitation_id });
     setAccepting(false);
     if (error) {
@@ -126,7 +167,7 @@ export function JoinInvitation({ token }: { token: string }) {
         : /does not match/i.test(msg)
           ? t('joinV2.wrongAccount', { email: user?.email ?? '', defaultValue: 'This invitation was sent to another address. You are signed in as {{email}}.' })
           : /confirm your email/i.test(msg)
-            ? t('joinV2.confirmFirst', 'Confirm your e-mail address first, with the link we e-mailed you when you signed up. Then open this invitation again.')
+            ? t('joinV2.confirmFirst2', 'Confirm your e-mail address first: use the link in the banner on your dashboard (we e-mail it to you). Then open this invitation again.')
             : t('joinV2.acceptFailed', "We couldn't add you to the team just now. Please try again in a moment."));
       return;
     }
@@ -134,7 +175,17 @@ export function JoinInvitation({ token }: { token: string }) {
     await refreshProfile().catch(() => {});
     toast({ title: t('joinInvite.welcomeTitle', 'Welcome!'), description: t('org.joined', 'You have joined {{orgName}}!', { orgName }) });
     navigate(MEMBER_HOME, { replace: true });
-  }, [preview, accepting, refreshProfile, navigate, orgName, t, user?.email]);
+  }, [preview, accepting, refreshProfile, navigate, orgName, t, user?.email, token, joined]);
+
+  // Signed in with a link session (magic link, one-time code) on an address not proven yet:
+  // sign in again with the password, then the page joins (the click was the consent).
+  const signInWithPassword = async () => {
+    setNeedPassword(false);
+    setFormError(null);
+    setPassword('');
+    setMode('signin');
+    await signOut().catch(() => {});
+  };
 
   // Signed in from this page's own sign-in form: join at once (their click was the consent).
   useEffect(() => {
@@ -312,11 +363,24 @@ export function JoinInvitation({ token }: { token: string }) {
         {orgCard}
         <p className="mb-5 break-words text-sm leading-6 text-meta">{t('joinV2.signedInAs', { email: user.email ?? '', defaultValue: 'Signed in as {{email}}.' })}</p>
         {formError && <AuthNotice tone="error" role="alert" className="mb-5"><p>{formError}</p></AuthNotice>}
+        {needPassword ? (
+          <div className="space-y-4">
+            <AuthNotice tone="info" role="status">
+              <p>{t('joinV2.passwordSession', 'For your security, joining from this link needs a sign-in with your password. Sign in again with it: you join the team straight away. Forgot it? The sign-in form sends you a link to choose a new one.')}</p>
+            </AuthNotice>
+            <div className={STICKY_ACTIONS}>
+              <Button variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={() => void signInWithPassword()} data-help-avoid>
+                {t('joinV2.signInWithPassword', 'Sign in with my password')}
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className={STICKY_ACTIONS}>
           <Button variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={() => void accept()} disabled={accepting} data-help-avoid>
             {accepting ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />{t('joinInvite.joining', 'Joining...')}</> : t('joinInvite.acceptAndJoin', 'Accept & Join {{org}}', { org: orgName })}
           </Button>
         </div>
+        )}
       </div>,
     );
   }

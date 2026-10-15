@@ -4,14 +4,11 @@
 -- claim_organization (9e762629...), claim_organization_for_user (03948e99...), the status
 -- CHECK (5 statuses), owners_can_create_invitations of 20261011083257 (fingerprint
 -- 3cd3e879..., with its 'org_members_no_forced_join <fp>' note, so that migration's own down
--- still recognises it). Drops code_matched, org_invitation_token (live /join/<token> links
--- stop working; old /join/<id> links keep working), the org_invitation_* functions,
--- accept_org_invitation_for / _by_token, company_search, the trigram index,
+-- still recognises it). Drops code_matched, company_search, the trigram index,
 -- normalize_org_name and immutable_unaccent.
 -- Data: rows in a status the old CHECK refuses are set to 'cancelled' first (a declined join
 -- request 'rejected', an open claim 'claim_requested'); the counts are printed (NOTICE).
--- expires_at moved forward by org_invitation_issue_token stays as it is. The invitation
--- expiry of 20261012112000_org_invitations_expiry stays (its own down, run after this one).
+-- The invitation expiry of 20261012112000_org_invitations_expiry stays (its own down, run after this one).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -296,12 +293,6 @@ end;
 $function$;
 
 drop function if exists public.company_search(text, integer);
-drop function if exists public.accept_org_invitation_by_token(text);
-drop function if exists public.accept_org_invitation_for(uuid, text);
-drop function if exists public.org_invitation_by_token(text);
-drop function if exists public.org_invitation_issue_token(uuid);
-drop function if exists public.org_invitation_resolve(text);
-drop table if exists public.org_invitation_token;
 drop index if exists public.organizations_name_norm_trgm_idx;
 drop function if exists public.normalize_org_name(text);
 drop function if exists public.immutable_unaccent(text);

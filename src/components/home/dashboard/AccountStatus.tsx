@@ -61,6 +61,9 @@ function codeNoteText(t: TFunction, code: string | undefined): string | null {
   if (code === 'refused_has_owner') {
     return t('dashStatus.codeHasOwner', 'Your company code was not used: this company already has an owner on the platform.');
   }
+  if (code === 'mismatch') {
+    return t('dashStatus.codeMismatch', 'Your company code was not used: it belongs to another company than the one you picked.');
+  }
   return null;
 }
 

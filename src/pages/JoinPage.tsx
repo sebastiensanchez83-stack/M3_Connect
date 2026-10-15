@@ -52,7 +52,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // A /join/<token> link of the new invitation e-mails: the signed "SMC invite token v1"
 // (base64url(20 bytes) "." base64url(16 bytes)), minted by send-notification and checked
 // by accept-invite. The integration of 15 Oct 2026 kept this one format (registration
-// contract §10.6): the database's 43-character org_invitation_token is never minted.
+// contract §10.6); the database has no token table for them.
 // Never a bare invitation id.
 const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}$/;
 

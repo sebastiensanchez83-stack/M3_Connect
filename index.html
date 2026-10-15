@@ -7,6 +7,14 @@
       and GA4's enhanced measurement counts the in-app route changes as page views.
       Consent Mode v2: nothing is stored on the device until the visitor clicks Accept on the
       cookie banner (src/components/layout/CookieBanner.tsx), which updates the consent below.
+      Personal links never reach Google. GA sends the full address with every page view
+      (page_location, and the previous address as page_referrer), cookieless pings included.
+      A secret address: a /join/<link> segment; a t, token, token_hash, code, claim, invite,
+      email, key, access_token or refresh_token parameter; a hash carrying tokens (Supabase's
+      /reset-password and /welcome redirects). gtag.js is loaded only once the address is
+      clean, so it never sees the personal link a visitor landed on. If the app later moves
+      to a secret address, the GA opt-out flag stays set for the rest of the page's life
+      (the next page view would carry the secret as its referrer).
     -->
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -19,11 +27,42 @@
         ad_personalization: 'denied',
         analytics_storage: smcCookieConsent === 'accepted' ? 'granted' : 'denied'
       });
-    </script>
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MCT9N2QCJJ"></script>
-    <script>
-      gtag('js', new Date());
-      gtag('config', 'G-MCT9N2QCJJ');
+      (function () {
+        var GA_ID = 'G-MCT9N2QCJJ';
+        var loaded = false;
+        var tainted = false;
+        function secretAddress() {
+          var l = window.location;
+          return /^\/join\/[^/?#]/.test(l.pathname)
+            || /[?&](t|token|token_hash|code|claim|invite|email|key|access_token|refresh_token)=/i.test(l.search)
+            || /(access_token|refresh_token|token_hash|token|code)=/i.test(l.hash);
+        }
+        function sync() {
+          var secret = secretAddress();
+          if (secret && loaded) tainted = true;
+          window['ga-disable-' + GA_ID] = secret || tainted;
+          if (!secret && !loaded) {
+            loaded = true;
+            var tag = document.createElement('script');
+            tag.async = true;
+            tag.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+            document.head.appendChild(tag);
+            gtag('js', new Date());
+            gtag('config', GA_ID);
+          }
+        }
+        ['pushState', 'replaceState'].forEach(function (name) {
+          var original = history[name];
+          history[name] = function () {
+            var out = original.apply(this, arguments);
+            try { sync(); } catch (e) {}
+            return out;
+          };
+        });
+        window.addEventListener('popstate', sync);
+        window.addEventListener('hashchange', sync);
+        sync();
+      })();
     </script>
     <!-- Square icons made from the S symbol (public/icons): Google wants a square favicon in a multiple of 48 px. -->
     <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png" />

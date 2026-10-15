@@ -1447,8 +1447,9 @@ async function authorizeMemberSend(
 //                        account with its address. Member caller: an owner of the company,
 //                        decided < 15 min ago; without invitation_id, the latest accepted
 //                        request for `email` in a company the caller owns.
-//   account_under_review user_id (service / staff). A member only for themself, while
-//                        their profile is pending and their address PROVEN (contract §2).
+//   account_under_review user_id (service / staff), only while that profile is pending
+//                        (whoever asks). A member only for themself, with their address
+//                        PROVEN (contract §2).
 //                        Path and company from the database (reviewPathOf): "join" only
 //                        when the person's own join_requested row is open (an owner was
 //                        asked), "claim" only with an open claim_requested row (M3 decides),
@@ -1665,8 +1666,11 @@ async function authorizeResolvedSend(
         .eq("user_id", uid)
         .maybeSingle();
       if (error || !p) return null;
-      // A member: only their own pending account, at their PROVEN sign-in address.
-      if (m && (p.access_status !== "pending" || !p.email_proven_at || !sameEmail(p.email, m.email))) return null;
+      // Only while the person is still pending, whoever asks (a queue drain included: M3 may
+      // have decided before the queued e-mail went out).
+      if (p.access_status !== "pending") return null;
+      // A member: only their own account, at their PROVEN sign-in address.
+      if (m && (!p.email_proven_at || !sameEmail(p.email, m.email))) return null;
       const r = await recipientForUser(db, uid);
       if (!r) return null;
       const address = m ? m.email : r.recipientEmail;

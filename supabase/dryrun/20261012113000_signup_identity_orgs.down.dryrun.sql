@@ -46,7 +46,7 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- 20261012112000_org_invitations_expiry (checked below), before 20261012113500_signup_identity
 -- (part 2, which needs the statuses added here).
 -- Down: supabase/migrations/down/20261012113000_signup_identity_orgs.down.sql.
--- Dry runs: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql, .dryrun2.sql, .dryrun3.sql.
+-- Dry runs: supabase/dryrun/20261012113000_signup_identity_orgs.dryrun.sql, .dryrun2.sql (and .down.dryrun.sql).
 --
 -- For the live main site and for the redesign with every flag off, only these change:
 --   * Decline on a join request works: status 'rejected' is allowed (reject_join_request
@@ -59,8 +59,9 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 --     expired invitation (20261012112000_org_invitations_expiry, applied first).
 --   * An owner can no longer write an invitation that expires later than 30 days.
 -- New, unused until the Phase 2 functions and pages call them: status 'claim_requested',
--- column code_matched, org_invitation_token (/join/<token> links, sha256 only) and its
--- RPCs, normalize_org_name + trigram index, company_search.
+-- column code_matched, normalize_org_name + trigram index, company_search.
+-- No /join/<token> table or RPC here (integration review, 15 Oct 2026): the team links are
+-- signed by the edge functions ("SMC invite token v1", send-notification / accept-invite).
 -- Not touched: reject_join_request, request_org_join, create_organization,
 -- get_invitation_for_join (old /join/<id> links keep resolving; an expired row shows
 -- "no longer valid" there).
@@ -200,209 +201,7 @@ begin
 end
 $mark$;
 
--- ---- 3. Team links /join/<token> ----------------------------------------------
-create table if not exists public.org_invitation_token (
-  token_hash bytea primary key,                 -- sha256(raw token); the raw token is only in the e-mail
-  invitation_id uuid not null references public.organization_invitations(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  expires_at timestamptz not null,
-  used_at timestamptz,
-  revoked_at timestamptz
-);
-create index if not exists org_invitation_token_inv_idx on public.org_invitation_token (invitation_id);
-alter table public.org_invitation_token enable row level security;
-revoke all on table public.org_invitation_token from anon, authenticated;
-comment on table public.org_invitation_token is 'Phase 2: /join/<token> team links (sha256 only). Service role only, through the org_invitation_* functions.';
-
--- Raw token -> {invitation_id} or {error: invalid_token | already_accepted | not_pending | expired}.
-create or replace function public.org_invitation_resolve(p_token text)
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = ''
-as $function$
-declare
-  v_inv uuid;
-  v_texp timestamptz;
-  v_rev timestamptz;
-  v_status text;
-  v_iexp timestamptz;
-begin
-  if p_token is null or length(p_token) < 20 or length(p_token) > 100 then
-    return jsonb_build_object('error', 'invalid_token');
-  end if;
-  select t.invitation_id, t.expires_at, t.revoked_at into v_inv, v_texp, v_rev
-    from public.org_invitation_token t where t.token_hash = extensions.digest(p_token, 'sha256');
-  if v_inv is null or v_rev is not null then
-    return jsonb_build_object('error', 'invalid_token');
-  end if;
-  select i.status, i.expires_at into v_status, v_iexp from public.organization_invitations i where i.id = v_inv;
-  if v_status is null then
-    return jsonb_build_object('error', 'invalid_token');
-  elsif v_status = 'accepted' then
-    return jsonb_build_object('error', 'already_accepted', 'invitation_id', v_inv);
-  elsif v_status <> 'pending' then
-    return jsonb_build_object('error', 'not_pending', 'invitation_id', v_inv);
-  elsif v_texp < now() or v_iexp < now() then
-    return jsonb_build_object('error', 'expired', 'invitation_id', v_inv);
-  end if;
-  return jsonb_build_object('invitation_id', v_inv);
-end
-$function$;
-
--- Service role (send-notification, team_invitation and its reminder): a new link valid
--- 30 days; the invitation stays open at least as long. Errors (22023): not_found, not_pending.
-create or replace function public.org_invitation_issue_token(p_invitation_id uuid)
-returns text
-language plpgsql
-volatile
-security definer
-set search_path = ''
-as $function$
-declare
-  v_status text;
-  v_raw text;
-  v_exp timestamptz := now() + interval '30 days';
-begin
-  select i.status into v_status from public.organization_invitations i where i.id = p_invitation_id for update;
-  if v_status is null then
-    raise exception using errcode = '22023', message = 'not_found';
-  end if;
-  if v_status <> 'pending' then
-    raise exception using errcode = '22023', message = 'not_pending';
-  end if;
-  -- 32 random bytes, base64url without padding (43 characters), as gl_issue_access_token.
-  v_raw := translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_');
-  insert into public.org_invitation_token (token_hash, invitation_id, expires_at)
-  values (extensions.digest(v_raw, 'sha256'), p_invitation_id, v_exp);
-  update public.organization_invitations set expires_at = v_exp where id = p_invitation_id and expires_at < v_exp;
-  return v_raw;
-end
-$function$;
-
--- Service role (accept-invite): what /join/<token> shows, or {ok:false, error[, invitation_id]}.
-create or replace function public.org_invitation_by_token(p_token text)
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = ''
-as $function$
-declare
-  v_r jsonb := public.org_invitation_resolve(p_token);
-  v_out jsonb;
-begin
-  if v_r ? 'error' then
-    return jsonb_build_object('ok', false) || v_r;
-  end if;
-  select jsonb_build_object('ok', true, 'invitation_id', i.id, 'organization_id', o.id, 'organization_name', o.name,
-           'organization_verified', o.access_status = 'verified', 'email', i.email, 'first_name', i.first_name,
-           'last_name', i.last_name, 'expires_at', i.expires_at,
-           'inviter_name', coalesce(nullif(btrim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, '')), ''), 'A team member'),
-           'account_exists', exists (select 1 from auth.users u where lower(u.email) = lower(btrim(i.email))))
-    into v_out
-    from public.organization_invitations i
-    join public.organizations o on o.id = i.organization_id
-    left join public.profiles p on p.user_id = i.invited_by_user_id
-   where i.id = (v_r ->> 'invitation_id')::uuid;
-  return v_out;
-end
-$function$;
-
--- Service role (accept-invite, for the account it has just created for the invited address
--- with the password typed on /join/<token>): accept_org_invitation's rules for p_user_id.
--- Proof is separate: accept-invite then calls on_email_proven(p_user_id) for an account it
--- created (the token reached that inbox and the password was chosen there).
--- {ok, organization_id, organization_name, verified} or {ok:false, error: invalid_token |
--- already_accepted | not_pending | expired | unknown_user | email_mismatch | not_confirmed}.
-create or replace function public.accept_org_invitation_for(p_user_id uuid, p_token text)
-returns jsonb
-language plpgsql
-volatile
-security definer
-set search_path = ''
-as $function$
-declare
-  v_r jsonb := public.org_invitation_resolve(p_token);
-  v_inv uuid;
-  v_org uuid;
-  v_iemail text;
-  v_email text;
-  v_confirmed boolean;
-  v_verified boolean;
-  v_name text;
-begin
-  if v_r ? 'error' then
-    return jsonb_build_object('ok', false) || v_r;
-  end if;
-  v_inv := (v_r ->> 'invitation_id')::uuid;
-  select u.email, u.email_confirmed_at is not null into v_email, v_confirmed from auth.users u where u.id = p_user_id;
-  if v_email is null then
-    return jsonb_build_object('ok', false, 'error', 'unknown_user');
-  end if;
-  select i.organization_id, i.email into v_org, v_iemail
-    from public.organization_invitations i where i.id = v_inv and i.status = 'pending' for update;
-  if v_org is null then
-    return jsonb_build_object('ok', false, 'error', 'not_pending');
-  end if;
-  if lower(btrim(v_iemail)) <> lower(v_email) then
-    return jsonb_build_object('ok', false, 'error', 'email_mismatch');
-  end if;
-  if not v_confirmed then
-    return jsonb_build_object('ok', false, 'error', 'not_confirmed');
-  end if;
-  update public.organization_invitations set status = 'accepted' where id = v_inv;
-  if not exists (select 1 from public.organization_members m where m.organization_id = v_org and m.user_id = p_user_id) then
-    insert into public.organization_members (user_id, organization_id, role) values (p_user_id, v_org, 'collaborator');
-  end if;
-  select o.access_status = 'verified', o.name into v_verified, v_name from public.organizations o where o.id = v_org;
-  if v_verified then
-    update public.profiles set access_status = 'verified', onboarding_status = 'completed', updated_at = now()
-     where user_id = p_user_id and access_status <> 'suspended';
-  else
-    update public.profiles set onboarding_status = 'submitted', updated_at = now()
-     where user_id = p_user_id and access_status <> 'verified';
-  end if;
-  update public.org_invitation_token set used_at = now()
-   where token_hash = extensions.digest(p_token, 'sha256') and used_at is null;
-  return jsonb_build_object('ok', true, 'organization_id', v_org, 'organization_name', v_name, 'verified', coalesce(v_verified, false));
-end
-$function$;
-
--- Signed in with the invited address: accept through the link's token. accept_org_invitation's
--- rules and messages; token errors raise 22023 with the code as message.
-create or replace function public.accept_org_invitation_by_token(p_token text)
-returns jsonb
-language plpgsql
-volatile
-security definer
-set search_path = ''
-as $function$
-declare
-  v_r jsonb := public.org_invitation_resolve(p_token);
-  v_inv uuid;
-  v_out jsonb;
-begin
-  if auth.uid() is null then
-    raise exception using errcode = '42501', message = 'not_signed_in';
-  end if;
-  if v_r ? 'error' then
-    raise exception using errcode = '22023', message = v_r ->> 'error';
-  end if;
-  v_inv := (v_r ->> 'invitation_id')::uuid;
-  perform public.accept_org_invitation(v_inv);
-  update public.org_invitation_token set used_at = now()
-   where token_hash = extensions.digest(p_token, 'sha256') and used_at is null;
-  select jsonb_build_object('ok', true, 'organization_id', o.id, 'organization_name', o.name,
-                            'verified', o.access_status = 'verified')
-    into v_out
-    from public.organization_invitations i join public.organizations o on o.id = i.organization_id
-   where i.id = v_inv;
-  return v_out;
-end
-$function$;
-
+-- ---- 3. accept_org_invitation -------------------------------------------------
 -- Production body (md5 40836bda...) plus the expiry check and "never un-suspend", both
 -- marked 12 Oct 2026. Signature, owner and ACL unchanged (CREATE OR REPLACE keeps them).
 CREATE OR REPLACE FUNCTION public.accept_org_invitation(p_invitation_id uuid)
@@ -651,15 +450,6 @@ as $function$
 $function$;
 
 -- ---- 6. EXECUTE -----------------------------------------------------------------
-revoke all on function public.org_invitation_resolve(text) from public, anon, authenticated;
-revoke all on function public.org_invitation_issue_token(uuid) from public, anon, authenticated;
-grant execute on function public.org_invitation_issue_token(uuid) to service_role;
-revoke all on function public.org_invitation_by_token(text) from public, anon, authenticated;
-grant execute on function public.org_invitation_by_token(text) to service_role;
-revoke all on function public.accept_org_invitation_for(uuid, text) from public, anon, authenticated;
-grant execute on function public.accept_org_invitation_for(uuid, text) to service_role;
-revoke all on function public.accept_org_invitation_by_token(text) from public, anon;
-grant execute on function public.accept_org_invitation_by_token(text) to authenticated;
 revoke all on function public.company_search(text, integer) from public, anon, authenticated;
 grant execute on function public.company_search(text, integer) to service_role;
 
@@ -675,14 +465,11 @@ select o.id, 'dryrun-down-claim@example.invalid', 'claim_requested', true from p
 -- claim_organization (9e762629...), claim_organization_for_user (03948e99...), the status
 -- CHECK (5 statuses), owners_can_create_invitations of 20261011083257 (fingerprint
 -- 3cd3e879..., with its 'org_members_no_forced_join <fp>' note, so that migration's own down
--- still recognises it). Drops code_matched, org_invitation_token (live /join/<token> links
--- stop working; old /join/<id> links keep working), the org_invitation_* functions,
--- accept_org_invitation_for / _by_token, company_search, the trigram index,
+-- still recognises it). Drops code_matched, company_search, the trigram index,
 -- normalize_org_name and immutable_unaccent.
 -- Data: rows in a status the old CHECK refuses are set to 'cancelled' first (a declined join
 -- request 'rejected', an open claim 'claim_requested'); the counts are printed (NOTICE).
--- expires_at moved forward by org_invitation_issue_token stays as it is. The invitation
--- expiry of 20261012112000_org_invitations_expiry stays (its own down, run after this one).
+-- The invitation expiry of 20261012112000_org_invitations_expiry stays (its own down, run after this one).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -967,12 +754,6 @@ end;
 $function$;
 
 drop function if exists public.company_search(text, integer);
-drop function if exists public.accept_org_invitation_by_token(text);
-drop function if exists public.accept_org_invitation_for(uuid, text);
-drop function if exists public.org_invitation_by_token(text);
-drop function if exists public.org_invitation_issue_token(uuid);
-drop function if exists public.org_invitation_resolve(text);
-drop table if exists public.org_invitation_token;
 drop index if exists public.organizations_name_norm_trgm_idx;
 drop function if exists public.normalize_org_name(text);
 drop function if exists public.immutable_unaccent(text);
@@ -1006,7 +787,7 @@ begin
      $q$select pg_get_constraintdef(c.oid) = 'CHECK ((status = ANY (ARRAY[''pending''::text, ''accepted''::text, ''expired''::text, ''cancelled''::text, ''join_requested''::text])))' and not exists (select 1 from pg_attribute a where a.attrelid = 'public.organization_invitations'::regclass and a.attname = 'code_matched' and not a.attisdropped) from pg_constraint c where c.conrelid = 'public.organization_invitations'::regclass and c.conname = 'organization_invitations_status_check'$q$),
     ('D03', 'owners_can_create_invitations = 20261011083257 (fingerprint 3cd3e879 and its note: that migration''s own down still recognises it)',
      $q$select current_setting('dr.d03')::boolean$q$),
-    ('D04', 'new objects gone (token table, 6 functions, index, normalize_org_name, immutable_unaccent)',
+    ('D04', 'new objects gone (company_search, the index, normalize_org_name, immutable_unaccent; and no /join/<token> object)',
      $q$select to_regclass('public.org_invitation_token') is null and to_regclass('public.organizations_name_norm_trgm_idx') is null and to_regprocedure('public.org_invitation_resolve(text)') is null and to_regprocedure('public.org_invitation_issue_token(uuid)') is null and to_regprocedure('public.org_invitation_by_token(text)') is null and to_regprocedure('public.accept_org_invitation_for(uuid,text)') is null and to_regprocedure('public.accept_org_invitation_by_token(text)') is null and to_regprocedure('public.company_search(text,integer)') is null and to_regprocedure('public.normalize_org_name(text)') is null and to_regprocedure('public.immutable_unaccent(text)') is null$q$),
     ('D05', 'the declined request and the claim were set to cancelled',
      $q$select not exists (select 1 from public.organization_invitations where email in ('dryrun-down-rejected@example.invalid', 'dryrun-down-claim@example.invalid'))$q$),

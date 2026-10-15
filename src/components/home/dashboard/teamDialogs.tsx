@@ -10,8 +10,9 @@ import { LogoBadge } from '@/components/ui/CoverImage';
 import { StatusPill } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  answerJoinRequest, invitationProblem, inviterName, sendTeamInvitation,
+  answerJoinRequest, invitationProblem, inviterName, seatCapApplies, sendTeamInvitation,
 } from '@/components/organization/orgActions';
+import { useRegistrationFlags } from '@/lib/flags';
 import { answerConnectionRequest, loadWaitingConnections, type WaitingConnection } from '@/components/inbox/inboxActions';
 import { toast } from '@/hooks/use-toast';
 import { displayCase } from '@/lib/displayCase';
@@ -68,6 +69,8 @@ export function InviteDialog({
 }) {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
+  // Flag account_signup_v2: no seat cap (the platform is free); the domain rule stays.
+  const { flags: regFlags } = useRegistrationFlags();
   const id = useId();
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
@@ -80,7 +83,7 @@ export function InviteDialog({
       setError(t('dash.inviteBadEmail', 'Please type a full e-mail address, like name@company.com.'));
       return;
     }
-    const problem = invitationProblem(org, occupiedSeats, address);
+    const problem = invitationProblem(org, occupiedSeats, address, { seatCap: seatCapApplies(regFlags) });
     if (problem === 'capacity') {
       setError(t('dash.inviteFull', { count: org.max_seats, defaultValue: 'Your company has used all its places ({{count}}). Write to the M3 team to add more.' }));
       return;

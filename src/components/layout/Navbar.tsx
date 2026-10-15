@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import * as SheetPrimitive from '@radix-ui/react-dialog';
@@ -16,7 +16,11 @@ import {
 import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
+import { useRegistrationFlags } from '@/lib/flags';
+import { safeNext } from '@/lib/safeNext';
+import { isV2Signup } from '@/lib/accountSignup';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
   Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock, HelpCircle,
@@ -30,13 +34,16 @@ import {
   isNavItemActive, canCreate, type NavItem,
 } from '@/lib/nav';
 import { HOME_SECTIONS, accountHref, homeSectionVisible, memberHomeHref } from '@/lib/accountNav';
-import { OPEN_SIGNUP_EVENT, SIGNIN_EMAIL_KEY, type OpenSignupDetail } from '@/lib/authModal';
+import { OPEN_SIGNUP_EVENT, SIGNIN_EMAIL_KEY, SIGNUP_PATH, type OpenSignupDetail } from '@/lib/authModal';
 import type { PersonaType } from '@/types/database';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useHeaderHero } from './headerOverlay';
 import { ReadingProgress } from './ReadingProgress';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+
+// The sign-up v2 form (flag account_signup_v2): its own chunk, loaded when the window opens.
+const AccountSignup = lazyWithRetry(() => import('@/components/auth/AccountSignup').then((m) => ({ default: m.AccountSignup })));
 
 /** The top of the member dashboard, on the home page (the avatar menu's "My dashboard"). */
 const DASHBOARD_TOP = '/#dashboard';
@@ -47,6 +54,14 @@ const DASHBOARD_TOP = '/#dashboard';
  * assumes a 64 px header. Everywhere else it tucks away on scroll down.
  */
 const PINNED_HEADER_ROUTES = /^\/(admin|sm26|wys26|sponsorship|account|inbox|dashboard|onboarding|organizations|users|investments|submit-|request-webinar|join\/|reset-password|welcome|reference)/;
+
+/**
+ * Utility pages (password, proof, sign-up, invitation and registration links): with
+ * flag password_only_login their "Sign in" button shows on phones too, not only in
+ * the menu, since that is often what the person came to do. Never the WYS pages
+ * (/wys26*): they change only with their own flags (spec §11).
+ */
+const UTILITY_PAGES = /^\/(welcome|reset-password|verify-email|signup|join\/|register\/|registration)/i;
 
 /** True when the element got focus from the keyboard (not a click, not Radix handing focus back). */
 function focusIsVisible(el: EventTarget | null): boolean {
@@ -96,6 +111,10 @@ export function Navbar() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [signupPersona, setSignupPersona] = useState<PersonaType | undefined>(undefined);
+  const [signupThen, setSignupThen] = useState<string | null>(null);
+  // A claim e-mail's ?email=&code= for the sign-up v2 window (flag account_signup_v2 without front_door).
+  const [signupPrefill, setSignupPrefill] = useState<{ email: string; code: string }>({ email: '', code: '' });
+  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
   const [createOpen, setCreateOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -203,10 +222,37 @@ export function Navbar() {
     setFocusInside(false);
   }, [location.pathname]);
 
-  // Auto-open signup modal when arriving via ?signup=true (e.g. from org_claim_code email link)
+  // Auto-open signup modal when arriving via ?signup=true (e.g. from org_claim_code email link).
+  // Flags front_door + account_signup_v2: that link (/?signup=true&email=…&code=…) goes to the
+  // /signup page instead, the code as ?claim= (supabase-js reads ?code= as a sign-in code when
+  // a page loads). front_door without the sign-up v2: the window of before, as with the flags off
+  // (its form reads the code from this address).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('signup') === 'true') {
+      if (!regFlagsReady) return; // decided once the switches are known (one short read)
+      if (regFlags.front_door && regFlags.account_signup_v2) {
+        const keep = new URLSearchParams();
+        const email = params.get('email');
+        const code = params.get('code');
+        const then = params.get('then');
+        if (email) keep.set('email', email);
+        if (code) keep.set('claim', code);
+        if (then) keep.set('then', then);
+        const q = keep.toString();
+        navigate(`${SIGNUP_PATH}${q ? `?${q}` : ''}`, { replace: true });
+        return;
+      }
+      if (regFlags.account_signup_v2) {
+        // The v2 form holds the code and the address: out of the address bar (a copied link
+        // must not carry the code).
+        setSignupPrefill({ email: params.get('email') || '', code: params.get('code') || '' });
+        params.delete('signup');
+        params.delete('code');
+        params.delete('email');
+        const q = params.toString();
+        window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
+      }
       setSignupOpen(true);
     } else if (params.get('signin') === 'true') {
       // After "Forgot password?" (ResetPasswordPage signs out, then comes here): the
@@ -223,13 +269,15 @@ export function Navbar() {
       const q = params.toString();
       window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
     }
-  }, [location.search]);
+  }, [location.search, regFlagsReady, regFlags.front_door, regFlags.account_signup_v2, navigate]);
 
   // Every "Sign up" button of the site opens this dialog directly (openSignup, src/lib/authModal.ts),
-  // optionally on a profile ("Sign up as a marina").
+  // optionally on a profile ("Sign up as a marina"), and with where to go next (sign-up v2).
   useEffect(() => {
     const onOpen = (e: Event) => {
-      setSignupPersona((e as CustomEvent<OpenSignupDetail>).detail?.persona);
+      const detail = (e as CustomEvent<OpenSignupDetail>).detail;
+      setSignupPersona(detail?.persona);
+      setSignupThen(detail?.then ?? null);
       setLoginOpen(false);
       setMobileMenuOpen(false);
       setSignupOpen(true);
@@ -237,6 +285,20 @@ export function Navbar() {
     window.addEventListener(OPEN_SIGNUP_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SIGNUP_EVENT, onOpen);
   }, []);
+
+  // Sign-up v2: where the new account continues. Given by the button, else the event
+  // registration page the visitor is on (/register/<slug>, /events/<id>), else the dashboard.
+  const signupNext = safeNext(
+    signupThen ?? (/^\/(register|events)\/[^/]+\/?$/i.test(location.pathname) ? `${location.pathname}${location.search}` : null),
+    { deny: ['/signup', '/welcome', '/reset-password', '/verify-email'] },
+  );
+
+  // front_door: the sign-in window's "Forgot password?" link comes back to this page
+  // (/reset-password keeps the person signed in and continues to ?next=). The home
+  // page and the auth utility pages keep the default (the member home).
+  const loginNext = regFlags.front_door && location.pathname !== '/'
+    ? safeNext(`${location.pathname}${location.search}`, { deny: ['/signup', '/welcome', '/reset-password', '/verify-email', '/join'] })
+    : null;
 
   // Detect email confirmation redirect (only on homepage — /onboarding and
   // /join/:id handle their own), including a failed link (expired / already used)
@@ -265,7 +327,9 @@ export function Navbar() {
   const isInvestor = profile?.persona === 'investor';
   // A draft account (sign-up not finished): the dashboard, Create and the inbox
   // would all send it back to its registration, so the bar offers that instead.
-  const isDraft = profile?.onboarding_status === 'draft';
+  // front_door: no registration wizard, a draft uses the dashboard like everyone (so does
+  // a sign-up v2 account while front_door is still off).
+  const isDraft = profile?.onboarding_status === 'draft' && !regFlags.front_door && !isV2Signup(profile);
   const member = !!user && !isDraft;
   const createCtx = {
     isVerified,
@@ -586,6 +650,7 @@ export function Navbar() {
                   onClick={() => setLoginOpen(true)}
                   className={cn(
                     'hidden h-10 rounded-full px-3.5 text-[15px] font-medium sm:inline-flex',
+                    regFlags.password_only_login && UTILITY_PAGES.test(location.pathname) && 'inline-flex px-3',
                     transparent ? 'text-white hover:bg-white/15 hover:text-white' : 'text-ink/80 hover:bg-chip hover:text-navy',
                   )}
                 >
@@ -595,8 +660,9 @@ export function Navbar() {
                   // White over the hero (whose own Sign up is the gold one), gold once the bar is white.
                   variant={transparent ? 'ctaWhite' : 'cta'}
                   size="sm"
-                  onClick={() => { setSignupPersona(undefined); setSignupOpen(true); }}
-                  className={compactCta}
+                  onClick={() => { setSignupPersona(undefined); setSignupThen(null); setSignupOpen(true); }}
+                  // On a phone a utility page shows "Sign in" here instead (Sign up stays in the menu).
+                  className={cn(compactCta, regFlags.password_only_login && UTILITY_PAGES.test(location.pathname) && 'max-sm:hidden')}
                 >
                   {t('nav.signup')}
                 </Button>
@@ -793,7 +859,7 @@ export function Navbar() {
                             <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
                               {t('nav.login')}
                             </Button>
-                            <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
+                            <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupThen(null); setSignupOpen(true); setMobileMenuOpen(false); }}>
                               {t('nav.signup')}
                             </Button>
                           </div>
@@ -815,10 +881,15 @@ export function Navbar() {
         mode="login"
         open={loginOpen}
         onOpenChange={setLoginOpen}
-        switchTo={{ onClick: () => { setLoginOpen(false); setSignupPersona(undefined); setSignupOpen(true); } }}
+        sheet={regFlags.password_only_login}
+        switchTo={{
+          onClick: () => { setLoginOpen(false); setSignupPersona(undefined); setSignupOpen(true); },
+          ...(regFlags.password_only_login ? { prompt: t('loginV2.noAccount', 'No account?') } : {}),
+        }}
       >
         <LoginForm
           onSuccess={() => setLoginOpen(false)}
+          next={loginNext}
           defaultEmail={emailFromConfirmation}
           showConfirmedBanner={confirmationLanding === 'confirmed'}
           linkError={confirmationLanding === 'link-error'}
@@ -828,9 +899,26 @@ export function Navbar() {
         mode="signup"
         open={signupOpen}
         onOpenChange={setSignupOpen}
+        sheet={regFlags.account_signup_v2}
+        // AuthDialog drops "Already have an account?" once the sign-up v2 signed the person in.
         switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
       >
-        <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+        {regFlags.account_signup_v2 ? (
+          // The sign-up v2 (Victor, 8 Oct 2026: "Sign up" opens the form itself, no chooser).
+          <Suspense fallback={<div className="flex justify-center py-10" role="status"><span className="sr-only">{t('common.loading', 'Loading...')}</span><span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-4 border-rule border-t-navy motion-reduce:animate-none" /></div>}>
+          <AccountSignup
+            key={`${signupPersona ?? 'any'}:${signupPrefill.code}`}
+            variant="dialog"
+            initialType={signupPersona}
+            then={signupNext}
+            initialEmail={signupPrefill.email}
+            initialCode={signupPrefill.code}
+            onFinished={(dest) => { setSignupOpen(false); navigate(dest); }}
+          />
+          </Suspense>
+        ) : (
+          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+        )}
       </AuthDialog>
     </header>
   );

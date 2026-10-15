@@ -5,6 +5,8 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { SITE_IMAGES, type SiteImage } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
+import { useRegistrationFlags } from '@/lib/flags';
+import { useAuth } from '@/contexts/AuthContext';
 import { registerAuthRefonteStrings } from '@/i18n/refonte-auth';
 
 registerAuthRefonteStrings();
@@ -53,6 +55,7 @@ export function AuthDialog({
   description,
   switchTo,
   photo,
+  sheet: sheetProp,
   children,
   className,
 }: {
@@ -67,10 +70,24 @@ export function AuthDialog({
   switchTo?: { onClick: () => void; prompt?: string; label?: string };
   /** Default: the photo of the mode; `null` for none. */
   photo?: SiteImage | null;
+  /**
+   * Below 640 px the window becomes a full-screen sheet (spec regspec-en.md §6, mobile
+   * rules): the whole screen for the form, the close (x) in its corner. Default: on
+   * with the registration flag of the window's form (sign-up: account_signup_v2,
+   * sign-in: password_only_login), so every page's window follows; off with both off.
+   */
+  sheet?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   const { t } = useTranslation();
+  const { flags } = useRegistrationFlags();
+  const { user } = useAuth();
+  const sheet = sheetProp ?? (mode === 'signup' ? flags.account_signup_v2 : flags.password_only_login);
+  // The sign-up v2 signs the new account in at once (Confirm email off) and keeps its
+  // "Confirm your e-mail" step in this window: no "Already have an account? Sign in" then,
+  // whichever page opened the window.
+  const showSwitch = !!switchTo && !(mode === 'signup' && flags.account_signup_v2 && user);
   const [stepTitle, setStepTitle] = useState<string | null>(null);
   const image = photo === undefined ? (mode === 'login' ? SITE_IMAGES.homeHero : SITE_IMAGES.joinHero) : photo;
   const heading = stepTitle ?? title ?? (mode === 'login' ? t('auth.login', 'Sign in') : t('auth.signup', 'Sign up'));
@@ -82,6 +99,9 @@ export function AuthDialog({
       <DialogContent
         className={cn(
           'max-h-[92vh] w-[calc(100%-2rem)] max-w-lg gap-0 overflow-y-auto rounded-card border-0 bg-white p-0 shadow-drawer sm:rounded-card',
+          // content-start: a short form (sign-in) stays at the top of the sheet, the grid rows
+          // are not stretched to fill the screen.
+          sheet && 'max-sm:content-start max-sm:inset-0 max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:data-[state=open]:slide-in-from-left-0 max-sm:data-[state=open]:slide-in-from-top-0 max-sm:data-[state=closed]:slide-out-to-left-0 max-sm:data-[state=closed]:slide-out-to-top-0 max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=closed]:zoom-out-100',
           // The close (x), the content's last child (ui/dialog): a 44 px target, on a
           // white disc so that it shows on any photo (a dark x vanished on dark ones).
           '[&>button:last-child]:right-2 [&>button:last-child]:top-2 [&>button:last-child]:grid [&>button:last-child]:h-11 [&>button:last-child]:w-11 [&>button:last-child]:place-items-center',
@@ -90,7 +110,7 @@ export function AuthDialog({
         )}
       >
         {image?.src && (
-          <div aria-hidden="true" className="relative h-28 shrink-0 overflow-hidden bg-navy sm:h-32">
+          <div aria-hidden="true" className={cn('relative h-28 shrink-0 overflow-hidden bg-navy sm:h-32', sheet && 'max-sm:h-20')}>
             <img
               src={image.src}
               alt=""
@@ -113,7 +133,7 @@ export function AuthDialog({
           <div className="mt-6">
             <AuthDialogTitleContext.Provider value={setStepTitle}>{children}</AuthDialogTitleContext.Provider>
           </div>
-          {switchTo && (
+          {showSwitch && switchTo && (
             <p className="mt-6 border-t border-rule pt-5 text-center text-sm leading-6 text-meta">
               {prompt}{' '}
               <UnderlineLink arrow={false} onClick={switchTo.onClick} className="min-h-11 !text-sm">

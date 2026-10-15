@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
 import { markEmailProven } from '@/lib/emailProof';
 import { MEMBER_HOME } from '@/lib/signInDestination';
+import { useRegistrationFlags } from '@/lib/flags';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { toast } from '@/hooks/use-toast';
 
@@ -128,6 +129,10 @@ export function WelcomePage() {
   const { user, profile, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  // front_door: a finished sign-up continues to the dashboard (no company wizard), and a
+  // new password has at least 10 characters (the sign-up v2 rule).
+  const { flags } = useRegistrationFlags();
+  const afterSignup = flags.front_door ? MEMBER_HOME : AFTER_SIGNUP;
   // Where the link says to go — only ever a path on this site, never this page.
   const explicitNext = safeNext(params.get('next'), { deny: ['/welcome'] });
 
@@ -269,7 +274,7 @@ export function WelcomePage() {
   else if (pwPending) isEvent = !meta.pw_pending_reason;
   else isEvent = sm26Lookup?.uid === uid && !!sm26Lookup?.registered;
 
-  const next = explicitNext ?? storedNext ?? (isEvent ? EVENT_HUB : mustSetPassword ? AFTER_SIGNUP : MEMBER_HOME);
+  const next = explicitNext ?? storedNext ?? (isEvent ? EVENT_HUB : mustSetPassword ? afterSignup : MEMBER_HOME);
 
   const finish = () => {
     navigate(next, { replace: true });
@@ -278,6 +283,9 @@ export function WelcomePage() {
   const setPassword = async () => {
     if (busy) return;
     if (pw.length < 8) { setFormError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).')); return; }
+    // Retyping the sign-up's own password keeps the rule it was chosen under.
+    const retyping = mustSetPassword && typeof (user?.app_metadata as Record<string, unknown> | undefined)?.claim_org_id !== 'string';
+    if (flags.front_door && !retyping && [...pw].length < 10) { setFormError(t('welcome.passwordTooShort10', 'Password too short (min. 10 characters).')); return; }
     // GoTrue refuses more than 72 bytes (bcrypt); say so before the round trip.
     if (new TextEncoder().encode(pw).length > 72) { setFormError(t('welcome.passwordTooLong', 'Password too long (max. 72 characters).')); return; }
     if (pw !== pw2) { setFormError(t('auth.passwordsNotSame', 'The two passwords are not the same. Type the same password in both boxes.')); return; }
@@ -513,7 +521,7 @@ export function WelcomePage() {
               id="welcome-password"
               value={pw}
               onChange={e => { setPw(e.target.value); setFormError(''); }}
-              placeholder={retype ? undefined : t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
+              placeholder={retype ? undefined : flags.front_door ? t('welcome.passwordPlaceholder10', 'At least 10 characters') : t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
               autoComplete="new-password"
             />
           </div>

@@ -16,6 +16,18 @@ import { supabase } from '@/lib/supabase';
  *   if (ready && newEventPagesOn(flags)) …
  */
 
+/*
+ * Go-live order of the Phase 2 front door (registration AUTH lane, 15 Oct 2026):
+ *  - account_signup_v2 needs Supabase Auth "Confirm email" ON first. With it off,
+ *    GoTrue answers a sign-up on a new address with a session and on a known one
+ *    with "already registered", so the form cannot hide which addresses have an
+ *    account (spec §5); notify_existing only works as designed with it on.
+ *  - front_door needs account_signup_v2 on (turn them on together, or v2 first).
+ *    front_door alone keeps claim links (/?signup=true&code=, /onboarding?code=)
+ *    on the forms of before, which predate the 11 Oct claim rules.
+ *  - The redesign's "Ask M3 to review again" needs notify-admins with the type
+ *    "account review requested again" deployed before front_door goes on.
+ */
 export const REGISTRATION_FLAG_KEYS = [
   'webinar_v2', 'onsite_v2', 'front_door', 'account_signup_v2', 'password_only_login',
   'wys_form_v2', 'wys_status_edit', 'review_queue', 'provisioning', 'capabilities_enforced', 'turnstile',

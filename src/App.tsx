@@ -15,6 +15,7 @@ import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
 import { ScreenLoader } from '@/components/LoadingSkeleton';
 import { RedirectKeepingQuery } from '@/components/RedirectKeepingQuery';
+import { FrontDoorOnly, OnboardingRoute } from '@/components/auth/FrontDoorRoutes';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Capture ?invite= param on initial page load (before React renders)
@@ -52,6 +53,9 @@ const BecomePartnerPage = lazyWithRetry(() => import('@/pages/BecomePartnerPage'
 const JoinPage = lazyWithRetry(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
 const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const WelcomePage = lazyWithRetry(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
+// Registration Phase 2 (front door): the sign-up as a page (flag front_door) and the e-mail proof link.
+const SignupPage = lazyWithRetry(() => import('@/pages/SignupPage').then(m => ({ default: m.SignupPage })));
+const VerifyEmailPage = lazyWithRetry(() => import('@/pages/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })));
 const ReferenceConfirmPage = lazyWithRetry(() => import('@/pages/ReferenceConfirmPage').then(m => ({ default: m.ReferenceConfirmPage })));
 const ReferenceRejectPage = lazyWithRetry(() => import('@/pages/ReferenceRejectPage').then(m => ({ default: m.ReferenceRejectPage })));
 const UnsubscribePage = lazyWithRetry(() => import('@/pages/UnsubscribePage').then(m => ({ default: m.UnsubscribePage })));
@@ -227,7 +231,10 @@ function App() {
               <Route path="/dashboard" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
               {/* The inbox keeps a page of its own; it is also a block of the home dashboard. */}
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
-              <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
+              {/* front_door (or a sign-up v2 account): no company wizard. /onboarding goes to the
+                  dashboard, except a claim code (?code=): signed out the sign-up page, signed in
+                  "Add my company". */}
+              <Route path="/onboarding" element={<OnboardingRoute legacy={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />
@@ -251,6 +258,15 @@ function App() {
               <Route path="/join/:inviteId" element={<JoinPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/welcome" element={<WelcomePage />} />
+              {/* The sign-up form as a page (flag front_door; else the 404 of before). "Sign up"
+                  buttons open the same form in a window. ?then=/register/<slug> and the claim
+                  e-mail's ?email=&code= deep-link into it. /signup/account and /signup/event
+                  (the spec's addresses) lead to the form and to the open events. */}
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/signup/account" element={<FrontDoorOnly fallback={<NotFoundPage />}><RedirectKeepingQuery to="/signup" /></FrontDoorOnly>} />
+              <Route path="/signup/event" element={<FrontDoorOnly fallback={<NotFoundPage />}><Navigate to="/events" replace /></FrontDoorOnly>} />
+              {/* The "Confirm your e-mail address" link (?t=, account-signup send_email_proof): never a sign-in. */}
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
               <Route path="/reference/confirm" element={<ReferenceConfirmPage />} />
               <Route path="/reference/reject" element={<ReferenceRejectPage />} />
               {/* The "Unsubscribe" link of every notification e-mail (?t=<signed token>; the

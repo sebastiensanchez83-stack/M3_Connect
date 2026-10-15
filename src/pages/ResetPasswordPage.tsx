@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
 import { markEmailProven } from '@/lib/emailProof';
 import { MEMBER_HOME } from '@/lib/signInDestination';
+import { useRegistrationFlags } from '@/lib/flags';
 import { SIGNIN_EMAIL_KEY } from '@/lib/authModal';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle } from 'lucide-react';
@@ -107,8 +108,15 @@ export function ResetPasswordPage() {
   // The session was opened from an e-mailed link (not an in-app password change):
   // once a new password is saved, the address counts as proven (markEmailProven).
   const linkSession = useRef(false);
+  // Flag front_door (spec regspec-en.md §6 /reset-password): the person stays signed in and
+  // goes on to the requested page, else the member home (no sign-out, no company wizard);
+  // a new password has at least 10 characters.
+  const { flags } = useRegistrationFlags();
+  const frontDoor = flags.front_door;
   // Where to go after saving: the link's own ?next= first, else the pw_pending fallback.
-  const destination = next ?? pendingNext;
+  const destination = next
+    ?? (frontDoor && pendingNext === AFTER_SIGNUP ? MEMBER_HOME : pendingNext)
+    ?? (frontDoor ? MEMBER_HOME : null);
 
   useEffect(() => () => window.clearTimeout(redirectTimer.current), []);
 
@@ -263,6 +271,11 @@ export function ResetPasswordPage() {
     // the same place: under the boxes.
     if (password.length < 8) {
       setError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).'));
+      return;
+    }
+    // A sign-up still owing its password step may retype the one it chose (the old rule).
+    if (frontDoor && !pendingSignup && [...password].length < 10) {
+      setError(t('welcome.passwordTooShort10', 'Password too short (min. 10 characters).'));
       return;
     }
 
@@ -476,7 +489,7 @@ export function ResetPasswordPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(null); }}
-              placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
+              placeholder={frontDoor && !pendingSignup ? t('resetPassword.placeholder10', 'Min. 10 characters') : t('auth.passwordPlaceholder', 'Min. 8 characters')}
               required
               disabled={loading}
             />

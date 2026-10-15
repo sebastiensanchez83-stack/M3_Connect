@@ -208,14 +208,31 @@ export async function fetchOrgInvitations(orgId: string): Promise<OrganizationIn
 }
 
 /**
+ * Whether a company's places (organizations.max_seats) still limit who its owner may
+ * invite: not with flag account_signup_v2 (the platform is free, no seat cap: Victor,
+ * 6 Oct 2026; spec §0). One rule for the company tab, the dashboard's team panel and its
+ * invite window. Marinas and developers never had a cap.
+ */
+export function seatCapApplies(flags: { account_signup_v2: boolean }): boolean {
+  return !flags.account_signup_v2;
+}
+
+/**
  * Why this invitation cannot be sent, or null:
  *  - 'capacity': a company other than a marina / developer has used its seats
  *    (members and open invitations count);
  *  - 'domain': the company has a primary domain (not a marina) and the address is elsewhere.
+ * `seatCap: false` (flag account_signup_v2: the platform is free, Victor 6 Oct 2026, see
+ * seatCapApplies) drops the first rule; the domain rule stays.
  */
-export function invitationProblem(org: Pick<Organization, 'organization_type' | 'max_seats' | 'primary_domain'>, occupiedSeats: number, email: string): 'capacity' | 'domain' | null {
+export function invitationProblem(
+  org: Pick<Organization, 'organization_type' | 'max_seats' | 'primary_domain'>,
+  occupiedSeats: number,
+  email: string,
+  { seatCap = true }: { seatCap?: boolean } = {},
+): 'capacity' | 'domain' | null {
   const isMarinaOrg = org.organization_type === 'marina' || org.organization_type === 'developer';
-  if (!isMarinaOrg && org.max_seats && occupiedSeats >= org.max_seats) return 'capacity';
+  if (seatCap && !isMarinaOrg && org.max_seats && occupiedSeats >= org.max_seats) return 'capacity';
   // Domain check — skip for marina orgs (marinas use personal emails, invite-only)
   const inviteDomain = email.split('@')[1]?.toLowerCase();
   if (org.primary_domain && org.organization_type !== 'marina' && inviteDomain !== org.primary_domain) return 'domain';

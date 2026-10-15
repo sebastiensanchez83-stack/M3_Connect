@@ -3,6 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStoredInvite } from '@/lib/invite-store'
 import { toast } from '@/hooks/use-toast'
+import { useRegistrationFlags } from '@/lib/flags'
+import { isV2Signup, linkSessionAt } from '@/lib/accountSignup'
+
+/** How long after an e-mailed link its session still counts as "just opened" (mark_email_proven's window). */
+const LINK_SESSION_FRESH_MS = 60 * 60 * 1000
 // The i18next instance rather than useTranslation(): `t` would have to join the
 // redirect effect's dependencies and re-run it on every language switch.
 import i18n from '@/i18n'
@@ -77,9 +82,24 @@ export function scrubAuthLandingUrl() {
 }
 
 export function AuthRedirector() {
-  const { user, loading, profile, profileTimedOut, isModerator } = useAuth()
+  const { user, session, loading, profile, profileTimedOut, isModerator } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  // Flag front_door: no forced company wizard for drafts, and /welcome forced only
+  // right after an e-mailed link (spec regspec-en.md §6 /welcome, §12: the 14
+  // pw_pending accounts are not sent there on every visit). Nothing is decided until
+  // the switches are read (one short request): with them still at their defaults the
+  // old "always /welcome" rule would fire on every fresh page load.
+  const { flags, ready: flagsReady } = useRegistrationFlags()
+  const frontDoor = flags.front_door
+  // A sign-up v2 account (its profile carries the cleaned intent) never meets the old
+  // company wizard, even while front_door is still off.
+  const noWizard = frontDoor || isV2Signup(profile)
+  // The session was opened from an e-mailed link (JWT amr) in the last hour, not with
+  // a password: "right after such a link". The amr survives token refreshes, so an
+  // older link session no longer forces /welcome on every visit.
+  const linkAt = linkSessionAt(session)
+  const fromLink = linkAt !== null && Date.now() - linkAt < LINK_SESSION_FRESH_MS
 
   const isAdminRoute = pathname.startsWith('/admin')
   const isOnboardingRoute = pathname === '/onboarding'
@@ -97,6 +117,10 @@ export function AuthRedirector() {
     // locked state (/submit-rfp…) do the same through ProtectedRoute.
     if (!user) return
 
+    // The rules below depend on the registration switches: wait for them (with the
+    // flags off, the same rules as before then apply).
+    if (!flagsReady) return
+
     // The password pages drive their own next step (WelcomePage: ?next= or the stored
     // pw_pending_next; ResetPasswordPage: ?next= or the pw_pending fallback). A redirect
     // from here (e.g. to a stored /join invitation) would pull the person off the page
@@ -108,8 +132,11 @@ export function AuthRedirector() {
     // Exempt: the welcome page itself, claim links (auto-claim then hub),
     // password-recovery, the on-site event info and the personal links of
     // registrations — everything else routes to /welcome until done.
+    // front_door: only a session opened from an e-mailed link is sent there (the link's
+    // owner chooses the password); a password session already knows its password.
     if (
       user.user_metadata?.pw_pending === true &&
+      (!frontDoor || fromLink) &&
       pathname !== '/welcome' &&
       pathname !== '/sm26/claim' &&
       !isOnsiteInfoPage(pathname) &&
@@ -153,6 +180,11 @@ export function AuthRedirector() {
       return
     }
 
+    // front_door: no company wizard. A draft or a rejected account uses the dashboard
+    // (its status card says what to do); /onboarding itself forwards there (App.tsx).
+    // Same for a sign-up v2 account with front_door off (its company request is with M3).
+    if (noWizard) return
+
     if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && isProtectedRoute(pathname)) {
       navigate('/account', { replace: true })
       return
@@ -161,7 +193,7 @@ export function AuthRedirector() {
     if (isCompleted && isOnboardingRoute && !pendingInviteId) {
       navigate('/account', { replace: true })
     }
-  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])
+  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute, frontDoor, noWizard, fromLink, flagsReady])
 
   return null
 }

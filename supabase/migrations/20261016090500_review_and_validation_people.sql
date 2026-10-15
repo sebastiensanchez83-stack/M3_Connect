@@ -384,6 +384,8 @@ begin
               'first_name', nullif(btrim(coalesce(v_first, '')), ''),
               'org_name', v_mail_org,
               'organization_id', v_mail_org_id,
+              -- send-status-notification words the approval for a participant on action = 'participant'
+              'action', v_action,
               'participant', case when v_action in ('validate', 'participant') then v_display = 'individual' end,
               'company_created', case when v_created then true end,
               'company_verified', case when v_verified_org then true end,

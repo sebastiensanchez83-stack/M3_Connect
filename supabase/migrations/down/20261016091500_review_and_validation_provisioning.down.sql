@@ -1,9 +1,11 @@
 -- DOWN for supabase/migrations/20261016091500_review_and_validation_provisioning.sql
 -- Puts back the production bodies of gl_guest_queue_provisioning (md5 fdeb96f5...) and
--- invoke_registration_cron (md5 bb4625d8...), verbatim from 20261009210000_registration_core.sql,
--- drops the e-mail gate, runs registration-cron-provision every 5 minutes again and drops
--- the daily purge job (the run history it already deleted stays deleted). Jobs queued in
--- between keep their email_due_at (confirmation + 1 minute, or pushed back while waiting).
+-- invoke_registration_cron (md5 bb4625d8...), verbatim from 20261009210000_registration_core.sql
+-- (no 'outbox' job: it answers 'unknown job' again), drops the e-mail gate and
+-- registration_cron_wake, runs registration-cron-provision every 5 minutes again, and
+-- unschedules registration-cron-outbox and the daily purge job (the run history it already
+-- deleted stays deleted). Jobs queued in between keep their email_due_at (confirmation + 1
+-- minute); queued outbox rows stay for registration-cron's own forced runs or a re-apply.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -139,7 +141,8 @@ end
 $function$;
 
 drop function if exists public.account_email_waits_for(text, uuid);
+drop function if exists public.registration_cron_wake(text);
 
 select cron.alter_job((select j.jobid from cron.job j where j.jobname = 'registration-cron-provision'),
                       schedule := '*/5 * * * *');
-select cron.unschedule(j.jobid) from cron.job j where j.jobname = 'registration-cron-provision-purge';
+select cron.unschedule(j.jobid) from cron.job j where j.jobname in ('registration-cron-outbox', 'registration-cron-purge');

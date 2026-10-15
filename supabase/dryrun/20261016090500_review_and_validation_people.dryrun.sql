@@ -420,6 +420,8 @@ begin
               'first_name', nullif(btrim(coalesce(v_first, '')), ''),
               'org_name', v_mail_org,
               'organization_id', v_mail_org_id,
+              -- send-status-notification words the approval for a participant on action = 'participant'
+              'action', v_action,
               'participant', case when v_action in ('validate', 'participant') then v_display = 'individual' end,
               'company_created', case when v_created then true end,
               'company_verified', case when v_verified_org then true end,
@@ -857,7 +859,7 @@ values ('account_under_review', {p1}, {p1}, {p1}, 'account_under_review:' || {p1
       'setup', $s$update public.profiles set persona = 'partner' where user_id = {p2};
 update public.platform_settings set value = value || '{"capabilities_enforced": false}'::jsonb where key = 'registration_flags'$s$,
       'q', $q$select public.admin_validate_person({p2}, '{"action": "participant", "notify": true}') ->> 'persona'$q$,
-      'chk', $c$select (select access_status::text = 'verified' and persona::text = 'individual' from public.profiles where user_id = {p2}) and (select data ->> 'participant' = 'true' from public.notification_outbox where user_id = {p2} and kind = 'user_account_approved')$c$),
+      'chk', $c$select (select access_status::text = 'verified' and persona::text = 'individual' from public.profiles where user_id = {p2}) and (select data ->> 'participant' = 'true' and data ->> 'action' = 'participant' from public.notification_outbox where user_id = {p2} and kind = 'user_account_approved')$c$),
     jsonb_build_object('id', 'V28', 'who', 'admin', 'expect', 'err:type_required', 'label', 'the person''s own pending company with no type: never verified untyped (the type lock would freeze it)',
       'q', $q$select public.admin_validate_person({p1}, jsonb_build_object('action', 'validate', 'org', jsonb_build_object('mode', 'link', 'org_id', {org_p})))::text$q$,
       'chk', $c$select (select access_status = 'pending' from public.organizations where id = {org_p}) and (select access_status::text = 'pending' from public.profiles where user_id = {p1})$c$)

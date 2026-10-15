@@ -6,7 +6,8 @@
 // RPC accept_org_invitation(p_invitation_id), as before.
 //
 // The link. New invitation e-mails (send-notification, team_invitation and
-// team_invitation_reminder, flag account_signup_v2) link to /join/<token>, a token signed
+// team_invitation_reminder, flags invite_links_v2 AND account_signup_v2) link to
+// /join/<token>, a token signed
 // for the invitation row and the address it was sent to (block "SMC invite token v1"
 // below, identical in send-notification). Holding it proves the invitee's inbox, so it
 // can create the account AND prove the address (spec §5 (c)). Old e-mails link to

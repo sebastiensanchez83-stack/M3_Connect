@@ -49,15 +49,16 @@ function clearJoinIntent(id?: string) {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// A /join/<token> link of the new invitation e-mails, in either form of the server lanes:
-// the signed "SMC invite token v1" (base64url(20 bytes) "." base64url(16 bytes), see
-// accept-invite) or the 43-character random token of org_invitation_issue_token
-// (registration contract §10.6). Never a bare invitation id.
-const SIGNED_TOKEN_RE = /^(?:[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}|[A-Za-z0-9_-]{43})$/;
+// A /join/<token> link of the new invitation e-mails: the signed "SMC invite token v1"
+// (base64url(20 bytes) "." base64url(16 bytes)), minted by send-notification and checked
+// by accept-invite. The integration of 15 Oct 2026 kept this one format (registration
+// contract §10.6): the database's 43-character org_invitation_token is never minted.
+// Never a bare invitation id.
+const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}$/;
 
 /**
  * /join/:inviteId, the team invitation. The new invitation e-mails (send-notification,
- * flag account_signup_v2) carry a signed token (/join/<token>, never a bare id): it
+ * flags invite_links_v2 + account_signup_v2) carry a signed token (/join/<token>, never a bare id): it
  * always opens the new one-screen page (JoinInvitation, edge function accept-invite).
  * An old /join/<invitation id> keeps the page below while account_signup_v2 is off,
  * and gets the new page (a fresh signed link by e-mail) once it is on.

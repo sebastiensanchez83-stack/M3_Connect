@@ -6,6 +6,7 @@ import { getStoredInvite } from '@/lib/invite-store'
 import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
 import { loadRegistrationFlags } from '@/lib/flags'
+import { completeMySignupOnce } from '@/lib/accountSignup'
 
 /**
  * attach_my_records (registration core): once per browser tab session and account,
@@ -174,6 +175,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     attachTriedRef.current = profileUserId
     void attachMyRecordsOnce(profileUserId)
   }, [profileUserId])
+
+  // ─── A sign-up kept for later (flag account_signup_v2) ────────────
+  // A proven account whose sign-up intent the database kept while the flag was off runs
+  // it once the flag is on (complete_my_signup, registration contract §10.3), once per
+  // session; nothing is called for any other account. The profile is then re-read.
+  const signupTriedRef = useRef<string | null>(null)
+  const authEmail = user?.email ?? null
+  useEffect(() => {
+    if (!profile || signupTriedRef.current === profile.user_id) return
+    signupTriedRef.current = profile.user_id
+    void completeMySignupOnce(profile, authEmail, profile.user_id).then((ran) => {
+      if (ran) void refreshProfile().catch(() => {})
+    })
+  }, [profile, authEmail, refreshProfile])
 
   // ─── Core auth effect ─────────────────────────────────────────────
   //

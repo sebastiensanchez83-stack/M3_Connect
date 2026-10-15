@@ -27,7 +27,9 @@
 //                               day), 5 calls per network per hour.
 //   send_email_proof {}         signed in. The "Confirm your e-mail" banner: an account whose
 //                               address is not proven (contract §2) gets /verify-email?t=<token>
-//                               (24 hours; only sha256 is stored, in email_proof_token);
+//                               (24 hours; minted by the RPC issue_email_proof_token, which
+//                               stores only its sha256 in email_proof_token and allows 3 an
+//                               hour per account);
 //                               /verify-email calls the RPC confirm_email_proof(p_token) with
 //                               the session, which stamps the proof. Not a sign-in link.
 //                               1 per minute and 5 per day per account; 5 per hour and 20
@@ -79,7 +81,6 @@ const PROOF_PER_MINUTE = 1;
 const PROOF_PER_DAY = 5;
 const PROOF_IP_PER_HOUR = 5;
 const PROOF_IP_PER_DAY = 20;
-const PROOF_TTL_MS = 24 * 3600000;
 const MAX_BODY_BYTES = 16 * 1024;
 const MINUTE = 60000;
 const HOUR = 3600000;
@@ -132,14 +133,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** 32 random bytes as base64url (43 characters): the e-mail proof token. */
-function randomToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 const clientIp = (req: Request): string =>
@@ -746,10 +739,23 @@ async function actionNotifyExisting(req: Request, body: Json, _caller: Caller | 
   return json(req, { ok: true });
 }
 
-// email_proof_token.token_hash = sha256 of the raw token, BYTEA like gl_access_token
-// (contract §2), written through PostgREST as "\x" + hex. If the DB lane makes it a text
-// column of lower-case hex instead, write `hex` alone (one line below).
-const proofHashValue = (hex: string) => `\\x${hex}`;
+/**
+ * The proof token is minted by the database (registration contract §10.4):
+ * issue_email_proof_token(p_user_id) returns the raw token (43 characters, base64url),
+ * stores only its sha256 in email_proof_token (24 hours), and answers already_proven or
+ * rate_limited (3 an hour per account) itself. Integration of 15 Oct 2026: one place makes
+ * these tokens, the one confirm_email_proof reads.
+ */
+async function issueProofToken(userId: string): Promise<{ token: string } | { error: string }> {
+  const { data, error } = await db.rpc("issue_email_proof_token", { p_user_id: userId });
+  if (error) {
+    console.error("account-signup: issue_email_proof_token failed", error.code, error.message);
+    return { error: "server" };
+  }
+  const d = obj(data);
+  if (d.ok === true && typeof d.token === "string" && d.token.length >= 20) return { token: d.token };
+  return { error: typeof d.error === "string" && d.error ? d.error : "server" };
+}
 
 async function actionSendEmailProof(req: Request, _body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
   if (flags.account_signup_v2 !== true && flags.front_door !== true) return json(req, { error: "not_enabled" }, 403);
@@ -770,18 +776,13 @@ async function actionSendEmailProof(req: Request, _body: Json, caller: Caller | 
   if (lastDay >= PROOF_PER_DAY || ipHour >= PROOF_IP_PER_HOUR || ipDay >= PROOF_IP_PER_DAY) return json(req, { error: "rate_limited" }, 429);
   if (!(await rateRecord("acct_proof", ipHash, userHash))) return json(req, { error: "unavailable" }, 503);
 
-  const raw = randomToken();
-  const { error } = await db.from("email_proof_token").insert({
-    token_hash: proofHashValue(await sha256Hex(raw)),
-    user_id: caller.id,
-    email: caller.email,
-    expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
-  });
-  if (error) {
-    console.error("account-signup: email_proof_token insert failed", error.code, error.message);
+  const issued = await issueProofToken(caller.id);
+  if ("error" in issued) {
+    if (issued.error === "already_proven") return json(req, { ok: true, already_proven: true });
+    if (issued.error === "rate_limited") return json(req, { error: "rate_limited" }, 429);
     return json(req, { error: "server" }, 500);
   }
-  const url = `${ACCOUNT_SITE}/verify-email?t=${encodeURIComponent(raw)}`;
+  const url = `${ACCOUNT_SITE}/verify-email?t=${encodeURIComponent(issued.token)}`;
   const sent = await sendMail(caller.email, renderEmailProof(caller.email, url));
   if (!sent) return json(req, { error: "send_failed" }, 502);
   // Never the token in the answer: it proves the inbox, so it only goes to the inbox.

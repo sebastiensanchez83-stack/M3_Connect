@@ -229,9 +229,9 @@ export async function confirmEmailProof(token: string): Promise<Result<ProofResu
  *    function resolves the owner and the words from the invitation row, which must be
  *    the caller's own, fresh join request).
  * Nothing when the step did not run (not proven yet, already done earlier). Fire and
- * forget; send-notification sends each e-mail once (per person, per request row). The
- * database also queues them (notification_outbox): the server side that drains that
- * queue must skip what this call already sent (integration note, Phase 2).
+ * forget. The database queued them (notification_outbox): send-notification sends only
+ * a queued row to a member caller and marks it sent, so each e-mail leaves once, ever,
+ * whoever asks again later (a drain of the queue included).
  */
 export async function sendSignupNotices(signup: unknown): Promise<void> {
   if (!isObj(signup) || signup.done !== true || signup.already === true) return;
@@ -277,6 +277,35 @@ export async function sendNoticesAfterProof(): Promise<void> {
     if (!Number.isFinite(at) || Date.now() - at > JUST_RUN_MS) return;
     await sendSignupNotices({ done: true, result: isObj(raw.result) ? raw.result : {} });
   } catch { /* the e-mails are a courtesy: never block the page */ }
+}
+
+/**
+ * complete_my_signup (registration contract §10.3; integration of 15 Oct 2026): a sign-up
+ * intent the database kept because account_signup_v2 was off when the address was proven
+ * (complete_signup_for answered flag_off) runs once the flag is on. Called once per tab
+ * session and account (AuthContext), and only for a proven account whose profile carries
+ * an intent the database has not run yet: nothing is called otherwise. The e-mails it
+ * owes then go out as after a proof. Resolves true when the intent ran (re-read the profile).
+ */
+const SIGNUP_RUN_KEY = 'smc_signup_run:';
+export async function completeMySignupOnce(profile: unknown, authEmail: string | null | undefined, userId: string): Promise<boolean> {
+  try {
+    const intent = readStoredIntent(profile);
+    if (!intent || intent.done_at || !isProven(profile, authEmail)) return false;
+    try {
+      if (sessionStorage.getItem(SIGNUP_RUN_KEY + userId)) return false;
+    } catch { /* storage blocked: the caller's in-memory guard still applies */ }
+    const flags = await loadRegistrationFlags();
+    if (!flags.account_signup_v2) return false;
+    try { sessionStorage.setItem(SIGNUP_RUN_KEY + userId, String(Date.now())); } catch { /* ignore */ }
+    const { data, error } = await supabase.rpc('complete_my_signup');
+    if (error) return false;
+    const ran = isObj(data) && data.done === true && data.already !== true;
+    if (ran) await sendSignupNotices(data);
+    return ran;
+  } catch {
+    return false;
+  }
 }
 
 /**

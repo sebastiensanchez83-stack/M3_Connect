@@ -1464,6 +1464,9 @@ async function authorizeMemberSend(
 // team_join_request from a member: only for their own request, from a PROVEN address
 // (contract §2; Confirm email is off, so a confirmed address proves nothing). From service
 // or staff with an unproven address, the owner is told so.
+// account_under_review and team_join_request are also rows of the database's queue
+// (notification_outbox, see OUTBOX_TYPES): a member may ask only for a queued, unsent row,
+// and every caller's send marks that row sent, so each one leaves once, ever.
 
 const RESOLVED_TYPES = new Set<string>(["team_join_request", "team_join_approved", "account_under_review"]);
 /** Data keys that only this function sets: a caller's value is dropped. */
@@ -1812,6 +1815,43 @@ async function logResolvedSend(db: Db, recipientId: string, ref: string): Promis
   if (error) console.error("send-notification: could not log a resolved e-mail:", error.message || String(error));
 }
 
+// The database's queue of the sign-up e-mails (notification_outbox, registration contract
+// §10.5; integration of 15 Oct 2026). complete_signup_for queues account_under_review
+// (dedupe_key "account_under_review:<user id>", once per person, ever) and team_join_request
+// ("team_join_request:<invitation id>"): the same strings as this function's grant.ref. The
+// person's page asks for them right after the step that queued them; this function sends
+// the e-mail, then marks that row sent (notification_outbox_done), so a later drain of the
+// queue never sends it again, and a row already sent is never sent twice. A member may ask
+// only for an e-mail the database queued and has not sent; service and staff as before
+// (a queued row is marked when there is one).
+const OUTBOX_TYPES = new Set<string>(["account_under_review", "team_join_request"]);
+
+/** The queued row of this e-mail: {id, sent}; null = none queued; undefined = the queue cannot be read. */
+async function outboxRowOf(db: Db, dedupeKey: string): Promise<{ id: number; sent: boolean } | null | undefined> {
+  try {
+    const { data, error } = await db
+      .from("notification_outbox")
+      .select("id, sent_at")
+      .eq("dedupe_key", dedupeKey)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return { id: Number(data.id), sent: !!data.sent_at };
+  } catch (e) {
+    console.error("send-notification: notification_outbox unreadable:", (e as { message?: string })?.message || String(e));
+    return undefined;
+  }
+}
+
+async function markOutboxSent(db: Db, id: number): Promise<void> {
+  try {
+    const { error } = await db.rpc("notification_outbox_done", { p_id: id, p_error: null });
+    if (error) throw error;
+  } catch (e) {
+    console.error("send-notification: could not mark the queued e-mail sent:", id, (e as { message?: string })?.message || String(e));
+  }
+}
+
 /**
  * Cap on e-mails that name an organisation M3 has not verified: 5 per organisation
  * and 50 for all of them together per 24 h, whoever triggers them (accounts and
@@ -1924,6 +1964,8 @@ Deno.serve(async (req: Request) => {
     let fanOutRef = "";
     let invitation: InvitationRow | null = null;
     let invitationCanExtend = false;
+    // The notification_outbox row this e-mail settles (account_under_review, team_join_request).
+    let outboxId: number | null = null;
 
     if (RESOLVED_TYPES.has(type)) {
       // Registration Phase 2 types: resolved from the database for every caller. Members
@@ -1936,6 +1978,14 @@ Deno.serve(async (req: Request) => {
         return member
           ? reply({ error: "This notification is not allowed for this recipient" }, 403)
           : reply({ error: "Could not resolve the row this notification is about" }, 400);
+      }
+      // The database's queue (see OUTBOX_TYPES): sent once, ever; a member only for a queued
+      // row (an unreadable queue refuses a member, as nothing proves the e-mail is owed).
+      if (OUTBOX_TYPES.has(type)) {
+        const row = await outboxRowOf(supabase, grant.ref);
+        if (row && row.sent) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+        if (member && !row) return reply({ error: "This notification is not allowed for this recipient" }, 403);
+        outboxId = row ? row.id : null;
       }
       if (grant.unverifiedOrgId && (await unverifiedOrgCapReached(supabase, grant.unverifiedOrgId))) {
         return reply({ error: "Too many e-mails for this organization today, try again tomorrow" }, 429);
@@ -2130,6 +2180,8 @@ Deno.serve(async (req: Request) => {
 
     // Every e-mail beyond the first counts towards the caller's hourly cap (see the header).
     if (member && sent > 1) await logFanOut(supabase, member.id, fanOutRef, sent - 1);
+    // The queued row is settled once the e-mail left (or its recipient opted out of it).
+    if (outboxId !== null && (sent > 0 || optedOut > 0)) await markOutboxSent(supabase, outboxId);
 
     if (sent === 0 && providerError) return reply({ error: "Email provider error" }, 502);
     if (sent === 0 && optedOut > 0) {

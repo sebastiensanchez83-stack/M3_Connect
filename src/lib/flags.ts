@@ -27,6 +27,13 @@ import { supabase } from '@/lib/supabase';
  *    on the forms of before, which predate the 11 Oct claim rules.
  *  - The redesign's "Ask M3 to review again" needs notify-admins with the type
  *    "account review requested again" deployed before front_door goes on.
+ *  - account_signup_v2 stays off in production until Phase 3 ships M3's screens for
+ *    claims and new companies (admin_decide_claim, a queue that reads claim_requested
+ *    rows and signup_intent): registration contract §10.8.
+ *  - invite_links_v2 is read by the server only (send-notification): with it AND
+ *    account_signup_v2 on, team invitation e-mails carry the signed /join/<token> link.
+ *    The old live site cannot open such a link: switch it on at go-live only. It is not
+ *    in the list below on purpose (no page reads it).
  */
 export const REGISTRATION_FLAG_KEYS = [
   'webinar_v2', 'onsite_v2', 'front_door', 'account_signup_v2', 'password_only_login',

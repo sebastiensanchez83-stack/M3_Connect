@@ -9,7 +9,7 @@
 // The previews are rendered by the REAL code of the edge functions (send-email,
 // send-notification, claim-code-signup, contact-submit, guest-list, guest-webinar-register,
 // guest-webinar-reminders, send-reference-email, send-status-notification, sp-notify,
-// sponsor-invite and messages-digest): their source is transpiled with the TypeScript compiler, the remote
+// sponsor-invite, messages-digest and ops-health): their source is transpiled with the TypeScript compiler, the remote
 // imports are cut and Deno, createClient and QRCode are stubbed, so nothing here can drift
 // from what is deployed. Nothing is sent, nothing touches the network or the database.
 // Sample data is fictional. (The QR code of the World Yachting Summit pass is drawn here with
@@ -143,6 +143,8 @@ const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
 // Registration Phase 2 (11 Oct 2026): account-signup, accept-invite (+ new send-notification types).
 const acct = load("account-signup", ["renderAccountAlreadyExists", "renderEmailProof", "signInLinks", "typeLabel", "companyCard", "foldName", "significantLength"]);
 const invite = load("accept-invite", ["renderInviteLink", "signInviteToken", "readInviteToken", "inviteTokenValid", "maskEmail", "fmtDay"]);
+// Health monitor (16 Oct 2026): ops-health (staff alert only).
+const ops = load("ops-health", ["renderAlert", "decideDue", "settingsOf", "projectUrl"]);
 
 // A token signed by send-notification verifies in the unsubscribe function, and a
 // tampered or foreign one does not (sample key, nothing leaves this process).
@@ -500,6 +502,20 @@ const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_
   add("account-9b-invite-link", "accept-invite · fresh invitation link, company not verified by M3 (no name typed by its owner)", "new.colleague@example.com", invite.renderInviteLink("Sam", "Harbourline & Sons", false, `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`, "10 November 2026"));
 }
 
+// Health monitor alert (ops-health): staff only, fictional problems.
+{
+  const add = (id, source, to, mail) => items.push({ id, source, to, ...mail });
+  const when = new Date("2026-11-27T05:00:00Z");
+  const cta = ops.projectUrl("https://exampleref.supabase.co", SITE);
+  const due = [
+    { check_id: "wys.pass_missing", area: "guest list", status: "fail", summary: "2 confirmed guest(s) without a QR e-mail logged (wys26): resend the pass." },
+    { check_id: "reg.provisioning", area: "registration", status: "warn", summary: "3 guest(s) wait for the \"choose your password\" e-mail: switch provisioning is OFF." },
+  ];
+  const others = [{ check_id: "security.open_functions", area: "security", status: "warn", summary: "2 internal function(s) anyone can run through the API." }];
+  add("ops-1-health-alert", "ops-health · problems found (at most once per problem per 6 h)", "events@m3monaco.com", ops.renderAlert({ due, others, when, realertHours: 6, ctaUrl: cta }));
+  add("ops-2-health-test", "ops-health · test e-mail ({\"test\": true}), nothing wrong", "events@m3monaco.com", ops.renderAlert({ due: [], others: [], when, realertHours: 6, ctaUrl: cta, test: true }));
+}
+
 // ---------------------------------------------------------------- checks on what was rendered
 
 for (const it of items) {
@@ -814,6 +830,55 @@ for (const it of items) {
     if (got !== want) fail(`send-email signupConfirmLink(${redirect}): ${got}, expected ${want}`);
   }
   if (signupConfirmLink("not a url", "also not", "H") !== null) fail("send-email signupConfirmLink: unreadable URLs should give null");
+}
+
+// ---------------------------------------------------------------- ops-health checks
+// The re-alert rule (at most once per problem per realert_hours; a warn that turns into a
+// fail is a new problem; muted checks never), the settings clamps and the escaping.
+{
+  const H = 3600000;
+  const now = Date.parse("2026-11-27T12:00:00Z");
+  const at = (hoursAgo) => new Date(now - hoursAgo * H).toISOString();
+  const warn = { check_id: "a.check", area: "a", status: "warn", summary: "x" };
+  const failing = { ...warn, status: "fail" };
+  const due = (c, prev, mute = []) => ops.decideDue([c], new Map(prev ? [[c.check_id, prev]] : []), new Set(mute), 6 * H, now).length === 1;
+  const cases = [
+    ["never e-mailed", due(warn, null), true],
+    ["e-mailed 5 h ago", due(warn, { check_id: "a.check", last_alert_at: at(5), last_alert_status: "warn" }), false],
+    ["e-mailed 6 h ago", due(warn, { check_id: "a.check", last_alert_at: at(6), last_alert_status: "warn" }), true],
+    ["warn e-mailed 1 h ago, now fail", due(failing, { check_id: "a.check", last_alert_at: at(1), last_alert_status: "warn" }), true],
+    ["fail e-mailed 1 h ago, now warn", due(warn, { check_id: "a.check", last_alert_at: at(1), last_alert_status: "fail" }), false],
+    ["fail e-mailed 1 h ago, cleared, fails again", due(failing, { check_id: "a.check", last_alert_at: at(1), last_alert_status: "fail", cleared_at: at(0.5) }), false],
+    ["muted", due(failing, null, ["a.check"]), false],
+    ["seen but never e-mailed (no recipient then)", due(warn, { check_id: "a.check", last_alert_at: null }), true],
+  ];
+  for (const [label, got, want] of cases) if (got !== want) fail(`ops-health decideDue: ${label} gave ${got}, expected ${want}`);
+
+  const s = ops.settingsOf({ enabled: "true", recipients: ["A@Example.com", "a@example.com", "not an address", 3], realert_hours: 1, mute: ["x", 2], http_checks: "no" });
+  if (s.enabled !== false) fail("ops-health settingsOf: only a JSON true enables the monitor");
+  if (s.recipients.join(",") !== "a@example.com") fail(`ops-health settingsOf: recipients ${s.recipients.join(",")}`);
+  if (s.realertHours !== 6) fail(`ops-health settingsOf: realert_hours under 6 must clamp to 6, got ${s.realertHours}`);
+  if (![...s.mute].join(",").startsWith("x") || s.mute.size !== 1) fail("ops-health settingsOf: mute keeps strings only");
+  if (s.httpChecks !== true) fail("ops-health settingsOf: only a JSON false turns the HTTP checks off");
+  if (ops.settingsOf("garbage").enabled !== false || ops.settingsOf(null).realertHours !== 6) fail("ops-health settingsOf: a value of the wrong shape must give the defaults");
+  if (ops.settingsOf({ recipients: Array.from({ length: 15 }, (_, i) => `r${i}@example.com`) }).recipients.length !== 10) fail("ops-health settingsOf: more than 10 recipients");
+  if (ops.projectUrl("https://abc123.supabase.co", SITE) !== "https://supabase.com/dashboard/project/abc123") fail("ops-health projectUrl");
+  if (ops.projectUrl("", SITE) !== `${SITE}/admin`) fail("ops-health projectUrl fallback");
+
+  const evil = ops.renderAlert({
+    due: [{ check_id: '"><b id=x>', area: "<img src=x onerror=alert(1)>", status: "fail", summary: "<script>x</script>" }],
+    others: [{ check_id: "<img src=x onerror=alert(1)>", area: "a", status: "warn", summary: "y" }],
+    when: new Date("2026-11-27T05:00:00Z"), realertHours: 6, ctaUrl: `${SITE}/?a="><b id=x>`,
+  });
+  if (/<img src=x|<b id=x|<script/.test(evil.html.replace(/<style[\s\S]*?<\/style>/, ""))) fail("escaping: ops-health let a report value reach the HTML as markup");
+  const alert = items.find((i) => i.id === "ops-1-health-alert");
+  if (alert && (!alert.subject.startsWith("Health check: 1 failing, 2 warnings") || !alert.text.includes("security.open_functions"))) {
+    fail(`ops-health alert: subject or the still-open line is wrong (${alert.subject})`);
+  }
+  // The alert names checks, counts and job or function names only: no address may appear.
+  for (const it of items.filter((i) => i.id.startsWith("ops-"))) {
+    if (/@example\.com/.test(it.html + it.text)) fail(`${it.id}: an e-mail address appears in the health alert`);
+  }
 }
 
 // ---------------------------------------------------------------- write

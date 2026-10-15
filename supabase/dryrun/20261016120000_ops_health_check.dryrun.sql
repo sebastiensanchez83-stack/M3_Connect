@@ -1,0 +1,904 @@
+-- DRY RUN of supabase/migrations/20261016120000_ops_health_check.sql and of its down script.
+-- NOT A MIGRATION: never apply it. Run it as ONE query text (one implicit transaction): it
+-- ends with RAISE EXCEPTION 'DRYRUN ...', the report is the error message and everything
+-- rolls back. Tripwire: "FAIL before-snapshot missing" = NOT one transaction: check at once
+-- for cron job 'ops-health' and table public.ops_health_run, and run the down if present.
+-- Rolled-back writes: the ops_health row and its edits, one ops_health_run row, one
+-- ops_health_alert row, one notification_outbox row. No gl_*, sm_*, payment or guest row.
+-- No HTTP call (the invoker is tested on 'skipped' and 'not due' only). Test accounts are
+-- looked up: the oldest verified admin and the oldest verified non-staff profile.
+-- Expected (15-16 Oct 2026): "DRYRUN 29 PASS, 0 FAIL" plus
+--   INFO report rows: 38
+--   INFO not ok today: security.open_functions:warn
+-- Another entry in "not ok today" is a real finding of the monitor, not a defect.
+
+-- 0. Before
+do $before$
+begin
+  perform set_config('smc_dryrun.absent', format('setting=%s alert=%s run=%s report=%s job=%s',
+    (select count(*) from public.platform_settings ps where ps.key = 'ops_health'),
+    coalesce(to_regclass('public.ops_health_alert')::text, 'none'), coalesce(to_regclass('public.ops_health_run')::text, 'none'),
+    coalesce(to_regprocedure('public.ops_health_report()')::text, 'none'),
+    (select count(*) from cron.job j where j.jobname = 'ops-health')), true);
+  perform set_config('smc_dryrun.policies', (select md5(string_agg(format('%s|%s|%s|%s|%s', pol.policyname, pol.permissive, pol.cmd,
+    pol.roles, pol.qual), ';' order by pol.policyname)) from pg_policies pol where pol.schemaname = 'public' and pol.tablename = 'platform_settings'), true);
+  perform set_config('smc_dryrun.keys', (select string_agg(ps.key || '=' || md5(ps.value::text), ',' order by ps.key) from public.platform_settings ps), true);
+  perform set_config('smc_dryrun.jobs', (select string_agg(j.jobname || '=' || j.schedule || '=' || j.active, ',' order by j.jobname) from cron.job j), true);
+  perform set_config('smc_dryrun.before', 'yes', true);
+end
+$before$;
+
+-- 1. The migration, verbatim
+-- ops_health_check: the platform health report for M3 staff and the database side of the
+-- ops-health monitor. Apply only with Victor's OK, in the order of docs/operations/health-monitor.md.
+-- Additive; reads (never writes) cron, net, vault (names), storage, sm_*, gl_*, payments.
+--  1. platform_settings 'ops_health' (enabled false; recipients copied from
+--     review_digest_recipients; pins = md5 of 13 function bodies and baseline = SM26 counts
+--     and event-media file count, both AT APPLY TIME), staff-only by a restrictive policy.
+--  2. ops_health_checks(): all checks, one read-only SELECT, owner only.
+--  3. ops_health_report(): worst first; staff, service role or a direct session, else 42501.
+--  4. ops_health_alert (6-hour re-alert memory) and ops_health_run (history): staff read.
+--  5. invoke_ops_health() + pg_cron 'ops-health' every 15 min: calls the edge function with
+--     the Vault service key when enabled and the last run is older than interval_minutes.
+-- Down: migrations/down/20261016120000_ops_health_check.down.sql. Dry run: supabase/dryrun/.
+
+-- 1. Settings
+insert into public.platform_settings (key, value, label, description)
+select 'ops_health',
+  jsonb_build_object(
+    'enabled', false,
+    'recipients', coalesce((select ps.value from public.platform_settings ps
+      where ps.key = 'review_digest_recipients' and jsonb_typeof(ps.value) = 'array'), '[]'::jsonb),
+    'interval_minutes', 60,
+    'realert_hours', 6,
+    'mute', '[]'::jsonb,
+    'http_checks', true,
+    'wys_slug', 'wys26',
+    'freeze', jsonb_build_object('from', '2026-11-20', 'to', '2026-11-28'),
+    'pins', (select jsonb_object_agg(f.fn, f.md5_now)
+      from (select n.fn, (select case when count(*) = 1 then min(md5(p.prosrc))
+                                 else md5(string_agg(md5(p.prosrc), ',' order by md5(p.prosrc))) end
+                            from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = n.fn) as md5_now
+        from unnest(array['gl_checkin', 'gl_checkin_v2', 'gl_guest_engine_guard', 'gl_guest_queue_provisioning',
+          'invoke_registration_cron', 'invoke_send_profile_reminders', 'invoke_guest_webinar_reminders', 'handle_new_user',
+          'has_capability', 'capability_set', 'complete_signup_for', 'is_moderator', 'is_admin']) as n(fn)) f
+      where f.md5_now is not null),
+    'baseline', jsonb_build_object(
+      'sm26', jsonb_build_object('sm_registration', (select count(*) from public.sm_registration),
+        'sm_role_assignment', (select count(*) from public.sm_role_assignment), 'sm_attendee', (select count(*) from public.sm_attendee),
+        'sm_badge', (select count(*) from public.sm_badge), 'sm_payment', (select count(*) from public.sm_payment),
+        'sm_invoice', (select count(*) from public.sm_invoice), 'sm_networking_pass', (select count(*) from public.sm_networking_pass)),
+      'event_media_files', (select count(*) from storage.objects o where o.bucket_id = 'event-media'))),
+  'Health monitor (ops-health)',
+  'enabled (JSON true), recipients (max 10), interval_minutes (15-300), realert_hours (6-48), mute (check ids not e-mailed), http_checks, wys_slug, freeze, pins, baseline. Staff only. docs/operations/health-monitor.md.'
+on conflict (key) do nothing;
+
+drop policy if exists platform_settings_ops_health_private on public.platform_settings;
+create policy platform_settings_ops_health_private on public.platform_settings
+  as restrictive for select to public
+  using (key <> 'ops_health' or public.is_moderator());
+
+-- 2. The checks
+create or replace function public.ops_health_checks()
+returns table (check_id text, area text, status text, summary text, detail jsonb)
+language sql
+stable
+set search_path to 'public', 'pg_temp'
+as $function$
+with
+cfg as (select coalesce((select ps.value from public.platform_settings ps where ps.key = 'ops_health'), '{}'::jsonb) as v),
+flg as (select coalesce((select ps.value from public.platform_settings ps where ps.key = 'registration_flags'), '{}'::jsonb) as v),
+cj as (
+  select j.jobname, lr.start_time as last_start,
+    case
+      when s.sch ~ '^\*(/1)? \* \* \* \*$' then 1
+      when s.sch ~ '^\*/[0-9]+ \* \* \* \*$' then substring(s.sch from '^\*/([0-9]+)')::int
+      when s.sch ~ '^[0-9]+ \* \* \* \*$' then 60
+      when s.sch ~ '^[0-9]+ \*/[0-9]+ \* \* \*$' then 60 * substring(s.sch from '^[0-9]+ \*/([0-9]+)')::int
+      when s.sch ~ '^[0-9]+ [0-9]+(,[0-9]+)* \* \* \*$' then 1440
+      when s.sch ~ '^[0-9]+ [0-9]+ \* \* [0-9]+$' then 10080
+    end as every_min
+  from cron.job j
+  cross join lateral (select regexp_replace(btrim(j.schedule), '\s+', ' ', 'g') as sch) s
+  left join lateral (select d.start_time from cron.job_run_details d
+    where d.jobid = j.jobid and d.status in ('succeeded', 'failed') order by d.start_time desc limit 1) lr on true
+  where j.active),
+rd as (
+  select d.jobid, d.status as run_status, d.start_time, d.end_time
+  from cron.job_run_details d where d.start_time > now() - interval '24 hours'),
+hr as (
+  select coalesce(r.status_code, 0) as code, coalesce(r.timed_out, false) as timed_out, r.error_msg, r.created,
+    case when r.content is not null and pg_input_is_valid(r.content, 'jsonb') then r.content::jsonb end as body
+  from net._http_response r where r.created > now() - interval '6 hours'),
+wev as (select e.id, e.slug, e.notify_email from public.gl_event e where e.engine = 'guest_list_v1'),
+wys as (select coalesce(nullif(cfg.v ->> 'wys_slug', ''), 'wys26') as slug from cfg)
+-- cron
+select 'cron.failed_runs'::text as check_id, 'cron'::text as area,
+  case when x.n > 0 then 'fail' else 'ok' end as status,
+  case when x.n > 0 then x.n || ' failed cron run(s) in 24 h: ' || x.jobs || '.' else 'No failed cron run in 24 h.' end as summary,
+  jsonb_build_object('failed_24h', x.n) as detail
+from (select count(*) as n, string_agg(distinct coalesce(j.jobname, rd.jobid::text), ', ') as jobs
+  from rd left join cron.job j on j.jobid = rd.jobid where rd.run_status = 'failed') x
+union all
+select 'cron.stale_jobs', 'cron',
+  case when x.n > 0 then 'fail' else 'ok' end,
+  case when x.n > 0 then x.n || ' scheduled job(s) stopped running: ' || x.jobs || '.' else x.watched || ' watched job(s) ran on time.' end,
+  jsonb_build_object('stale', x.n, 'watched', x.watched, 'never_ran', x.never_ran)
+from (select count(*) filter (where cj.last_start < now() - make_interval(mins => 2 * cj.every_min + 5)) as n,
+    string_agg(cj.jobname, ', ') filter (where cj.last_start < now() - make_interval(mins => 2 * cj.every_min + 5)) as jobs,
+    count(*) filter (where cj.every_min is not null) as watched,
+    count(*) filter (where cj.every_min is not null and cj.last_start is null) as never_ran
+  from cj) x
+union all
+select 'cron.slow_runs', 'cron',
+  case when x.slow + x.stuck > 0 then 'warn' else 'ok' end,
+  case when x.slow + x.stuck > 0 then x.slow || ' run(s) over 10 s, ' || x.stuck || ' stuck over 10 min, in 24 h: ' || x.jobs || '.'
+    else 'No slow or stuck cron run in 24 h.' end,
+  jsonb_build_object('slow', x.slow, 'stuck', x.stuck)
+from (select count(*) filter (where rd.end_time - rd.start_time > interval '10 seconds') as slow,
+    count(*) filter (where rd.run_status in ('starting', 'running') and rd.start_time < now() - interval '10 minutes') as stuck,
+    string_agg(distinct coalesce(j.jobname, rd.jobid::text), ', ') filter (where rd.end_time - rd.start_time > interval '10 seconds'
+      or (rd.run_status in ('starting', 'running') and rd.start_time < now() - interval '10 minutes')) as jobs
+  from rd left join cron.job j on j.jobid = rd.jobid) x
+union all
+select 'cron.dormant_sm26', 'cron',
+  case when x.n > 0 and extract(month from now()) in (8, 9) then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' SM26 reminder job(s) still scheduled (' || x.jobs || '): they fire again in September.'
+    else 'No SM26 job left scheduled.' end,
+  jsonb_build_object('jobs', x.n)
+from (select count(*) as n, string_agg(j.jobname, ', ' order by j.jobname) as jobs
+  from cron.job j where j.active and j.jobname like 'sm26-%') x
+union all
+select 'cron.history_size', 'cron', case when x.n > 200000 then 'warn' else 'ok' end,
+  x.n || ' rows of cron history.', jsonb_build_object('rows', x.n)
+from (select count(*) as n from cron.job_run_details) x
+-- scheduled calls (pg_net keeps the answers 6 h)
+union all
+select 'calls.vault_secrets', 'calls',
+  case when x.n = 2 then 'ok' else 'fail' end,
+  case when x.n = 2 then 'Both Vault secrets of the scheduled calls are present.'
+    else 'Vault secret(s) missing: the scheduled calls are silently skipped.' end,
+  jsonb_build_object('present', x.n)
+from (select count(distinct s.name) as n from vault.secrets s where s.name in ('project_url', 'service_role_key')) x
+union all
+select 'calls.http_errors', 'calls',
+  case when x.n > 0 then 'fail' else 'ok' end,
+  case when x.n > 0 then x.n || ' scheduled call(s) failed in 6 h (' || x.codes || ').' else x.total || ' scheduled call(s) in 6 h, all 2xx.' end,
+  jsonb_build_object('failed', x.n, 'total', x.total)
+from (select count(*) filter (where hr.code not between 200 and 299 or hr.timed_out or hr.error_msg is not null) as n,
+    count(*) as total,
+    string_agg(distinct case when hr.timed_out then 'timeout' when hr.code = 0 then 'no answer' else hr.code::text end, ', ')
+      filter (where hr.code not between 200 and 299 or hr.timed_out or hr.error_msg is not null) as codes
+  from hr) x
+union all
+select 'calls.missing_answers', 'calls',
+  case when x.n > 0 then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' reminder run(s) in 6 h got no answer (' || x.jobs || '): call skipped or lost.'
+    else x.runs || ' reminder run(s) in 6 h, all answered.' end,
+  jsonb_build_object('missing', x.n, 'runs', x.runs)
+from (select count(*) filter (where not m.answered) as n, count(*) as runs,
+    string_agg(distinct m.jobname, ', ') filter (where not m.answered) as jobs
+  from (select j.jobname, exists (select 1 from hr
+      where hr.created between d.start_time and d.start_time + interval '90 seconds'
+        and (hr.code not between 200 and 299 or hr.timed_out
+          or hr.body ? (case when j.command like '%invoke_send_profile_reminders%' then 'candidates_considered' else 'events' end))) as answered
+    from cron.job_run_details d join cron.job j on j.jobid = d.jobid
+    where d.start_time between now() - interval '5 hours 50 minutes' and now() - interval '2 minutes' and d.status = 'succeeded'
+      and (j.command like '%invoke_guest_webinar_reminders%' or j.command like '%invoke_send_profile_reminders%')) m) x
+union all
+select 'calls.answer_errors', 'calls',
+  case when x.n > 0 then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' scheduled call(s) in 6 h answered 2xx with an error inside.' else 'No error inside the answers of 6 h.' end,
+  jsonb_build_object('with_errors', x.n)
+from (select count(*) as n from hr
+  where hr.code between 200 and 299 and jsonb_typeof(hr.body) = 'object'
+    and ((hr.body ->> 'ok') = 'false' or (hr.body ->> 'success') = 'false' or hr.body ? 'error'
+      or (case jsonb_typeof(hr.body -> 'errors') when 'array' then jsonb_array_length(hr.body -> 'errors')
+            when 'number' then (hr.body ->> 'errors')::numeric else 0 end) > 0)) x
+union all
+select 'calls.queue_backlog', 'calls', case when x.n > 20 then 'warn' else 'ok' end,
+  x.n || ' call(s) waiting in the pg_net queue.', jsonb_build_object('queued', x.n)
+from (select count(*) as n from net.http_request_queue) x
+union all
+select 'calls.reminder_volume', 'calls', case when x.n > 40 then 'warn' else 'ok' end,
+  x.n || ' profile reminder(s) sent in 24 h' || case when x.n > 40 then ' (over 40: cooldown broken?).' else '.' end,
+  jsonb_build_object('sent_24h', x.n)
+from (select count(*) as n from public.notification_sends ns where ns.sent_at > now() - interval '24 hours') x
+-- registration queues
+union all
+select 'reg.provisioning', 'registration',
+  case when x.dead > 0 or (x.waiting + x.overdue > 0 and x.flag_on) then 'fail' when x.waiting + x.overdue > 0 then 'warn' else 'ok' end,
+  case when x.dead > 0 then x.dead || ' account job(s) failed 5 times and are no longer retried.'
+    when x.waiting + x.overdue > 0 and x.flag_on then x.waiting || ' account job(s) waiting over 15 min, ' || x.overdue || ' account e-mail(s) overdue.'
+    when x.waiting + x.overdue > 0 then x.waiting || ' guest(s) wait for the "choose your password" e-mail: switch provisioning is OFF.'
+    else 'No account job waiting or failed (provisioning ' || case when x.flag_on then 'on' else 'off' end || ').' end,
+  jsonb_build_object('waiting', x.waiting, 'overdue', x.overdue, 'dead', x.dead, 'provisioning_on', x.flag_on)
+from (select count(*) filter (where a.status = 'queued' and a.created_at < now() - interval '15 minutes') as waiting,
+    count(*) filter (where a.status = 'done' and a.email_sent_at is null
+      and a.email_due_at between now() - interval '30 days' and now() - interval '15 minutes') as overdue,
+    count(*) filter (where a.status = 'failed' and a.attempts >= 5) as dead,
+    coalesce((select (flg.v -> 'provisioning') = 'true'::jsonb from flg), false) as flag_on
+  from public.account_provision_job a) x
+union all
+select 'reg.confirmed_without_job', 'registration',
+  case when x.n > 0 then 'fail' else 'ok' end,
+  case when x.n > 0 then x.n || ' confirmed on-site guest(s) have no account job (' || x.slugs || ').' else 'Every confirmed on-site guest has an account job.' end,
+  jsonb_build_object('missing', x.n)
+from (select count(*) as n, string_agg(distinct e.slug, ', ') as slugs
+  from public.gl_guest g join public.gl_event e on e.id = g.event_id
+  where e.kind = 'onsite' and g.status = 'confirmed'
+    and greatest(g.created_at, g.updated_at, g.decided_at, g.responded_at) < now() - interval '5 minutes'
+    and not exists (select 1 from public.account_provision_job a where a.source_kind = 'gl_guest' and a.source_id = g.id)) x
+union all
+select 'reg.outbox', 'registration',
+  case when x.dead > 0 then 'fail' when x.stale + x.errored > 0 then 'warn' else 'ok' end,
+  case when x.dead + x.stale + x.errored > 0 then x.stale || ' notification(s) unsent after 15 min, ' || x.errored || ' with an error, '
+      || x.dead || ' given up after 5 attempts.'
+    else 'Nothing stuck in the notification outbox.' end,
+  jsonb_build_object('stale', x.stale, 'errored', x.errored, 'dead', x.dead)
+from (select count(*) filter (where o.created_at < now() - interval '15 minutes') as stale,
+    count(*) filter (where o.last_error is not null) as errored,
+    count(*) filter (where o.attempts >= 5) as dead
+  from public.notification_outbox o where o.sent_at is null) x
+-- payments
+union all
+select 'pay.emails', 'payments',
+  case when x.no_mail + x.stuck > 0 then 'fail' else 'ok' end,
+  case when x.no_mail + x.stuck > 0 then x.no_mail || ' paid payment(s) without their e-mail, ' || x.stuck || ' e-mail claim(s) stuck over 10 min.'
+    else 'Every recent paid payment has its e-mail.' end,
+  jsonb_build_object('paid_without_email', x.no_mail, 'stuck_claims', x.stuck)
+from (select (select count(*) from public.payments p
+      where p.status = 'paid' and coalesce(p.paid_at, p.updated_at) between now() - interval '30 days' and now() - interval '15 minutes'
+        and not exists (select 1 from public.payment_email_log l where l.payment_id = p.id and l.status = 'paid' and l.sent_at is not null)) as no_mail,
+    (select count(*) from public.payment_email_log l
+      where l.sent_at is null and l.created_at between now() - interval '30 days' and now() - interval '10 minutes') as stuck) x
+union all
+select 'pay.ipn_review', 'payments',
+  case when x.n > 0 then 'fail' else 'ok' end,
+  case when x.n > 0 then x.n || ' payment(s) of 14 days flagged by the bank notification (mismatch or review).' else 'No payment flagged by the bank.' end,
+  jsonb_build_object('flagged', x.n)
+from (select count(*) as n from public.payments p
+  where p.metadata ?| array['ipn_review', 'ipn_mismatch'] and p.updated_at > now() - interval '14 days') x
+union all
+select 'pay.stale_pending', 'payments',
+  case when x.n > 0 then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' payment(s) pending 24 to 72 h after checkout: abandoned, or the bank notification was lost.'
+    else 'No payment pending over a day.' end,
+  jsonb_build_object('pending', x.n)
+from (select count(*) as n from public.payments p
+  where p.status = 'pending' and p.created_at between now() - interval '72 hours' and now() - interval '24 hours') x
+-- guest lists (WYS)
+union all
+select 'wys.pass_missing', 'guest list',
+  case when x.n > 0 then 'fail' else 'ok' end,
+  case when x.n > 0 then x.n || ' confirmed guest(s) without a QR e-mail logged (' || x.slugs || '): resend the pass.'
+    else 'Every confirmed guest has a QR e-mail logged.' end,
+  jsonb_build_object('missing', x.n)
+from (select count(*) as n, string_agg(distinct w.slug, ', ') as slugs
+  from public.gl_guest g join wev w on w.id = g.event_id
+  where g.status = 'confirmed' and greatest(g.created_at, g.updated_at, g.decided_at, g.responded_at) < now() - interval '10 minutes'
+    and not exists (select 1 from public.gl_email_log l where l.guest_id = g.id and l.kind = 'pass')) x
+union all
+select 'wys.emails_missing', 'guest list',
+  case when x.inv + x.ack + x.staff > 0 then 'warn' else 'ok' end,
+  case when x.inv + x.ack + x.staff > 0 then x.inv || ' invitation(s), ' || x.ack || ' request acknowledgement(s), '
+      || x.staff || ' staff notice(s) not logged after 10 min.'
+    else 'Invitations, acknowledgements and staff notices all logged.' end,
+  jsonb_build_object('invitation', x.inv, 'request_ack', x.ack, 'staff_notify', x.staff)
+from (select
+    count(*) filter (where g.status = 'invited'
+      and not exists (select 1 from public.gl_email_log l where l.guest_id = g.id and l.kind = 'invitation')) as inv,
+    count(*) filter (where g.status = 'requested' and g.source = 'request'
+      and not exists (select 1 from public.gl_email_log l where l.guest_id = g.id and l.kind = 'request_ack')) as ack,
+    count(*) filter (where g.status = 'requested' and g.source in ('request', 'plus_one') and nullif(btrim(w.notify_email), '') is not null
+      and not exists (select 1 from public.gl_email_log l where l.guest_id = g.id and l.kind = 'staff_notify')) as staff
+  from public.gl_guest g join wev w on w.id = g.event_id
+  where greatest(g.created_at, g.updated_at, g.decided_at, g.responded_at, g.invited_at) < now() - interval '10 minutes') x
+union all
+select 'wys.event', 'guest list',
+  case when e.id is null or e.engine is distinct from 'guest_list_v1' or e.door_token is distinct from 'shared'
+    or e.kind is distinct from 'onsite' or e.hidden then 'fail' else 'ok' end,
+  case when e.id is null then 'Guest-list event ' || wys.slug || ' is missing.'
+    when e.engine is distinct from 'guest_list_v1' or e.door_token is distinct from 'shared' or e.kind is distinct from 'onsite' or e.hidden
+      then wys.slug || ' changed: engine ' || coalesce(e.engine, '-') || ', door ' || coalesce(e.door_token, '-') || ', kind '
+        || coalesce(e.kind, '-') || ', hidden ' || e.hidden || '.'
+    else wys.slug || ': requests ' || case when e.requests_open then 'open' else 'closed' end || ', capacity ' || e.capacity || '.' end,
+  jsonb_build_object('slug', wys.slug, 'requests_open', e.requests_open, 'capacity', e.capacity)
+from wys left join public.gl_event e on e.slug = wys.slug
+union all
+select 'wys.guests_integrity', 'guest list',
+  case when x.no_tok + x.dup_tok + x.odd > 0 then 'fail' else 'ok' end,
+  case when x.no_tok + x.dup_tok + x.odd > 0 then x.no_tok || ' guest(s) without a token, ' || x.dup_tok || ' duplicated token(s), '
+      || x.odd || ' row(s) with an unknown status or source.'
+    else x.n || ' guest row(s): tokens unique, statuses and sources valid.' end,
+  jsonb_build_object('guests', x.n, 'no_token', x.no_tok, 'duplicate_tokens', x.dup_tok, 'odd_rows', x.odd)
+from (select count(g.id) as n, count(g.id) filter (where g.token is null) as no_tok,
+    count(g.token) - count(distinct g.token) as dup_tok,
+    count(g.id) filter (where g.status not in ('requested', 'invited', 'confirmed', 'declined', 'rejected', 'cancelled')
+      or g.source not in ('request', 'invitation', 'plus_one')) as odd
+  from wys join public.gl_event e on e.slug = wys.slug join public.gl_guest g on g.event_id = e.id) x
+union all
+select 'wys.capacity', 'guest list',
+  case when x.cap is not null and x.held >= x.cap then 'warn' else 'ok' end,
+  x.held || ' seat(s) held (' || x.confirmed || ' confirmed, ' || x.invited || ' invited) of ' || coalesce(x.cap::text, '?') || '; '
+    || x.checked_in || ' checked in.',
+  jsonb_build_object('held', x.held, 'confirmed', x.confirmed, 'invited', x.invited, 'capacity', x.cap, 'checked_in', x.checked_in)
+from (select max(e.capacity) as cap, count(g.id) filter (where g.status in ('confirmed', 'invited')) as held,
+    count(g.id) filter (where g.status = 'confirmed') as confirmed, count(g.id) filter (where g.status = 'invited') as invited,
+    count(g.id) filter (where g.checked_in_at is not null) as checked_in
+  from wys join public.gl_event e on e.slug = wys.slug left join public.gl_guest g on g.event_id = e.id) x
+union all
+select 'wys.door', 'guest list',
+  case when x.door_ok and x.trig_on = 2 then 'ok' else 'fail' end,
+  'Door check-in function ' || case when x.door_ok then 'unchanged' else 'CHANGED or missing' end || ', '
+    || x.trig_on || ' of 2 guest-list triggers enabled.',
+  jsonb_build_object('gl_checkin_unchanged', x.door_ok, 'triggers_enabled', x.trig_on)
+from (select coalesce((select case when count(*) = 1 then min(md5(p.prosrc)) end from pg_proc p
+      where p.pronamespace = 'public'::regnamespace and p.proname = 'gl_checkin') = 'e2a63a98dcb1f5625b24d71f0cda3a62', false) as door_ok,
+    (select count(*) from pg_trigger t where t.tgrelid = 'public.gl_guest'::regclass and not t.tgisinternal and t.tgenabled <> 'D'
+      and t.tgname in ('gl_guest_engine_guard', 'gl_guest_queue_provisioning')) as trig_on) x
+-- drift
+union all
+select 'drift.function_pins', 'drift',
+  case when x.changed > 0 then 'warn' else 'ok' end,
+  case when x.changed > 0 then x.changed || ' pinned function(s) changed: ' || x.names || '. Re-pin after a planned change.'
+    else x.pinned || ' pinned function(s) unchanged.' end,
+  jsonb_build_object('pinned', x.pinned, 'changed', x.changed)
+from (select count(*) as pinned, count(*) filter (where pin.md5_now is distinct from pin.md5_want) as changed,
+    string_agg(pin.fn, ', ' order by pin.fn) filter (where pin.md5_now is distinct from pin.md5_want) as names
+  from (select k.key as fn, k.value as md5_want,
+      (select case when count(*) = 1 then min(md5(p.prosrc)) else md5(string_agg(md5(p.prosrc), ',' order by md5(p.prosrc))) end
+        from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = k.key) as md5_now
+    from cfg cross join lateral jsonb_each_text(case when jsonb_typeof(cfg.v -> 'pins') = 'object' then cfg.v -> 'pins' else '{}' end) k) pin) x
+union all
+select 'drift.freeze', 'drift',
+  case when x.in_freeze and x.n > 0 then 'warn' else 'ok' end,
+  case when not x.in_freeze then 'No freeze in force.'
+    when x.n > 0 then x.n || ' migration(s) applied since the freeze began on ' || x.f || ': were they planned?'
+    else 'Freeze until ' || x.t || ': no migration since ' || x.f || '.' end,
+  jsonb_build_object('in_freeze', x.in_freeze, 'migrations_since', x.n)
+from (select fz.f, fz.t, coalesce(current_date between fz.f and fz.t, false) as in_freeze,
+    (select count(*) from supabase_migrations.schema_migrations m where m.version >= to_char(fz.f, 'YYYYMMDD')) as n
+  from (select case when pg_input_is_valid(cfg.v -> 'freeze' ->> 'from', 'date') then (cfg.v -> 'freeze' ->> 'from')::date end as f,
+      case when pg_input_is_valid(cfg.v -> 'freeze' ->> 'to', 'date') then (cfg.v -> 'freeze' ->> 'to')::date end as t
+    from cfg) fz) x
+union all
+select 'drift.sm26_archive', 'drift',
+  case when x.base is null or x.cur = x.base then 'ok' else 'fail' end,
+  case when x.base is null then 'No SM26 baseline stored.' when x.cur = x.base then 'SM26 archive unchanged (7 tables).'
+    else 'The SM26 archive changed: rows added or removed in sm_* tables.' end,
+  jsonb_build_object('now', x.cur, 'baseline', x.base)
+from (select (select case when jsonb_typeof(cfg.v -> 'baseline' -> 'sm26') = 'object' then cfg.v -> 'baseline' -> 'sm26' end from cfg) as base,
+    jsonb_build_object('sm_registration', (select count(*) from public.sm_registration),
+      'sm_role_assignment', (select count(*) from public.sm_role_assignment), 'sm_attendee', (select count(*) from public.sm_attendee),
+      'sm_badge', (select count(*) from public.sm_badge), 'sm_payment', (select count(*) from public.sm_payment),
+      'sm_invoice', (select count(*) from public.sm_invoice), 'sm_networking_pass', (select count(*) from public.sm_networking_pass)) as cur) x
+-- security
+union all
+select 'security.open_functions', 'security',
+  case when x.n > 0 then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' internal function(s) anyone can run through the API: ' || x.names || '.'
+    else 'Internal scheduled-call functions are closed to the API.' end,
+  jsonb_build_object('open', x.n)
+from (select count(*) as n, string_agg(p.proname, ', ' order by p.proname) as names
+  from pg_proc p where p.pronamespace = 'public'::regnamespace
+    and ((p.prosecdef and p.proname like 'invoke\_%') or p.proname in ('cleanup_guest_rate_limits', 'notification_outbox_claim', 'ops_health_checks'))
+    and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))) x
+-- database
+union all
+select 'db.connections', 'database',
+  case when x.used > 0.95 * x.max_c then 'fail' when x.used > 0.8 * x.max_c then 'warn' else 'ok' end,
+  x.used || ' of ' || x.max_c || ' connections in use.', jsonb_build_object('used', x.used, 'max', x.max_c)
+from (select count(*) filter (where a.backend_type = 'client backend') as used, current_setting('max_connections')::int as max_c
+  from pg_stat_activity a) x
+union all
+select 'db.long_running', 'database',
+  case when x.q + x.idle > 0 then 'warn' else 'ok' end,
+  x.q || ' query(ies) running over 5 min, ' || x.idle || ' session(s) idle in a transaction over 5 min.',
+  jsonb_build_object('long_queries', x.q, 'idle_in_transaction', x.idle)
+from (select count(*) filter (where a.state = 'active' and a.query_start < now() - interval '5 minutes') as q,
+    count(*) filter (where a.state like 'idle in transaction%' and a.state_change < now() - interval '5 minutes') as idle
+  from pg_stat_activity a where a.backend_type = 'client backend' and a.pid <> pg_backend_pid()) x
+union all
+select 'db.replication_slots', 'database',
+  case when x.held > 1073741824 then 'fail' when x.inactive > 0 then 'warn' else 'ok' end,
+  x.n || ' replication slot(s), ' || x.inactive || ' inactive, ' || pg_size_pretty(x.held) || ' of WAL held at most.',
+  jsonb_build_object('slots', x.n, 'inactive', x.inactive, 'max_wal_held_bytes', x.held)
+from (select count(*) as n, count(*) filter (where not s.active and not s.temporary) as inactive,
+    coalesce(max(pg_wal_lsn_diff(pg_current_wal_lsn(), s.restart_lsn)), 0)::bigint as held
+  from pg_replication_slots s) x
+union all
+select 'db.wraparound', 'database',
+  case when x.age_max > 1000000000 then 'fail' when x.age_max > 150000000 then 'warn' else 'ok' end,
+  'Oldest transaction id age ' || x.age_max || '.', jsonb_build_object('xid_age', x.age_max)
+from (select max(age(d.datfrozenxid)) as age_max from pg_database d) x
+union all
+select 'db.size', 'database', case when x.bytes > 4294967296 then 'warn' else 'ok' end,
+  'Database size ' || pg_size_pretty(x.bytes) || '.', jsonb_build_object('bytes', x.bytes)
+from (select pg_database_size(current_database()) as bytes) x
+-- storage (no backup of the files exists)
+union all
+select 'storage.event_media', 'storage',
+  case when x.n < x.base then 'fail' else 'ok' end,
+  case when x.n < x.base then (x.base - x.n) || ' file(s) deleted from event-media (SM26 uploads, invoices), which has no backup.'
+    else x.n || ' file(s) in event-media, baseline ' || coalesce(x.base::text, 'none') || '.' end,
+  jsonb_build_object('files', x.n, 'baseline', x.base)
+from (select (select count(*) from storage.objects o where o.bucket_id = 'event-media') as n,
+    (select case when jsonb_typeof(cfg.v -> 'baseline' -> 'event_media_files') = 'number'
+      then (cfg.v -> 'baseline' ->> 'event_media_files')::numeric end from cfg) as base) x
+-- other queues
+union all
+select 'other.contact_inbox', 'other',
+  case when x.n > 0 then 'warn' else 'ok' end,
+  case when x.n > 0 then x.n || ' contact message(s) saved but not e-mailed to the inbox: read them in the admin.'
+    else 'Every contact message reached the inbox.' end,
+  jsonb_build_object('not_emailed', x.n)
+from (select count(*) as n from public.contact_submissions c
+  where c.emailed_at is null and c.created_at between now() - interval '30 days' and now() - interval '15 minutes') x
+union all
+select 'other.pulse_snapshot', 'other',
+  case when (now() at time zone 'UTC')::time > time '07:15'
+    and coalesce(x.last_day, date '2000-01-01') < (now() at time zone 'UTC')::date then 'warn' else 'ok' end,
+  'Last daily KPI snapshot: ' || coalesce(x.last_day::text, 'none') || '.', jsonb_build_object('last', x.last_day)
+from (select max(p.snapshot_date) as last_day from public.pulse_snapshots p) x
+union all
+select 'other.crm_outbox', 'other', case when x.n > 0 then 'warn' else 'ok' end,
+  x.n || ' CRM bridge event(s) failed, dead or undelivered after 1 h.', jsonb_build_object('stuck', x.n)
+from (select count(*) as n from public.commercial_outbox_events c where c.status in ('failed', 'dead_letter')
+  or (c.status <> 'delivered' and (c.created_at < now() - interval '1 hour' or c.attempts >= 5))) x
+union all
+select 'other.digest_log', 'other', case when x.n > 0 then 'warn' else 'ok' end,
+  x.n || ' weekly digest(s) stuck in "sending" over 1 h.', jsonb_build_object('stuck', x.n)
+from (select count(*) as n from public.digest_log dl where dl.status = 'sending' and dl.created_at < now() - interval '1 hour') x
+union all
+select 'other.invitation_expiry', 'other', case when x.n > 0 then 'warn' else 'ok' end,
+  x.n || ' team invitation(s) past expiry still pending' || case when x.n > 0 then ': the expiry job is not running.' else '.' end,
+  jsonb_build_object('overdue', x.n)
+from (select count(*) as n from public.organization_invitations i where i.status = 'pending' and i.expires_at < now() - interval '15 minutes') x
+$function$;
+comment on function public.ops_health_checks() is
+  'ops-health: every check in one read-only SELECT; counts and names only, never personal data. Owner only; staff use ops_health_report(). 20261016120000.';
+
+-- 3. The report
+create or replace function public.ops_health_report()
+returns table (check_id text, area text, status text, summary text, detail jsonb)
+language plpgsql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $function$
+#variable_conflict use_column
+declare
+  v_role text := auth.role();
+begin
+  if not (coalesce(v_role, '') = 'service_role' or coalesce(public.is_moderator(), false)
+          or (v_role is null and auth.uid() is null)) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  return query
+    select c.check_id, c.area, c.status, c.summary, c.detail
+      from public.ops_health_checks() c
+     order by case c.status when 'fail' then 0 when 'warn' then 1 else 2 end, c.check_id;
+end
+$function$;
+comment on function public.ops_health_report() is
+  'ops-health: the checks, worst first. Verified staff, the service role or a direct database session; others get 42501. 20261016120000.';
+
+-- 4. The monitor's memory (written by the ops-health edge function, service role)
+create table if not exists public.ops_health_alert (
+  check_id text primary key,
+  status text not null check (status in ('warn', 'fail')),
+  summary text,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  last_alert_at timestamptz,
+  last_alert_status text check (last_alert_status in ('warn', 'fail')),
+  cleared_at timestamptz
+);
+comment on table public.ops_health_alert is
+  'ops-health: one row per problem; last_alert_at keeps it from being e-mailed more than once per realert_hours; cleared_at = ok again.';
+
+create table if not exists public.ops_health_run (
+  id bigint generated always as identity primary key,
+  run_at timestamptz not null default now(),
+  worst text not null check (worst in ('ok', 'warn', 'fail')),
+  n_ok integer not null default 0,
+  n_warn integer not null default 0,
+  n_fail integer not null default 0,
+  emailed integer not null default 0,
+  problems jsonb not null default '[]'::jsonb,
+  error text
+);
+create index if not exists ops_health_run_run_at_idx on public.ops_health_run (run_at desc);
+comment on table public.ops_health_run is
+  'ops-health: one row per run; invoke_ops_health() spaces the runs with the latest run_at. Kept 30 days.';
+
+alter table public.ops_health_alert enable row level security;
+alter table public.ops_health_run enable row level security;
+drop policy if exists ops_health_alert_staff_read on public.ops_health_alert;
+create policy ops_health_alert_staff_read on public.ops_health_alert for select to authenticated using (public.is_moderator());
+drop policy if exists ops_health_run_staff_read on public.ops_health_run;
+create policy ops_health_run_staff_read on public.ops_health_run for select to authenticated using (public.is_moderator());
+revoke all on table public.ops_health_alert, public.ops_health_run from public, anon, authenticated, service_role;
+grant select on table public.ops_health_alert, public.ops_health_run to authenticated;
+grant select, insert, update, delete on table public.ops_health_alert, public.ops_health_run to service_role;
+
+-- 5. pg_cron every 15 min; calls ops-health only when enabled and due
+create or replace function public.invoke_ops_health()
+returns text
+language plpgsql
+security definer
+set search_path to 'public', 'extensions', 'vault', 'pg_temp'
+as $function$
+declare
+  v_cfg jsonb;
+  v_every integer;
+  v_last timestamptz;
+  v_url text;
+  v_key text;
+begin
+  select ps.value into v_cfg from public.platform_settings ps where ps.key = 'ops_health';
+  if not coalesce((v_cfg -> 'enabled') = 'true'::jsonb, false) then
+    return 'skipped';
+  end if;
+  -- 300 min at most: pg_net keeps the answers of the scheduled calls 6 hours.
+  v_every := case when jsonb_typeof(v_cfg -> 'interval_minutes') = 'number'
+                  then least(greatest((v_cfg ->> 'interval_minutes')::numeric, 15), 300)::integer else 60 end;
+  select max(o.run_at) into v_last from public.ops_health_run o;
+  if v_last is not null and v_last > now() - make_interval(mins => v_every) + interval '2 minutes' then
+    return 'not due';
+  end if;
+  -- Same Vault secrets as invoke_registration_cron(); quiet exit if missing.
+  begin
+    select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url' limit 1;
+    select decrypted_secret into v_key from vault.decrypted_secrets where name = 'service_role_key' limit 1;
+  exception when others then
+    raise notice 'invoke_ops_health: vault read failed: %', sqlerrm;
+    return 'no vault';
+  end;
+  if v_url is null or v_key is null then
+    return 'no vault';
+  end if;
+  perform net.http_post(
+    url := v_url || '/functions/v1/ops-health',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || v_key),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 60000
+  );
+  return 'called';
+end
+$function$;
+comment on function public.invoke_ops_health() is
+  'ops-health: pg_cron job ops-health. Calls the edge function when ops_health.enabled is JSON true and the last run is older than interval_minutes. skipped / not due / no vault / called. 20261016120000.';
+
+revoke all on function public.ops_health_checks() from public, anon, authenticated, service_role;
+revoke all on function public.ops_health_report() from public, anon, authenticated;
+grant execute on function public.ops_health_report() to authenticated, service_role;
+revoke all on function public.invoke_ops_health() from public, anon, authenticated;
+grant execute on function public.invoke_ops_health() to service_role;
+
+-- An existing job of that name is updated (pg_cron 1.6.4).
+select cron.schedule('ops-health', '*/15 * * * *', $cmd$select public.invoke_ops_health();$cmd$);
+
+-- 2. Checks
+do $dryrun$
+declare
+  v_nl constant text := chr(10);
+  v_r text;
+  v_txt text;
+  v_n bigint;
+  v_m bigint;
+  v_k bigint;
+  v_staff uuid;
+  v_member uuid;
+  v_cfg jsonb;
+  v_digest integer;
+  v_media bigint;
+begin
+  select pr.user_id into v_staff from public.profiles pr
+   where pr.persona::text = 'admin' and pr.access_status::text = 'verified' order by pr.created_at limit 1;
+  select pr.user_id into v_member from public.profiles pr
+   where pr.persona::text not in ('admin', 'moderator') and pr.access_status::text = 'verified' order by pr.created_at limit 1;
+
+  -- T0 one transaction, nothing there before
+  v_r := case when current_setting('smc_dryrun.before', true) = 'yes' then 'PASS before-snapshot present (one transaction)'
+              else 'FAIL before-snapshot missing: NOT one transaction, the migration may be COMMITTED' end;
+  v_txt := coalesce(current_setting('smc_dryrun.absent', true), '?');
+  v_r := v_r || v_nl || case when v_txt = 'setting=0 alert=none run=none report=none job=0' then 'PASS ' else 'FAIL ' end || 'nothing before: ' || v_txt;
+
+  -- T1 settings row
+  begin
+    select ps.value into v_cfg from public.platform_settings ps where ps.key = 'ops_health';
+    select coalesce((select jsonb_array_length(ps.value) from public.platform_settings ps
+      where ps.key = 'review_digest_recipients' and jsonb_typeof(ps.value) = 'array'), 0) into v_digest;
+    select count(*) into v_media from storage.objects o where o.bucket_id = 'event-media';
+    v_txt := format('enabled=%s interval=%s realert=%s recipients=%s/%s pins=%s sm26=%s media=%s/%s freeze=%s',
+      v_cfg -> 'enabled', v_cfg -> 'interval_minutes', v_cfg -> 'realert_hours', jsonb_array_length(v_cfg -> 'recipients'), v_digest,
+      (select count(*) from jsonb_object_keys(v_cfg -> 'pins')),
+      (v_cfg -> 'baseline' -> 'sm26') = '{"sm_registration": 201, "sm_role_assignment": 128, "sm_attendee": 263, "sm_badge": 247,
+        "sm_payment": 178, "sm_invoice": 41, "sm_networking_pass": 43}'::jsonb,
+      v_cfg -> 'baseline' -> 'event_media_files', v_media, v_cfg -> 'freeze');
+    v_r := v_r || v_nl || case when v_txt = format('enabled=false interval=60 realert=6 recipients=%s/%s pins=13 sm26=true media=%s/%s '
+      'freeze={"to": "2026-11-28", "from": "2026-11-20"}', v_digest, v_digest, v_media, v_media) then 'PASS ' else 'FAIL ' end || 'settings ' || v_txt;
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL settings: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T2 the restrictive policy
+  select count(*) into v_n from pg_policies pol
+   where pol.schemaname = 'public' and pol.tablename = 'platform_settings' and pol.policyname = 'platform_settings_ops_health_private'
+     and pol.permissive = 'RESTRICTIVE' and pol.cmd = 'SELECT';
+  v_r := v_r || v_nl || case when v_n = 1 then 'PASS ' else 'FAIL ' end || 'restrictive select policy on the ops_health row (' || v_n || ')';
+
+  -- T3 shape
+  begin
+    v_txt := format('secdef=%s paths=%s rls=%s policies=%s job=%s',
+      (select string_agg(p.prosecdef::text, '/' order by p.proname) from pg_proc p
+        where p.pronamespace = 'public'::regnamespace and p.proname in ('invoke_ops_health', 'ops_health_checks', 'ops_health_report')),
+      (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proconfig is not null
+        and p.proname in ('invoke_ops_health', 'ops_health_checks', 'ops_health_report')),
+      (select string_agg(c.relrowsecurity::text, '/' order by c.relname) from pg_class c
+        where c.relnamespace = 'public'::regnamespace and c.relname in ('ops_health_alert', 'ops_health_run')),
+      (select count(*) from pg_policies pol where pol.schemaname = 'public' and pol.tablename in ('ops_health_alert', 'ops_health_run')),
+      (select j.schedule || ' ' || j.active || ' ' || j.command from cron.job j where j.jobname = 'ops-health'));
+    v_r := v_r || v_nl || case when v_txt = 'secdef=true/false/true paths=3 rls=true/true policies=2 job=*/15 * * * * true select public.invoke_ops_health();'
+      then 'PASS ' else 'FAIL ' end || 'shape ' || v_txt;
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL shape: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T4 privileges: anon, authenticated, service_role x (checks, report, invoke) and x (alert, run) x (s, i, u, d)
+  select string_agg(has_function_privilege(r.n, f.n, 'execute')::int::text, '' order by r.i, f.i) into v_txt
+    from unnest(array['anon', 'authenticated', 'service_role']) with ordinality r(n, i),
+         unnest(array['public.ops_health_checks()', 'public.ops_health_report()', 'public.invoke_ops_health()']) with ordinality f(n, i);
+  select v_txt || ' ' || string_agg(has_table_privilege(r.n, t.n, p.n)::int::text, '' order by r.i, t.i, p.i) into v_txt
+    from unnest(array['anon', 'authenticated', 'service_role']) with ordinality r(n, i),
+         unnest(array['public.ops_health_alert', 'public.ops_health_run']) with ordinality t(n, i),
+         unnest(array['select', 'insert', 'update', 'delete']) with ordinality p(n, i);
+  v_r := v_r || v_nl || case when v_txt = '000010011 000000001000100011111111' then 'PASS ' else 'FAIL ' end || 'privileges ' || v_txt;
+
+  -- T5 the report, direct session
+  begin
+    select count(*), count(distinct q.check_id), count(*) filter (where q.status not in ('ok', 'warn', 'fail') or q.summary is null)
+      into v_n, v_m, v_k from public.ops_health_report() q;
+    v_r := v_r || v_nl || case when v_n = 38 and v_m = 38 and v_k = 0 then 'PASS ' else 'FAIL ' end
+           || format('report: %s rows, %s distinct, %s invalid', v_n, v_m, v_k) || v_nl || 'INFO report rows: ' || v_n;
+    with o as materialized (
+      select case q.status when 'fail' then 0 when 'warn' then 1 else 2 end as sev, row_number() over () as rn from public.ops_health_report() q)
+    select count(*) into v_n from o a join o b on a.rn < b.rn where a.sev > b.sev;
+    v_r := v_r || v_nl || case when v_n = 0 then 'PASS ' else 'FAIL ' end || 'worst first (' || v_n || ' inversions)';
+    select string_agg(q.check_id || ':' || q.status, ', ' order by q.check_id) into v_txt from public.ops_health_report() q where q.status <> 'ok';
+    v_r := v_r || v_nl || 'INFO not ok today: ' || coalesce(v_txt, 'none');
+    select string_agg(q.check_id || ':' || q.status, ', ' order by q.check_id) into v_txt from public.ops_health_report() q
+     where q.check_id in ('calls.vault_secrets', 'drift.function_pins', 'drift.sm26_archive', 'storage.event_media', 'wys.door');
+    v_r := v_r || v_nl || case when v_txt = 'calls.vault_secrets:ok, drift.function_pins:ok, drift.sm26_archive:ok, storage.event_media:ok, wys.door:ok'
+      then 'PASS ' else 'FAIL ' end || 'baselines taken at apply match: ' || coalesce(v_txt, '-');
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL report: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- A run row: staff can see one, and the invoker finds the monitor "not due".
+  insert into public.ops_health_run (worst) values ('ok');
+
+  -- T6 anon
+  begin
+    perform set_config('request.jwt.claims', '{"role": "anon"}', true);
+    set local role anon;
+    begin
+      perform public.ops_health_report();
+      v_r := v_r || v_nl || 'FAIL anon ran the report';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS anon cannot run the report';
+    end;
+    select count(*) filter (where ps.key = 'ops_health'), count(*) filter (where ps.key = 'registration_flags') into v_n, v_m from public.platform_settings ps;
+    v_r := v_r || v_nl || case when v_n = 0 and v_m = 1 then 'PASS ' else 'FAIL ' end || format('anon sees ops_health=%s registration_flags=%s', v_n, v_m);
+    begin
+      perform 1 from public.ops_health_run;
+      v_r := v_r || v_nl || 'FAIL anon read ops_health_run';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS anon cannot read ops_health_run';
+    end;
+    begin
+      perform public.invoke_ops_health();
+      v_r := v_r || v_nl || 'FAIL anon ran invoke_ops_health';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS anon cannot run invoke_ops_health';
+    end;
+    reset role;
+  exception when others then
+    reset role;
+    v_r := v_r || v_nl || 'FAIL anon block: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T7 a verified member who is not staff
+  begin
+    perform set_config('request.jwt.claims', json_build_object('sub', v_member, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    begin
+      perform public.ops_health_report();
+      v_r := v_r || v_nl || 'FAIL a member ran the report';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || case when sqlerrm = 'forbidden' then 'PASS ' else 'FAIL ' end || 'member stopped by the report gate (' || sqlerrm || ')';
+    end;
+    select count(*) filter (where ps.key = 'ops_health'), count(*) filter (where ps.key = 'registration_flags') into v_n, v_m from public.platform_settings ps;
+    select count(*) into v_k from public.ops_health_run;
+    v_r := v_r || v_nl || case when v_n = 0 and v_m = 1 and v_k = 0 then 'PASS ' else 'FAIL ' end
+           || format('member sees ops_health=%s registration_flags=%s runs=%s', v_n, v_m, v_k);
+    begin
+      insert into public.ops_health_run (worst) values ('ok');
+      v_r := v_r || v_nl || 'FAIL a member wrote ops_health_run';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS member cannot write ops_health_run';
+    end;
+    begin
+      perform public.ops_health_checks();
+      v_r := v_r || v_nl || 'FAIL a member ran ops_health_checks';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS member cannot run ops_health_checks';
+    end;
+    begin
+      perform public.invoke_ops_health();
+      v_r := v_r || v_nl || 'FAIL a member ran invoke_ops_health';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS member cannot run invoke_ops_health';
+    end;
+    reset role;
+  exception when others then
+    reset role;
+    v_r := v_r || v_nl || 'FAIL member block: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T8 a verified admin
+  begin
+    perform set_config('request.jwt.claims', json_build_object('sub', v_staff, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    select count(*) into v_n from public.ops_health_report();
+    select count(*) filter (where ps.key = 'ops_health') into v_m from public.platform_settings ps;
+    select count(*) into v_k from public.ops_health_run;
+    v_r := v_r || v_nl || case when v_n = 38 and v_m = 1 and v_k >= 1 then 'PASS ' else 'FAIL ' end
+           || format('staff: report %s rows, settings row %s, runs %s', v_n, v_m, v_k);
+    begin
+      perform public.ops_health_checks();
+      v_r := v_r || v_nl || 'FAIL staff ran ops_health_checks directly';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS staff go through the report only';
+    end;
+    reset role;
+  exception when others then
+    reset role;
+    v_r := v_r || v_nl || 'FAIL staff block: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T9 the service role (the ops-health edge function)
+  begin
+    perform set_config('request.jwt.claims', '{"role": "service_role"}', true);
+    set local role service_role;
+    select count(*) into v_n from public.ops_health_report();
+    insert into public.ops_health_alert (check_id, status, summary) values ('dryrun.check', 'warn', 'dry run');
+    update public.ops_health_alert set last_alert_at = now(), last_alert_status = 'warn' where check_id = 'dryrun.check';
+    delete from public.ops_health_alert where check_id = 'dryrun.check' and last_alert_status = 'warn';
+    get diagnostics v_m = row_count;
+    v_txt := public.invoke_ops_health();
+    v_r := v_r || v_nl || case when v_n = 38 and v_m = 1 and v_txt = 'skipped' then 'PASS ' else 'FAIL ' end
+           || format('service role: report %s rows, alert memory written %s, invoker %s', v_n, v_m, v_txt);
+    begin
+      perform public.ops_health_checks();
+      v_r := v_r || v_nl || 'FAIL the service role ran ops_health_checks directly';
+    exception when insufficient_privilege then
+      v_r := v_r || v_nl || 'PASS service role goes through the report only';
+    end;
+    reset role;
+  exception when others then
+    reset role;
+    v_r := v_r || v_nl || 'FAIL service role block: ' || sqlstate || ' ' || sqlerrm;
+  end;
+  perform set_config('request.jwt.claims', '', true);
+
+  -- T10 the invoker as pg_cron runs it (never reaches the HTTP call: a run row exists)
+  begin
+    v_txt := public.invoke_ops_health();
+    update public.platform_settings set value = value || '{"enabled": true}' where key = 'ops_health';
+    v_txt := v_txt || '/' || public.invoke_ops_health();
+    update public.platform_settings set value = value || '{"interval_minutes": "abc"}' where key = 'ops_health';
+    v_txt := v_txt || '/' || public.invoke_ops_health();
+    update public.platform_settings set value = v_cfg where key = 'ops_health';
+    v_r := v_r || v_nl || case when v_txt = 'skipped/not due/not due' then 'PASS ' else 'FAIL ' end
+           || 'invoker disabled / enabled after a run / mistyped interval: ' || v_txt;
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL invoker: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T11 the checks fire: tampered settings, then a stuck outbox row
+  begin
+    update public.platform_settings set value = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(value,
+        '{pins,gl_checkin_v2}', '"0"'), '{freeze}', jsonb_build_object('from', '2026-10-15', 'to', (current_date + 1)::text)),
+        '{baseline,sm26,sm_badge}', '0'), '{baseline,event_media_files}', to_jsonb(v_media + 1)), '{wys_slug}', '"no-such-event"')
+     where key = 'ops_health';
+    select string_agg(q.check_id || ':' || q.status, ', ' order by q.check_id) into v_txt from public.ops_health_report() q
+     where q.check_id in ('drift.freeze', 'drift.function_pins', 'drift.sm26_archive', 'storage.event_media', 'wys.event');
+    update public.platform_settings set value = v_cfg where key = 'ops_health';
+    v_r := v_r || v_nl || case when v_txt = 'drift.freeze:warn, drift.function_pins:warn, drift.sm26_archive:fail, storage.event_media:fail, wys.event:fail'
+      then 'PASS ' else 'FAIL ' end || 'tampered settings caught: ' || coalesce(v_txt, '-');
+    insert into public.notification_outbox (kind, user_id, dedupe_key, created_at)
+    values ('account_under_review', v_staff, 'dryrun-ops-health-' || gen_random_uuid(), now() - interval '1 hour');
+    select q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
+    update public.notification_outbox set attempts = 5 where dedupe_key like 'dryrun-ops-health-%';
+    select v_txt || '/' || q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
+    delete from public.notification_outbox where dedupe_key like 'dryrun-ops-health-%';
+    v_r := v_r || v_nl || case when v_txt = 'warn/fail' then 'PASS ' else 'FAIL ' end || 'outbox row unsent 1 h, then dead: ' || coalesce(v_txt, '-');
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL detection: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T12 settings of the wrong shape never break the report or the invoker
+  begin
+    update public.platform_settings set value = '"garbage"' where key = 'ops_health';
+    select count(*) into v_n from public.ops_health_report();
+    v_txt := public.invoke_ops_health();
+    update public.platform_settings set value = v_cfg where key = 'ops_health';
+    v_r := v_r || v_nl || case when v_n = 38 and v_txt = 'skipped' then 'PASS ' else 'FAIL ' end || format('wrong-shape settings: %s rows, invoker %s', v_n, v_txt);
+  exception when others then
+    v_r := v_r || v_nl || 'FAIL wrong-shape settings: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  perform set_config('smc_dryrun.report', v_r, true);
+end
+$dryrun$;
+
+-- 3. The down script, verbatim
+-- DOWN for supabase/migrations/20261016120000_ops_health_check.sql
+--
+-- Removes the health monitor's database side: the pg_cron job, the three functions, the
+-- two memory tables (alert throttle and run history: nothing else reads them), the
+-- settings row and its staff-only policy. No other table, row or policy is touched.
+-- Undeploy (or leave idle) the ops-health edge function: with this down applied it can
+-- no longer read the report and answers ok:false; nothing calls it any more anyway.
+-- Faster stop without this file: set platform_settings ops_health.enabled to false.
+
+select cron.unschedule(j.jobid) from cron.job j where j.jobname = 'ops-health';
+drop function if exists public.invoke_ops_health();
+drop function if exists public.ops_health_report();
+drop function if exists public.ops_health_checks();
+drop table if exists public.ops_health_alert;
+drop table if exists public.ops_health_run;
+delete from public.platform_settings where key = 'ops_health';
+drop policy if exists platform_settings_ops_health_private on public.platform_settings;
+
+-- 4. After the down script, then the report ----------------------------------------------------
+do $after$
+declare
+  v_nl constant text := chr(10);
+  v_r text := coalesce(current_setting('smc_dryrun.report', true), 'FAIL no report from the checks block');
+  v_txt text;
+  v_pass integer;
+  v_fail integer;
+begin
+  v_txt := format('setting=%s alert=%s run=%s report=%s checks=%s invoke=%s job=%s policy=%s',
+    (select count(*) from public.platform_settings ps where ps.key = 'ops_health'),
+    coalesce(to_regclass('public.ops_health_alert')::text, 'none'),
+    coalesce(to_regclass('public.ops_health_run')::text, 'none'),
+    coalesce(to_regprocedure('public.ops_health_report()')::text, 'none'),
+    coalesce(to_regprocedure('public.ops_health_checks()')::text, 'none'),
+    coalesce(to_regprocedure('public.invoke_ops_health()')::text, 'none'),
+    (select count(*) from cron.job j where j.jobname = 'ops-health'),
+    (select count(*) from pg_policies pol where pol.schemaname = 'public' and pol.policyname = 'platform_settings_ops_health_private'));
+  v_r := v_r || v_nl || case when v_txt = 'setting=0 alert=none run=none report=none checks=none invoke=none job=0 policy=0'
+                             then 'PASS ' else 'FAIL ' end || 'down removes everything: ' || v_txt;
+
+  select md5(string_agg(format('%s|%s|%s|%s|%s', pol.policyname, pol.permissive, pol.cmd, pol.roles, pol.qual), ';' order by pol.policyname)) into v_txt
+    from pg_policies pol where pol.schemaname = 'public' and pol.tablename = 'platform_settings';
+  v_r := v_r || v_nl || case when v_txt = current_setting('smc_dryrun.policies', true)
+                              and (select string_agg(ps.key || '=' || md5(ps.value::text), ',' order by ps.key) from public.platform_settings ps)
+                                  = current_setting('smc_dryrun.keys', true)
+                             then 'PASS ' else 'FAIL ' end || 'after down: platform_settings rows and policies as before';
+
+  v_r := v_r || v_nl || case when (select string_agg(j.jobname || '=' || j.schedule || '=' || j.active, ',' order by j.jobname) from cron.job j)
+                                  = current_setting('smc_dryrun.jobs', true)
+                             then 'PASS ' else 'FAIL ' end || 'after down: cron jobs as before';
+
+  select count(*) filter (where l like 'PASS %'), count(*) filter (where l like 'FAIL %')
+    into v_pass, v_fail
+    from unnest(string_to_array(v_r, v_nl)) as t(l);
+  raise exception 'DRYRUN % PASS, % FAIL%', v_pass, v_fail, v_nl || v_r;
+end
+$after$;

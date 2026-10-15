@@ -421,7 +421,7 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
                   </p>
                   <p className="mt-1">
                     {r.kind === 'claim'
-                      ? t('adminValidate.request.claimBody', 'Approving the claim makes them its owner and validates them. If they should not manage it, decline it on the claim card in To review, then decide on them here.')
+                      ? t('adminValidate.request.claimBodyNA', 'Approving the claim makes them its owner and validates them. If they should not manage it, mark the claim as not accepted on its card in To review, then decide on them here.')
                       : t('adminValidate.request.joinBody', 'Its owner decides whether they join. You can validate them as a participant now: they join the company when the owner says yes.')}
                   </p>
                   {r.kind === 'claim' && r.id && (

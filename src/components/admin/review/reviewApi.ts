@@ -247,9 +247,30 @@ function normaliseRow(raw: Record<string, unknown>): QueueRow | null {
 export async function loadQueueV2(): Promise<QueueRow[]> {
   const { data, error } = await supabase.rpc('admin_review_queue', { p_filter: {} });
   if (error) throw fromPg(error);
-  return ((Array.isArray(data) ? data : []) as Record<string, unknown>[])
+  const rows = ((Array.isArray(data) ? data : []) as Record<string, unknown>[])
     .map(normaliseRow)
     .filter((r): r is QueueRow => !!r);
+  return dropArchivedCompanies(rows);
+}
+
+/**
+ * The list's pending-company cards (kind 'company') do not leave out an ARCHIVED company
+ * (review_queue_rows, 20261016091000, filters only the access status): archived ones are
+ * dropped here, so "Archive…" clears the card. A failed read keeps every card.
+ */
+async function dropArchivedCompanies(rows: QueueRow[]): Promise<QueueRow[]> {
+  const ids = rows.filter(r => r.kind === 'company').map(r => r.id);
+  if (!ids.length) return rows;
+  const { data, error } = await supabase.from('organizations').select('id').in('id', ids).not('archived_at', 'is', null);
+  if (error || !Array.isArray(data) || !data.length) return rows;
+  const archived = new Set((data as { id: string }[]).map(o => o.id));
+  return rows.filter(r => !(r.kind === 'company' && archived.has(r.id)));
+}
+
+/** Archives a company (or brings it back): admin_archive_org, logged by the server. */
+export async function archiveOrg(orgId: string, archived: boolean, note?: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_archive_org', { p_org_id: orgId, p_archived: archived, p_note: note?.trim() || null });
+  if (error) throw fromPg(error);
 }
 
 /** {total, people, …} of the v2 list (sidebar badge); null when it cannot be read. */
@@ -696,22 +717,6 @@ export function decisionMailText(t: TFunction, senderOn: boolean | null): string
   return senderOn === true
     ? t('adminValidate.done.mail', 'They will receive an e-mail.')
     : t('adminValidate.done.mailQueued', 'Their e-mail is queued: it leaves once "Send the e-mails queued by sign-ups and M3\'s decisions" is on (Platform settings).');
-}
-
-/* ------------------------------------------------------------------ registration switches */
-
-/**
- * Sets ONE registration switch on the server (admin_set_registration_flag, migration
- * 20261016093000): `value || {key: on}` in one statement, so a switch somebody else moved
- * meanwhile (from another page, or by SQL) is never written back. Returns the row as stored.
- */
-export async function setRegistrationFlag(key: string, on: boolean): Promise<{ value: Record<string, unknown>; updated_at: string | null }> {
-  const { data, error } = await supabase.rpc('admin_set_registration_flag', { p_key: key, p_on: on });
-  if (error) throw fromPg(error);
-  const d = (data ?? {}) as { value?: unknown; updated_at?: unknown };
-  const value = d.value && typeof d.value === 'object' && !Array.isArray(d.value) ? (d.value as Record<string, unknown>) : {};
-  outboxCache = { at: Date.now(), on: value.outbox_sender === true };
-  return { value, updated_at: typeof d.updated_at === 'string' ? d.updated_at : null };
 }
 
 /* ------------------------------------------------------------------ content */

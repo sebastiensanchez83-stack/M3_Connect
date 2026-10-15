@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  AlertTriangle, Check, CheckCircle2, Clock, EyeOff, HelpCircle, History, Inbox, Keyboard, ListPlus, RefreshCw,
+  AlertTriangle, Archive, Check, CheckCircle2, Clock, EyeOff, HelpCircle, History, Inbox, Keyboard, ListPlus, RefreshCw,
   ShieldCheck, UserCheck, UserMinus, UserRound, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,7 @@ import {
 import { ValidatePersonDialog } from '../ValidatePersonDialog';
 import { CompanyChoice, companyPickToOrg, type CompanyPick } from './CompanyChoice';
 import {
-  QUEUE_TABS, ReviewError, addOrgMemberBack, closeReport, decideClaim, decideGuestList, decideRegistrationV2,
+  QUEUE_TABS, ReviewError, addOrgMemberBack, archiveOrg, closeReport, decideClaim, decideGuestList, decideRegistrationV2,
   decisionMailText, dismissCard, fStr, loadEventKinds, loadGuestIdentity, loadQueueV2, markDuplicateOrg, reviewErrorText,
   revokeTeamJoin, rowKey, useOutboxSender, validatePerson,
   type OrgAction, type PersonAction, type QueueRow, type QueueTab, type RegDecisionResult,
@@ -83,7 +83,8 @@ type DialogState =
   | { mode: 'regApprove'; row: QueueRow; pick: CompanyPick; validate: boolean; lookup: { name: string | null; email: string | null; country: string | null } | null }
   | { mode: 'bulkApprove'; rows: QueueRow[] }
   | { mode: 'capacity'; groups: CapGroup[] }
-  | { mode: 'teamRemove'; row: QueueRow; reset: boolean; note: string };
+  | { mode: 'teamRemove'; row: QueueRow; reset: boolean; note: string }
+  | { mode: 'orgArchive'; row: QueueRow; note: string };
 
 const TAB_ORDER: QueueTab[] = QUEUE_TABS;
 
@@ -161,7 +162,7 @@ export function ReviewQueueV2() {
   // provisioning on: a confirmed WYS guest gets a second e-mail (their account) after the QR.
   const { flags: regFlags } = useRegistrationFlags();
   const accountMailNote = regFlags.provisioning
-    ? t('adminReview.v2.wysAccountMail', 'About a minute later they get a second e-mail to choose the password of their Smart Marina Connect account.')
+    ? t('adminReview.v2.wysAccountMail', 'A minute or two later they get a second e-mail to choose the password of their Smart Marina Connect account.')
     : '';
 
   /* ─── loading ─── */
@@ -549,6 +550,13 @@ export function ReviewQueueV2() {
         break;
       }
       case 'company':
+        // A stray company (often an unfinished draft of the old sign-up): open it to type and
+        // validate it, or archive it (spec §12).
+        add({
+          key: 'archive', label: t('adminReview.v2.act.archive', 'Archive…'), icon: Archive, tone: 'outline',
+          run: () => { setDialogError(null); setDialog({ mode: 'orgArchive', row, note: '' }); },
+          ariaLabel: t('adminReview.v2.act.archiveAria', 'Archive {{name}}', { name: row.title }),
+        });
         push({ to: row.url, label: t('adminReview.open.company', 'Open the company') });
         break;
       case 'claim': {
@@ -1058,7 +1066,7 @@ export function ReviewQueueV2() {
                 <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.onsite', 'On-site events: their accounts are made with no company; M3 can link the company later from the person\'s page.')}</p>
               )}
               {accountMailNote && shown.rows.some(isV1) && (
-                <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.wysAccount', 'World Yachting Summit guests: about a minute after their entry pass, they get a second e-mail to choose the password of their Smart Marina Connect account.')}</p>
+                <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.wysAccount', 'World Yachting Summit guests: a minute or two after their entry pass, they get a second e-mail to choose the password of their Smart Marina Connect account.')}</p>
               )}
             </WindowBody>
           )}
@@ -1092,6 +1100,46 @@ export function ReviewQueueV2() {
                   <li key={g.label}>{t('adminReview.v2.capacity.line', '{{event}}: {{total}} for {{capacity}} places', { event: g.label, total: g.held + g.adding, capacity: g.capacity })}</li>
                 ))}
               </ul>
+            </WindowBody>
+          )}
+
+          {shown?.mode === 'orgArchive' && (
+            <WindowBody
+              title={t('adminReview.v2.archive.title', 'Archive {{name}}?', { name: shown.row.title })}
+              description={t('adminReview.v2.archive.body', 'The company leaves this list, sign-up search and company matching. Nothing is deleted and nobody is e-mailed: you can bring it back right after, or later from the company page.')}
+              error={dialogError}
+              busy={busy}
+              onCancel={() => setDialog(null)}
+              confirm={{ label: t('adminReview.v2.archive.confirm', 'Archive the company'), danger: true, run: async () => {
+                setBusy(true);
+                setDialogError(null);
+                const row = shown.row;
+                try {
+                  await archiveOrg(row.id, true, shown.note);
+                  toast({
+                    title: t('adminReview.v2.done.archived', '{{name}} is archived', { name: row.title }),
+                    action: (
+                      <ToastAction altText={t('adminReview.v2.done.unarchive', 'Undo: bring it back')} onClick={() => {
+                        archiveOrg(row.id, false).then(() => { toast({ title: t('adminReview.v2.done.unarchived', '{{name}} is back', { name: row.title }) }); void load(); }, failToast);
+                      }}>
+                        {t('adminReview.v2.done.undo', 'Undo')}
+                      </ToastAction>
+                    ),
+                  });
+                  setDialog(null);
+                } catch (e) { setDialogError(reviewErrorText(e, t)); }
+                setBusy(false);
+                void load();
+              } }}
+            >
+              <Textarea
+                value={shown.note}
+                onChange={e => setDialog(d => (d && d.mode === 'orgArchive' ? { ...d, note: e.target.value } : d))}
+                rows={2}
+                maxLength={2000}
+                placeholder={t('adminReview.v2.archive.notePlaceholder', 'Internal note (optional, only M3 sees it): why it is archived')}
+                aria-label={t('adminReview.v2.remove.note', 'Internal note')}
+              />
             </WindowBody>
           )}
 

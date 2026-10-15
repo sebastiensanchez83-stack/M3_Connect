@@ -19,6 +19,8 @@ import { readSetting, saveSetting } from './settingsStore';
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+/** registration-cron e-mails the summary to the first 10 addresses only. */
+export const MAX_DIGEST_RECIPIENTS = 10;
 
 export function ReviewSettingsPanel() {
   const { t } = useTranslation();
@@ -27,6 +29,9 @@ export function ReviewSettingsPanel() {
   const [sla, setSla] = useState('');
   const [slaSaved, setSlaSaved] = useState('');
   const [slaAt, setSlaAt] = useState<string | null>(null);
+  // The values as stored (the compare-and-set checks them before writing).
+  const [slaRaw, setSlaRaw] = useState<unknown>(undefined);
+  const [recRaw, setRecRaw] = useState<unknown>(undefined);
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientsSaved, setRecipientsSaved] = useState<string[]>([]);
   const [recAt, setRecAt] = useState<string | null>(null);
@@ -42,6 +47,8 @@ export function ReviewSettingsPanel() {
     setSla(text);
     setSlaSaved(text);
     setSlaAt(s.updatedAt);
+    setSlaRaw(s.value);
+    setRecRaw(r.value);
     const list = Array.isArray(r.value) ? (r.value as unknown[]).filter((x): x is string => typeof x === 'string') : [];
     setRecipients(list);
     setRecipientsSaved(list);
@@ -64,7 +71,7 @@ export function ReviewSettingsPanel() {
     const text = sla.trim();
     if (!text) return;
     setSavingSla(true);
-    const res = await saveSetting('review_sla_text', text, slaAt, user?.id);
+    const res = await saveSetting('review_sla_text', text, { value: slaRaw, updatedAt: slaAt }, user?.id);
     setSavingSla(false);
     if (!res.ok) {
       if (res.reason === 'conflict') conflict();
@@ -74,6 +81,7 @@ export function ReviewSettingsPanel() {
     setSla(text);
     setSlaSaved(text);
     setSlaAt(res.updatedAt);
+    setSlaRaw(text);
     toast({ title: t('adminSettings.sla.saved', 'Promised delay saved') });
   };
 
@@ -82,6 +90,10 @@ export function ReviewSettingsPanel() {
     const email = newEmail.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) { setEmailError(t('adminSettings.digest.invalid', 'This is not an e-mail address.')); return; }
     if (recipients.includes(email)) { setEmailError(t('adminSettings.digest.duplicate', 'This address is already in the list.')); return; }
+    if (recipients.length >= MAX_DIGEST_RECIPIENTS) {
+      setEmailError(t('adminSettings.digest.max', 'At most {{count}} recipients: remove one first.', { count: MAX_DIGEST_RECIPIENTS }));
+      return;
+    }
     setRecipients(list => [...list, email]);
     setNewEmail('');
     setEmailError(null);
@@ -89,7 +101,7 @@ export function ReviewSettingsPanel() {
 
   const saveRecipients = async () => {
     setSavingRec(true);
-    const res = await saveSetting('review_digest_recipients', recipients, recAt, user?.id);
+    const res = await saveSetting('review_digest_recipients', recipients, { value: recRaw, updatedAt: recAt }, user?.id);
     setSavingRec(false);
     if (!res.ok) {
       if (res.reason === 'conflict') conflict();
@@ -98,6 +110,7 @@ export function ReviewSettingsPanel() {
     }
     setRecipientsSaved(recipients);
     setRecAt(res.updatedAt);
+    setRecRaw(recipients);
     toast({ title: t('adminSettings.digest.saved', 'Recipients saved') });
   };
 
@@ -151,7 +164,7 @@ export function ReviewSettingsPanel() {
           <section>
             <h3 className="text-[15px] font-semibold text-navy">{t('adminSettings.digest.title', 'Daily summary e-mail')}</h3>
             <p className="mt-1 text-[14px] leading-5 text-meta">
-              {t('adminSettings.digest.help', 'Every day at 08:00 (Monaco time), while "Review list v2" is on: how many items wait in each topic, and the oldest one. Only M3 staff can see this list.')}
+              {t('adminSettings.digest.help', 'Every day at 08:00 (Monaco time), while "Review list v2" is on: how many items wait in each topic, and the oldest one. Up to {{count}} addresses. Only M3 staff can see this list.', { count: MAX_DIGEST_RECIPIENTS })}
             </p>
             {recipients.length === 0 ? (
               <p className="mt-3 text-[14px] text-amber-800">{t('adminSettings.digest.none', 'Nobody gets the summary.')}</p>

@@ -13,15 +13,18 @@ import { toast } from '@/hooks/use-toast';
 import { readRegistrationFlags } from '@/lib/flags';
 import { cn } from '@/lib/utils';
 import { ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY, AdminPanel, AdminStatusPill } from '../AdminUI';
+import { readOutboxSender } from '../review/reviewApi';
 import { readSetting, saveSetting } from './settingsStore';
 
 /**
  * The registration switches (platform_settings.registration_flags), each with what it does
- * and what turning it on or off changes, in plain words. Every change asks first; the two
- * that need a runbook (account_signup_v2, capabilities_enforced) also ask to confirm that
- * the runbook was followed. A switch is on only as the JSON boolean true (contract §2): the
- * page writes true / false, keeps every other key of the row as it is, and shows a value of
- * the wrong type as "off (stored as text)".
+ * and what turning it on or off changes, in plain words. Every change asks first; the three
+ * that need a runbook (account_signup_v2, provisioning, capabilities_enforced) also ask to
+ * confirm that the runbook was followed, and the dependencies between switches are enforced
+ * (changeChecks). A switch is on only as the JSON boolean true (contract §2): the page
+ * writes true / false, keeps every other key of the row as it is, never writes back a row
+ * that changed since it was read (settingsStore), and shows a value of the wrong type as
+ * "off (stored as text)".
  */
 
 type Group = 'events' | 'wys' | 'accounts' | 'tools' | 'rights';
@@ -121,15 +124,16 @@ function flagInfos(t: TFunction): FlagInfo[] {
       what: t('adminSettings.flag.queue.what', 'To review is sorted by topic (people and companies, event registrations, team joins, duplicates, retro-review), with the validation window for people and their company, and company claims. Approve and Reject in Users use the same window. A summary e-mail goes to the recipients below every day at 08:00.'),
       on: t('adminSettings.flag.queue.on', 'The new review list, the validation window, and the daily summary e-mail.'),
       off: t('adminSettings.flag.queue.off', 'Today\'s review list and today\'s Approve and Reject buttons.'),
-      warning: t('adminSettings.flag.queue.warn', 'Needs the Phase 3 database update; until it is applied, the list says it is not available.'),
+      warning: t('adminSettings.flag.queue.warn', 'Needs the Phase 3 database update; until it is applied, the list says it is not available. Turn it on only once "Send the e-mails queued by sign-ups and M3\'s decisions" works: with this on, decision e-mails wait for that sender.'),
     },
     {
       key: 'provisioning', group: 'tools',
       title: t('adminSettings.flag.provisioning.title', 'Accounts for confirmed on-site guests'),
-      what: t('adminSettings.flag.provisioning.what', 'Every few minutes, each guest confirmed for an on-site event (WYS included) gets a Smart Marina Connect account, or their account is linked, and the "Your account is ready, choose your password" e-mail. For WYS it follows the QR e-mail by about a minute.'),
+      what: t('adminSettings.flag.provisioning.what', 'Every minute, each guest confirmed for an on-site event (WYS included) gets a Smart Marina Connect account, or their account is linked, and the "Your account is ready, choose your password" e-mail. For WYS it follows the QR e-mail by one to two minutes.'),
       on: t('adminSettings.flag.provisioning.on', 'Accounts are made and their e-mails sent, also for every guest confirmed earlier and still waiting.'),
       off: t('adminSettings.flag.provisioning.off', 'Confirmed guests wait in the list; nothing is lost.'),
       warning: t('adminSettings.flag.provisioning.warn', 'The first run e-mails every guest already waiting. Check that list first (docs/registration-contract.md, section 9, "Before switching provisioning on").'),
+      runbook: 'docs/registration-contract.md §9 (Before switching provisioning on)',
     },
     {
       key: 'outbox_sender', group: 'tools', serverOnly: true,
@@ -163,13 +167,66 @@ function groupTitle(g: Group, t: TFunction): string {
 
 const GROUPS: Group[] = ['tools', 'events', 'wys', 'accounts', 'rights'];
 
-type Pending = { info: FlagInfo; next: boolean; acknowledged: boolean };
+type Pending = { info: FlagInfo; next: boolean; acks: Record<string, boolean> };
+
+/** Something to know before a change; `ack` = a box to tick before the change is allowed. */
+interface Check { key: string; text: string; danger?: boolean; ack?: string }
+
+/**
+ * What a change depends on, from the switches as stored: `blocked` = not allowed now (and
+ * why); `checks` = what to know, some with a box to tick. The dependencies of spec §13 and
+ * the contract (§10.9, §11.7) are enforced here, not only written down.
+ */
+function changeChecks(p: Pending, value: Record<string, unknown>, t: TFunction): { blocked?: string; checks: Check[] } {
+  const on = (k: string) => value[k] === true;
+  const checks: Check[] = [];
+  const { key } = p.info;
+  if (key === 'account_signup_v2' && p.next && !on('review_queue')) {
+    return {
+      blocked: t('adminSettings.dep.signupNeedsQueue', 'Turn on "Review list v2" first: company claims and new companies appear only there.'),
+      checks,
+    };
+  }
+  if (p.next && p.info.warning) checks.push({ key: 'warning', text: p.info.warning, danger: !!p.info.runbook });
+  if (key === 'review_queue' && p.next && !on('outbox_sender')) {
+    checks.push({
+      key: 'mails',
+      text: t('adminSettings.dep.queueWithoutSender', '"Send the e-mails queued by sign-ups and M3\'s decisions" is off. From now on, Validate, Not accepted, Ask for a detail and claim decisions (here and in Users) e-mail nobody until it is on: the e-mails wait. Turn both on together, at go-live.'),
+      danger: true,
+      ack: t('adminSettings.dep.queueWithoutSenderAck', 'I understand: people are not e-mailed about M3\'s decisions until the sender is on.'),
+    });
+  }
+  if (key === 'review_queue' && !p.next && on('account_signup_v2')) {
+    checks.push({
+      key: 'claims',
+      text: t('adminSettings.dep.queueOffWithSignup', '"New account sign-up" is on: with this off, company claims and new companies declared at sign-up appear nowhere until it is on again.'),
+      danger: true,
+      ack: t('adminSettings.dep.queueOffWithSignupAck', 'I understand: claims and new companies wait unseen.'),
+    });
+  }
+  if (key === 'outbox_sender' && !p.next && on('review_queue')) {
+    checks.push({
+      key: 'senderOff',
+      text: t('adminSettings.dep.senderOffWithQueue', '"Review list v2" is on: the e-mails of M3\'s decisions will wait until this is on again.'),
+    });
+  }
+  if (p.next && p.info.runbook) {
+    checks.push({
+      key: 'runbook',
+      text: '',
+      ack: t('adminSettings.confirm.ack', 'I have followed the runbook ({{runbook}}).', { runbook: p.info.runbook }),
+    });
+  }
+  return { checks };
+}
 
 export function RegistrationFlagsPanel() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [value, setValue] = useState<Record<string, unknown> | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  // The value exactly as stored (what the compare-and-set checks).
+  const [raw, setRaw] = useState<unknown>(undefined);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [pending, setPending] = useState<Pending | null>(null);
   const [saving, setSaving] = useState(false);
@@ -179,6 +236,7 @@ export function RegistrationFlagsPanel() {
   const lastPending = useRef<Pending | null>(null);
   if (pending) lastPending.current = pending;
   const shownPending = pending ?? lastPending.current;
+  const shownChecks = shownPending && value ? changeChecks(shownPending, value, t) : { checks: [] as Check[] };
 
   const load = useCallback(async () => {
     setState(s => (s === 'ready' ? s : 'loading'));
@@ -186,6 +244,7 @@ export function RegistrationFlagsPanel() {
     if (row.failed) { setState('error'); return; }
     const v = row.value;
     setValue(v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+    setRaw(v);
     setUpdatedAt(row.updatedAt);
     setState('ready');
   }, []);
@@ -194,15 +253,19 @@ export function RegistrationFlagsPanel() {
 
   const save = async () => {
     if (!pending || !value) return;
-    if (pending.info.runbook && pending.next && !pending.acknowledged) {
-      setError(t('adminSettings.confirm.needAck', 'Tick the box once the runbook is followed.'));
+    const { blocked, checks } = changeChecks(pending, value, t);
+    if (blocked) { setError(blocked); return; }
+    if (checks.some(c => c.ack && !pending.acks[c.key])) {
+      setError(t('adminSettings.confirm.needAcks', 'Tick every box above first.'));
       return;
     }
     setSaving(true);
     setError(null);
-    // The whole row as read, with this one key set to a JSON boolean: other keys stay as they are.
+    // The row as read, with this one key set to a JSON boolean: other keys stay as they are.
+    // saveSetting writes only if the row still holds exactly what this page shows (a switch
+    // moved meanwhile, even by SQL, is never written back).
     const next = { ...value, [pending.info.key]: pending.next };
-    const res = await saveSetting('registration_flags', next, updatedAt, user?.id);
+    const res = await saveSetting('registration_flags', next, { value: raw, updatedAt }, user?.id);
     setSaving(false);
     if (!res.ok) {
       if (res.reason === 'conflict') {
@@ -214,9 +277,11 @@ export function RegistrationFlagsPanel() {
       return;
     }
     setValue(next);
+    setRaw(next);
     setUpdatedAt(res.updatedAt);
-    // Every screen of this browser reads the switches again.
+    // Every screen of this browser reads the switches again (the e-mail sender switch too).
     void readRegistrationFlags(true);
+    void readOutboxSender(true);
     toast({
       title: pending.next
         ? t('adminSettings.done.on', '"{{title}}" is on', { title: pending.info.title })
@@ -279,7 +344,7 @@ export function RegistrationFlagsPanel() {
                       </div>
                       <Switch
                         checked={on}
-                        onCheckedChange={next => { setError(null); setPending({ info, next, acknowledged: false }); }}
+                        onCheckedChange={next => { setError(null); setPending({ info, next, acks: {} }); }}
                         aria-label={info.title}
                         className="mt-0.5 shrink-0"
                       />
@@ -320,18 +385,28 @@ export function RegistrationFlagsPanel() {
                   {shownPending.next ? shownPending.info.on : shownPending.info.off}
                 </DialogDescription>
               </DialogHeader>
-              {shownPending.next && shownPending.info.warning && (
-                <p className={cn('rounded-xl border px-3 py-2.5 text-[14px] leading-5', shownPending.info.runbook ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-rule bg-page text-navy')}>
+              {shownChecks.blocked && (
+                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[14px] leading-5 text-red-900">
                   <AlertTriangle className="mr-1.5 inline h-4 w-4 align-[-2px]" aria-hidden="true" />
-                  {shownPending.info.warning}
+                  {shownChecks.blocked}
                 </p>
               )}
-              {shownPending.next && shownPending.info.runbook && (
-                <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy">
-                  <Checkbox className="mt-0.5" checked={shownPending.acknowledged} onCheckedChange={v => setPending(p => (p ? { ...p, acknowledged: v === true } : p))} />
-                  <span>{t('adminSettings.confirm.ack', 'I have followed the runbook ({{runbook}}).', { runbook: shownPending.info.runbook })}</span>
+              {shownChecks.checks.filter(c => c.text).map(c => (
+                <p key={c.key} className={cn('rounded-xl border px-3 py-2.5 text-[14px] leading-5', c.danger ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-rule bg-page text-navy')}>
+                  <AlertTriangle className="mr-1.5 inline h-4 w-4 align-[-2px]" aria-hidden="true" />
+                  {c.text}
+                </p>
+              ))}
+              {shownChecks.checks.filter(c => c.ack).map(c => (
+                <label key={`ack-${c.key}`} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={shownPending.acks[c.key] === true}
+                    onCheckedChange={v => setPending(p => (p ? { ...p, acks: { ...p.acks, [c.key]: v === true } } : p))}
+                  />
+                  <span>{c.ack}</span>
                 </label>
-              )}
+              ))}
               {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[14px] leading-5 text-red-900">{error}</p>}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button type="button" variant="outline" size="sm" className={cn(ADMIN_BTN, 'h-11')} onClick={() => { setPending(null); setError(null); }} disabled={saving}>
@@ -343,7 +418,7 @@ export function RegistrationFlagsPanel() {
                   variant={shownPending.next ? 'default' : 'outline'}
                   className={cn(shownPending.next ? ADMIN_BTN_PRIMARY : ADMIN_BTN_DANGER, 'h-11')}
                   onClick={() => save()}
-                  disabled={saving || (!!shownPending.info.runbook && shownPending.next && !shownPending.acknowledged)}
+                  disabled={saving || !!shownChecks.blocked || shownChecks.checks.some(c => c.ack && !shownPending.acks[c.key])}
                 >
                   {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Power className="mr-1.5 h-4 w-4" aria-hidden="true" />}
                   {shownPending.next ? t('adminSettings.confirm.on', 'Turn on') : t('adminSettings.confirm.off', 'Turn off')}

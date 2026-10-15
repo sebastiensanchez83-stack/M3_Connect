@@ -75,7 +75,9 @@ export function AdminUsers() {
   const [changingPersona, setChangingPersona] = useState(false);
   // Review list v2 (registration_flags.review_queue): Verified / Rejected go through M3's
   // validation window (admin_validate_person). Off = the direct updates below, as before.
-  const { flags: regFlags } = useRegistrationFlags();
+  // Staff profiles (admin, moderator) always keep the direct path: admin_validate_person
+  // refuses them (staff_profile).
+  const { flags: regFlags, ready: flagsReady } = useRegistrationFlags();
   const validationV2 = regFlags.review_queue;
   const [validating, setValidating] = useState<{ userId: string; action: PersonAction } | null>(null);
 
@@ -233,9 +235,14 @@ export function AdminUsers() {
     toast({ title: 'User rejected — email notification sent' }); setRejectingUserId(null); loadUsers();
   };
   const updateUserStatus = async (userId: string, newStatus: string) => {
-    if (validationV2 && (newStatus === 'verified' || newStatus === 'rejected')) {
-      setValidating({ userId, action: newStatus === 'verified' ? 'validate' : 'reject' });
-      return;
+    if (newStatus === 'verified' || newStatus === 'rejected') {
+      // Until the switches are read, the path (window or direct update) is not known yet.
+      if (!flagsReady) { toast({ title: 'One moment', description: 'The page is still loading its settings. Try again in a second.' }); return; }
+      const persona = users.find(u => u.user_id === userId)?.persona;
+      if (validationV2 && persona !== 'admin' && persona !== 'moderator') {
+        setValidating({ userId, action: newStatus === 'verified' ? 'validate' : 'reject' });
+        return;
+      }
     }
     if (newStatus === 'verified') {
       await approveUser(userId);

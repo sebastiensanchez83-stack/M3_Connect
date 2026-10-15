@@ -70,8 +70,9 @@ export function AdminUserDetail() {
   const [showRejectForm, setShowRejectForm] = useState(false);
   // Review list v2 (registration_flags.review_queue): Approve, Reject and Ask go through M3's
   // validation window (admin_validate_person: company, type, reason, e-mail). Off = as before.
-  const { flags: regFlags } = useRegistrationFlags();
-  const validationV2 = regFlags.review_queue;
+  // Staff profiles (admin, moderator) keep the direct path: admin_validate_person refuses
+  // them (staff_profile). Until the switches are read, Approve and Reject wait.
+  const { flags: regFlags, ready: flagsReady } = useRegistrationFlags();
   const [validating, setValidating] = useState<PersonAction | null>(null);
 
   // Tier management
@@ -423,6 +424,10 @@ export function AdminUserDetail() {
   );
 
   if (!user) return null;
+
+  // Review list v2 (registration_flags.review_queue), people only: Approve, Reject and Ask go
+  // through M3's validation window (admin_validate_person: company, type, reason, e-mail).
+  const validationV2 = regFlags.review_queue && user.persona !== 'admin' && user.persona !== 'moderator';
 
   const getUserName = () => {
     if (user.first_name || user.last_name) return `${user.first_name || ''} ${user.last_name || ''}`.trim();
@@ -808,21 +813,21 @@ export function AdminUserDetail() {
             {user.access_status !== 'verified' && (
               <Button
                 onClick={validationV2 ? () => setValidating('validate') : handleApprove}
-                disabled={saving}
+                disabled={saving || !flagsReady}
                 className="gap-1.5"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                Approve
+                {validationV2 ? 'Validate…' : 'Approve'}
               </Button>
             )}
-            {validationV2 && user.access_status !== 'verified' && user.persona !== 'admin' && user.persona !== 'moderator' && (
+            {validationV2 && user.access_status !== 'verified' && (
               <Button variant="outline" onClick={() => setValidating('ask')} className="gap-1.5">
                 Ask for a detail
               </Button>
             )}
             {user.access_status !== 'rejected' && !showRejectForm && (
-              <Button variant="destructive" onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
-                Reject
+              <Button variant="destructive" disabled={!flagsReady} onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
+                {validationV2 ? 'Not accepted…' : 'Reject'}
               </Button>
             )}
             {user.access_status !== 'suspended' && (

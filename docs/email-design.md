@@ -135,6 +135,7 @@ Every one of them is on the shared layout (11 functions, `node scripts/email-pre
 | `guest-webinar-reminders` | day-before webinar reminder (.ics attached) | `events@m3monaco.com` |
 | `guest-list` | World Yachting Summit: invitation (accept / decline), confirmation with entry QR, request received, request declined, staff notification | `events@m3monaco.com`, like the footer (the admin's `settings.contact_email` field is no longer read) |
 | `contact-submit` | contact form alert to the M3 inbox | the visitor's address (so a reply goes to the sender), never `events@` |
+| `ops-health` | staff only: health monitor alert (checks in warn / fail, at most once per problem per 6 h) and its test e-mail; not deployed yet (`docs/operations/health-monitor.md`) | `events@m3monaco.com` |
 
 Notes for the next change:
 

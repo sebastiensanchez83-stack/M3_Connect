@@ -9,7 +9,8 @@ import { AuthNotice, CTA_WRAP } from '@/components/auth/fields';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { confirmEmailProof, sendEmailProof, sendSignupNotices } from '@/lib/accountSignup';
-import { useRegistrationFlags } from '@/lib/flags';
+import { useRegistrationFlagsOnce } from '@/lib/flags';
+import { FlagsUnavailable } from '@/components/auth/FrontDoorRoutes';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import { cn } from '@/lib/utils';
 import { NotFoundPage } from '@/pages/NotFoundPage';
@@ -30,7 +31,9 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
  * sign in again with the password, then uses the same link.
  *
  * With flags front_door and account_signup_v2 both off the address is the 404 it was
- * before, token or not: nothing new runs with every flag off.
+ * before, token or not: nothing new runs with every flag off. Switches that could not
+ * be read are not taken for "off": the page offers to try again (the token stays in
+ * the address until the page opens).
  */
 
 type Phase = 'idle' | 'checking' | 'done' | 'failed';
@@ -39,7 +42,7 @@ export function VerifyEmailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
-  const { flags, ready } = useRegistrationFlags();
+  const { flags, known: ready, failed: flagsFailed, retry: retryFlags } = useRegistrationFlagsOnce();
   const [token] = useState(() => {
     try { return new URLSearchParams(window.location.search).get('t') || ''; } catch { return ''; }
   });
@@ -99,6 +102,7 @@ export function VerifyEmailPage() {
     await signOut().catch(() => {});
   };
 
+  if (!ready && flagsFailed) return <FlagsUnavailable retry={retryFlags} />;
   if (!ready || loading) return <AuthLoading />;
   if (!enabled) return <NotFoundPage />;
 

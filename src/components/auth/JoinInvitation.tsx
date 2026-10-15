@@ -338,7 +338,7 @@ export function JoinInvitation({ token }: { token: string }) {
       <AuthStatus tone="warning" icon={<AlertTriangle className="h-6 w-6" />} title={t('joinV2.notOpenTitle', 'This invitation cannot be used')}>
         {orgCard}
         <p className="text-sm leading-6 text-meta">{words}</p>
-        <Button variant="cta" className="w-full justify-between" onClick={() => navigate(user ? MEMBER_HOME : '/?signin=true')}>
+        <Button variant="cta" className="w-full justify-between" onClick={() => navigate(user ? MEMBER_HOME : '/?signin=true')} data-help-avoid>
           {user ? t('memberHome.backToDashboard', 'My dashboard') : t('auth.login', 'Sign in')}
         </Button>
       </AuthStatus>,
@@ -354,7 +354,7 @@ export function JoinInvitation({ token }: { token: string }) {
           <p className="break-words text-sm leading-6 text-meta">
             {t('joinV2.otherAccount', { invited: preview.email, current: user.email ?? '', defaultValue: 'This invitation is for {{invited}}. You are signed in as {{current}}: sign out, then open the link again.' })}
           </p>
-          <Button variant="ctaOutline" arrow={false} roll={false} className="w-full" onClick={() => void signOut()}>{t('nav.logout', 'Log out')}</Button>
+          <Button variant="ctaOutline" arrow={false} roll={false} className="w-full" onClick={() => void signOut()} data-help-avoid>{t('nav.logout', 'Log out')}</Button>
         </AuthStatus>,
       );
     }

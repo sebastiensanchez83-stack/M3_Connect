@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { accountHref, legacyTabTarget, memberHomeHref } from '@/lib/accountNav';
 import { useRegistrationFlags } from '@/lib/flags';
+import { FlagsUnavailable } from '@/components/auth/FrontDoorRoutes';
 import { isV2Signup } from '@/lib/accountSignup';
 import { cn } from '@/lib/utils';
 
@@ -46,7 +47,9 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   // status card says where the account stands), and a draft account uses the dashboard like
   // everyone else. ?tab=pricing (no Pricing tab exists any more) keeps going where the six
   // payment e-mails that link to it need: the sponsor portal, else the events block.
-  const { flags, ready: flagsReady } = useRegistrationFlags();
+  // A failed read is not "off": the redirects below wait for the switches as stored.
+  const { flags, ready: flagsRead, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
+  const flagsReady = flagsRead && !flagsFailed;
   const frontDoor = flags.front_door;
   // Only ?tab=pricing needs to know about sponsors: the query runs for it alone.
   const access = useMemberAccess(!forceTab && tab === 'pricing' && !!profile && flagsReady && (frontDoor || !isDraft));
@@ -76,7 +79,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     );
   }
 
-  if (!flagsReady) return <LoadingSkeleton variant="screen" />;
+  if (!flagsReady) return flagsFailed ? <FlagsUnavailable retry={retryFlags} /> : <LoadingSkeleton variant="screen" />;
   if (frontDoor) {
     if (tab === 'pricing') {
       if (!access) return <LoadingSkeleton variant="screen" />;

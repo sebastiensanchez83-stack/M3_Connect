@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -197,6 +197,24 @@ export function useRegistrationFlags(): FlagsState & { retry: () => void } {
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
   return useMemo(() => ({ ...state, retry }), [state, retry]);
+}
+
+/**
+ * For a screen that decides once what it shows (which sign-up form, the page or the
+ * 404, a redirect): the first value READ, never the defaults of a failed or timed-out
+ * read, kept while the component stays mounted. The row is read again when the tab
+ * regains focus and every hook hears of it: a switch moved meanwhile must not swap a
+ * form under someone typing in it, nor turn an open page into a 404 (the next page
+ * load follows it).
+ *
+ * `known` is false until a read has answered: show a loader, and while `failed` a way
+ * to try again (retry(); the row is also read again on focus) rather than guess "off".
+ */
+export function useRegistrationFlagsOnce(): { flags: RegistrationFlags; known: boolean; failed: boolean; retry: () => void } {
+  const live = useRegistrationFlags();
+  const kept = useRef<RegistrationFlags | null>(null);
+  if (!kept.current && live.ready && !live.failed) kept.current = live.flags;
+  return { flags: kept.current ?? live.flags, known: !!kept.current, failed: !kept.current && live.failed, retry: live.retry };
 }
 
 /**

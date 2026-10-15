@@ -9,7 +9,8 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRegistrationFlags } from '@/lib/flags';
+import { useRegistrationFlagsOnce } from '@/lib/flags';
+import { FlagsUnavailable } from '@/components/auth/FrontDoorRoutes';
 import { safeNext } from '@/lib/safeNext';
 import { MEMBER_HOME } from '@/lib/signInDestination';
 import { NotFoundPage } from '@/pages/NotFoundPage';
@@ -25,13 +26,15 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
  * One discreet line sends people who only want an event to /events. Signed in,
  * the page has nothing to do: the destination, else the dashboard (a claim code
  * goes to "Add my company" there). With front_door off the address is the 404 it
- * was before. With account_signup_v2 off the page shows the current form.
+ * was before. With account_signup_v2 off the page shows the current form. Decided on the
+ * switches as first read: a switch moved while the page is open (read again on focus)
+ * leaves the form in place.
  */
 export function SignupPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, loading } = useAuth();
-  const { flags, ready } = useRegistrationFlags();
+  const { flags, known: ready, failed: flagsFailed, retry: retryFlags } = useRegistrationFlagsOnce();
   const [params] = useState(() => new URLSearchParams(window.location.search));
   const then = safeNext(params.get('then'), { deny: ['/signup', '/welcome', '/reset-password', '/verify-email'] });
   const email = (params.get('email') || '').trim().slice(0, 254);
@@ -58,6 +61,8 @@ export function SignupPage() {
     } catch { /* ignore */ }
   }, [showForm, code]);
 
+  // The switches could not be read: not the 404 (a guess), a way to try again.
+  if (!ready && flagsFailed) return <FlagsUnavailable retry={retryFlags} />;
   // The loader only while the page first opens: the account loading again after the
   // sign-up must not unmount the form (its "Confirm your e-mail" step would be lost).
   if (!ready || (loading && arrivedSignedIn.current === null)) return <AuthLoading className="min-h-[100svh]" />;

@@ -13,7 +13,7 @@ import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { Anchor, ArrowRight, Building2, Newspaper, Loader2, ChevronLeft, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
-import { useRegistrationFlags } from '@/lib/flags';
+import { useRegistrationFlagsOnce } from '@/lib/flags';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { safeNext } from '@/lib/safeNext';
 
@@ -101,12 +101,31 @@ function readIncomingClaimCode(): string | null {
  * The sign-up form of every page that has its own sign-up window (the directory, an
  * event, a company page, a resource...). With flag account_signup_v2 it is the
  * sign-up v2 (AccountSignup: no company created, M3 reviews the person), continuing
- * to the page it was opened on; otherwise, and until the switches are known, the
- * form of before, unchanged.
+ * to the page it was opened on; otherwise the form of before, unchanged.
+ *
+ * Chosen once the switches are read (usually already, by the page), never on the
+ * defaults of a failed read, and kept while the form is open: a switch moved meanwhile
+ * (read again on focus) must not swap the form under someone typing in it.
  */
 export function SignupForm(props: SignupFormProps) {
-  const { flags, ready } = useRegistrationFlags();
-  if (ready && flags.account_signup_v2) return <SignupFormV2 {...props} />;
+  const { t } = useTranslation();
+  const { flags, known, failed, retry } = useRegistrationFlagsOnce();
+  if (!known) {
+    return failed ? (
+      <div className="flex flex-col items-center gap-4 py-10 text-center">
+        <p role="alert" className="max-w-sm text-sm leading-6 text-meta">
+          {t('flags.formFailed', 'The sign-up form could not be loaded. Check your connection and try again.')}
+        </p>
+        <Button type="button" variant="ctaOutline" arrow={false} roll={false} onClick={retry}>{t('reg.tryAgain', 'Try again')}</Button>
+      </div>
+    ) : (
+      <div className="flex justify-center py-10" role="status">
+        <span className="sr-only">{t('common.loading', 'Loading...')}</span>
+        <span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-4 border-rule border-t-navy motion-reduce:animate-none" />
+      </div>
+    );
+  }
+  if (flags.account_signup_v2) return <SignupFormV2 {...props} />;
   return <LegacySignupForm {...props} />;
 }
 

@@ -114,7 +114,14 @@ export function Navbar() {
   const [signupThen, setSignupThen] = useState<string | null>(null);
   // A claim e-mail's ?email=&code= for the sign-up v2 window (flag account_signup_v2 without front_door).
   const [signupPrefill, setSignupPrefill] = useState<{ email: string; code: string }>({ email: '', code: '' });
-  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
+  const { flags: regFlags, ready: regFlagsReady, failed: regFlagsFailed } = useRegistrationFlags();
+  // The sign-up window keeps the form it opened with: a switch moved while it is open (the row
+  // is read again on focus) must not swap the form under someone typing in it.
+  const signupV2Ref = useRef(regFlags.account_signup_v2);
+  if (!signupOpen) signupV2Ref.current = regFlags.account_signup_v2;
+  const signupV2 = signupV2Ref.current;
+  // The ?signup=true address already acted on (a switch read again later must not open the window again).
+  const signupLinkDoneRef = useRef<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -229,8 +236,13 @@ export function Navbar() {
   // (its form reads the code from this address).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('signup') !== 'true') signupLinkDoneRef.current = null;
     if (params.get('signup') === 'true') {
-      if (!regFlagsReady) return; // decided once the switches are known (one short read)
+      // Decided once the switches are READ (one short read; a failed one is read again on
+      // focus): the defaults of a failed read would open the window of before.
+      if (!regFlagsReady || regFlagsFailed) return;
+      if (signupLinkDoneRef.current === window.location.search) return;
+      signupLinkDoneRef.current = window.location.search;
       if (regFlags.front_door && regFlags.account_signup_v2) {
         const keep = new URLSearchParams();
         const email = params.get('email');
@@ -269,7 +281,7 @@ export function Navbar() {
       const q = params.toString();
       window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
     }
-  }, [location.search, regFlagsReady, regFlags.front_door, regFlags.account_signup_v2, navigate]);
+  }, [location.search, regFlagsReady, regFlagsFailed, regFlags.front_door, regFlags.account_signup_v2, navigate]);
 
   // Every "Sign up" button of the site opens this dialog directly (openSignup, src/lib/authModal.ts),
   // optionally on a profile ("Sign up as a marina"), and with where to go next (sign-up v2).
@@ -902,11 +914,11 @@ export function Navbar() {
         mode="signup"
         open={signupOpen}
         onOpenChange={setSignupOpen}
-        sheet={regFlags.account_signup_v2}
+        sheet={signupV2}
         // AuthDialog drops "Already have an account?" once the sign-up v2 signed the person in.
         switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
       >
-        {regFlags.account_signup_v2 ? (
+        {signupV2 ? (
           // The sign-up v2 (Victor, 8 Oct 2026: "Sign up" opens the form itself, no chooser).
           <Suspense fallback={<div className="flex justify-center py-10" role="status"><span className="sr-only">{t('common.loading', 'Loading...')}</span><span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-4 border-rule border-t-navy motion-reduce:animate-none" /></div>}>
           <AccountSignup

@@ -20,7 +20,8 @@ import { completeMySignupOnce, stripClaimCodeFromMetadata } from '@/lib/accountS
  * the registrations made with the account's PROVEN address that are not linked yet
  * join the account (event guests, legacy webinar guests; never SM26). A no-op in
  * the database while the address is not proven. Behind flag front_door: with the
- * flags off nothing new is called. Fire-and-forget, never blocks the page.
+ * flags off nothing new is called (the provider calls it once a read of the switch
+ * said on, then checks again here). Fire-and-forget, never blocks the page.
  */
 const ATTACHED_KEY = 'smc_attached:'
 async function attachMyRecordsOnce(userId: string): Promise<boolean> {
@@ -188,30 +189,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Allows TOKEN_REFRESHED to retry if the initial fetch failed.
   const profileLoadedRef = useRef(false)
 
+  // ─── The two switches the once-per-session calls below wait for ───────
+  // As the last successful read of registration_flags said (off until one has). A read
+  // that failed or gave up decides nothing: the calls wait for the next one that answers
+  // (a late answer, the tab regaining focus), and a switch turned on while the tab is
+  // open counts from the next read (src/lib/flags.ts tells every subscriber of each).
+  const [frontDoorOn, setFrontDoorOn] = useState(false)
+  const [signupV2On, setSignupV2On] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const apply = (flags: { front_door: boolean; account_signup_v2: boolean }) => {
+      if (!alive) return
+      setFrontDoorOn(flags.front_door)
+      setSignupV2On(flags.account_signup_v2)
+    }
+    const off = onRegistrationFlagsChange(apply)
+    // A read answered before this subscribed (the cache) is not announced again.
+    void readRegistrationFlags().then((flags) => { if (flags) apply(flags) })
+    return () => { alive = false; off() }
+  }, [])
+
   // ─── Attach registrations once per session (flag front_door) ─────────
   // Once the account's profile is here: unlinked registrations made with its proven
   // address join it (My events reads them through my_participations, by e-mail too).
+  // Only once a read of the switch said on: tried for this account from then on only.
   const attachTriedRef = useRef<string | null>(null)
   const profileUserId = profile?.user_id ?? null
   useEffect(() => {
-    if (!profileUserId || attachTriedRef.current === profileUserId) return
+    if (!profileUserId || !frontDoorOn || attachTriedRef.current === profileUserId) return
     attachTriedRef.current = profileUserId
     void attachMyRecordsOnce(profileUserId)
-  }, [profileUserId])
+  }, [profileUserId, frontDoorOn])
 
   // ─── A sign-up kept for later (flag account_signup_v2) ────────────
   // A proven account whose sign-up intent the database kept while the flag was off runs
   // it once the flag is on (complete_my_signup, registration contract §10.3), once per
   // session; nothing is called for any other account. The profile is then re-read.
+  // Same wait as above: only once a read of the switch said on.
   const signupTriedRef = useRef<string | null>(null)
   const authEmail = user?.email ?? null
   useEffect(() => {
-    if (!profile || signupTriedRef.current === profile.user_id) return
+    if (!profile || !signupV2On || signupTriedRef.current === profile.user_id) return
     signupTriedRef.current = profile.user_id
     void completeMySignupOnce(profile, authEmail, profile.user_id).then((ran) => {
       if (ran) void refreshProfile().catch(() => {})
     })
-  }, [profile, authEmail, refreshProfile])
+  }, [profile, authEmail, refreshProfile, signupV2On])
 
   // ─── A claim code left in the account's own metadata (sign-up v2) ──────────
   // The database took it at sign-up (signup_claim_code); the copy every access token
@@ -468,6 +491,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     .map(m => `${m.organization.id}:${m.organization.access_status}:${m.organization.organization_type ?? ''}`)
     .sort()
     .join('|')
+  // Signed in, the profile and companies still loading: the rights are read once they are
+  // here (one my_capabilities call per page load, not one before and one after).
+  const capsWaitAccount = !!capsUid && loading
 
   useEffect(() => {
     let alive = true
@@ -478,6 +504,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCapSnapshot(null)
       setCapsFailed(false)
     }
+    if (capsWaitAccount) return
     capsLoadingRef.current = true
     ;(async () => {
       // The one reader of registration_flags (src/lib/flags.ts): null = could not be read.
@@ -499,7 +526,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (capsLatestFlagRef.current !== null && capsLatestFlagRef.current !== enforced) setCapsRetry(n => n + 1)
     })()
     return () => { alive = false }
-  }, [capsUid, capsPersonKey, capsCompaniesKey, capsRetry])
+  }, [capsUid, capsPersonKey, capsCompaniesKey, capsRetry, capsWaitAccount])
 
   useEffect(() => {
     if (!capsFailed) return

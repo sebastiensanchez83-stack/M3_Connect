@@ -89,8 +89,11 @@ export function AuthRedirector() {
   // right after an e-mailed link (spec regspec-en.md §6 /welcome, §12: the 14
   // pw_pending accounts are not sent there on every visit). Nothing is decided until
   // the switches are read (one short request): with them still at their defaults the
-  // old "always /welcome" rule would fire on every fresh page load.
-  const { flags, ready: flagsReady } = useRegistrationFlags()
+  // old "always /welcome" rule would fire on every fresh page load. A read that failed or
+  // gave up (src/lib/flags.ts, after four seconds) gives those defaults too: no decision
+  // then either, until a read answers (a late answer, the tab regaining focus).
+  const { flags, ready: flagsRead, failed: flagsFailed } = useRegistrationFlags()
+  const flagsReady = flagsRead && !flagsFailed
   const frontDoor = flags.front_door
   // A sign-up v2 account (its profile carries the cleaned intent) never meets the old
   // company wizard, even while front_door is still off.

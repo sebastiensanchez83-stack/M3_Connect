@@ -13,6 +13,8 @@ import { signInDestination } from '@/lib/signInDestination';
 import { registerFlowsStrings } from '@/i18n/refonte-flows';
 import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { readAuthLanding, scrubAuthLandingUrl, type AuthLanding } from '@/components/auth/AuthRedirector';
+import { useRegistrationFlags } from '@/lib/flags';
+import { SIGNUP_PATH } from '@/lib/authModal';
 import type { Capability } from '@/lib/capabilities';
 
 registerFlowsStrings();
@@ -160,17 +162,24 @@ export function ProtectedRoute({
  */
 function SignInInPlace({ landing }: { landing: AuthLanding | null }) {
   const { t } = useTranslation();
+  const { flags } = useRegistrationFlags();
   useEffect(() => { scrubAuthLandingUrl(); }, []);
+  const next = signInDestination();
   return (
     <AuthShell title={t('auth.login', 'Sign in')} lead={landing ? undefined : t('flows.signIn.lead', 'Sign in to open this page. You will land straight on it.')}>
       <LoginForm
         showConfirmedBanner={landing === 'confirmed'}
         linkError={landing === 'link-error'}
-        next={signInDestination()}
+        next={next}
       />
       <p className="mt-6 text-center text-sm text-meta">
         {t('flows.signIn.noAccount', 'No account yet?')}{' '}
-        <UnderlineLink to="/join" arrow={false} className="min-h-11">{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
+        {flags.front_door ? (
+          // The sign-up page, back to this page once the account exists.
+          <UnderlineLink to={next ? `${SIGNUP_PATH}?then=${encodeURIComponent(next)}` : SIGNUP_PATH} arrow={false} className="min-h-11">{t('auth.signup', 'Sign up')}</UnderlineLink>
+        ) : (
+          <UnderlineLink to="/join" arrow={false} className="min-h-11">{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
+        )}
       </p>
     </AuthShell>
   );

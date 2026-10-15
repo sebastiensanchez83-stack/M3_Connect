@@ -24,6 +24,7 @@ import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { sm26Kind, sm26TeamWent, useSm26Participation } from '@/hooks/useSm26Participation';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
+import { isV2Signup } from '@/lib/accountSignup';
 import { CREATE_ACTIONS, canCreate } from '@/lib/nav';
 import {
   accountHref, getHomeSection, homeSectionVisible, isHomePanel, legacyOpenTarget,
@@ -35,6 +36,7 @@ import { CardLink, MiniRow, PanelRegion, Tile, type TileTone } from './dashboard
 import { ComingUpList, NextEventCard } from './dashboard/EventBlocks';
 import { TodoList, type TodoItem } from './dashboard/TodoList';
 import { PublishDialog } from './dashboard/teamDialogs';
+import { AccountStatus } from './dashboard/AccountStatus';
 import { useDashboardData } from './dashboard/useDashboardData';
 
 /**
@@ -107,8 +109,19 @@ export default function MemberDashboard() {
   const location = useLocation();
   const columns = useColumns();
 
-  const isDraft = profile?.onboarding_status === 'draft';
-  const active = !!user && !!profile && !isDraft;
+  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
+  // Flag front_door (spec regspec-en.md §6 /dashboard): one status card instead of the
+  // alerts, the e-mail proof banner, "Add my company"; a draft account (a new sign-up
+  // waiting for its proof, an old unfinished one) gets the dashboard, not the wizard.
+  // A sign-up v2 account gets the same (its company request is with M3), even while
+  // front_door is still off: the old "finish your registration" would send it to the wizard.
+  const v2Account = isV2Signup(profile);
+  const frontDoor = regFlags.front_door || v2Account;
+  const draftRaw = profile?.onboarding_status === 'draft';
+  // Until the switches are known, a draft waits (no flash of the old "finish your registration").
+  const draftWaiting = draftRaw && !regFlagsReady && !v2Account;
+  const isDraft = draftRaw && !frontDoor;
+  const active = !!user && !!profile && !isDraft && !draftWaiting;
   const access = useMemberAccess(active);
   const inbox = useInboxCount(active);
   const sm26 = useSm26Participation(active);
@@ -141,7 +154,6 @@ export default function MemberDashboard() {
   // A version bump reloads the tiles' summaries (after a change, or a panel closing).
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
-  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
   const data = useDashboardData({
     uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities,
     canProjects, canRFPs, canConsultations,
@@ -219,6 +231,7 @@ export default function MemberDashboard() {
   /* ---------------------------------------------------------- not yet */
 
   if (!user || !profile) return null;
+  if (draftWaiting) return <div aria-hidden="true" className="min-h-[40vh] bg-page" />;
 
   const lang = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
   const orgName = organization?.name ?? '';
@@ -348,7 +361,10 @@ export default function MemberDashboard() {
   {
     let status: string;
     let tone: TileTone = 'plain';
-    if (!organization) {
+    if (!organization && frontDoor) {
+      // A participant is complete without a company: no "missing" mark (front_door).
+      status = t('dash.st.noCompanyOptional', 'No company (optional)');
+    } else if (!organization) {
       status = t('dash.st.noCompany', 'Add your company');
       tone = 'missing';
     } else if (!companyReady) {
@@ -381,7 +397,8 @@ export default function MemberDashboard() {
   if (visible('team')) {
     const members = counts?.members ?? 0;
     const maxSeats = organization?.max_seats ?? 0;
-    const unlimited = orgType === 'marina' || orgType === 'developer';
+    // The platform is free (Victor, 6 Oct 2026): no seat cap with account_signup_v2.
+    const unlimited = orgType === 'marina' || orgType === 'developer' || regFlags.account_signup_v2;
     // Most companies have one place: never prompt them to invite (the team panel says how to get more).
     const roomForMore = unlimited || !maxSeats || members < maxSeats;
     let status: string;
@@ -597,8 +614,10 @@ export default function MemberDashboard() {
           )}
         </div>
 
-        {/* ── Account alerts, above everything else ── */}
-        <Alerts onOpen={setPanel} hasOrganization={!!organization} orgName={orgName} orgVerified={orgVerified} />
+        {/* ── Account alerts, above everything else (front_door: the proof banner, one status card, Add my company) ── */}
+        {frontDoor
+          ? <AccountStatus onOpen={setPanel} hasOrganization={!!organization} orgName={orgName} orgVerified={orgVerified} signupV2={regFlags.account_signup_v2} />
+          : <Alerts onOpen={setPanel} hasOrganization={!!organization} orgName={orgName} orgVerified={orgVerified} />}
 
         {/* ── What is waiting: the to-do list, and my next event when I have one ── */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">

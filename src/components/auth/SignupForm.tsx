@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,12 @@ import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { Anchor, ArrowRight, Building2, Newspaper, Loader2, ChevronLeft, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
+import { useRegistrationFlagsOnce } from '@/lib/flags';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { safeNext } from '@/lib/safeNext';
+
+// The sign-up v2 (flag account_signup_v2): its own chunk, loaded when a sign-up window opens.
+const AccountSignup = lazyWithRetry(() => import('@/components/auth/AccountSignup').then((m) => ({ default: m.AccountSignup })));
 
 interface SignupFormProps {
   onSuccess?: () => void;
@@ -74,7 +81,9 @@ const isInvalidCode = (payload: ClaimSignupPayload | null) =>
 // (/sm26/claim?code=SM26-…, /sm26/open-score?code=…) and also show this form.
 function readUrlClaimCode(): string | null {
   const params = new URLSearchParams(window.location.search);
-  return params.get('signup') === 'true' ? params.get('code') : null;
+  // /signup?email=…&code=… (flag front_door) is where that link lands now.
+  const onSignupPage = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/signup';
+  return params.get('signup') === 'true' || onSignupPage ? params.get('code') : null;
 }
 
 // That code, or the one kept from it earlier in this tab. Read while the first
@@ -88,7 +97,61 @@ function readIncomingClaimCode(): string | null {
   }
 }
 
-export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
+/**
+ * The sign-up form of every page that has its own sign-up window (the directory, an
+ * event, a company page, a resource...). With flag account_signup_v2 it is the
+ * sign-up v2 (AccountSignup: no company created, M3 reviews the person), continuing
+ * to the page it was opened on; otherwise the form of before, unchanged.
+ *
+ * Chosen once the switches are read (usually already, by the page), never on the
+ * defaults of a failed read, and kept while the form is open: a switch moved meanwhile
+ * (read again on focus) must not swap the form under someone typing in it.
+ */
+export function SignupForm(props: SignupFormProps) {
+  const { t } = useTranslation();
+  const { flags, known, failed, retry } = useRegistrationFlagsOnce();
+  if (!known) {
+    return failed ? (
+      <div className="flex flex-col items-center gap-4 py-10 text-center">
+        <p role="alert" className="max-w-sm text-sm leading-6 text-meta">
+          {t('flags.formFailed', 'The sign-up form could not be loaded. Check your connection and try again.')}
+        </p>
+        <Button type="button" variant="ctaOutline" arrow={false} roll={false} onClick={retry}>{t('reg.tryAgain', 'Try again')}</Button>
+      </div>
+    ) : (
+      <div className="flex justify-center py-10" role="status">
+        <span className="sr-only">{t('common.loading', 'Loading...')}</span>
+        <span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-4 border-rule border-t-navy motion-reduce:animate-none" />
+      </div>
+    );
+  }
+  if (flags.account_signup_v2) return <SignupFormV2 {...props} />;
+  return <LegacySignupForm {...props} />;
+}
+
+function SignupFormV2({ onSuccess, defaultPersona }: SignupFormProps) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Back to this page once the account exists (the home page: the member home).
+  const then = location.pathname === '/'
+    ? null
+    : safeNext(location.pathname + location.search, { deny:['/signup', '/welcome', '/reset-password', '/verify-email', '/onboarding'] });
+  return (
+    <Suspense fallback={<div className="flex justify-center py-10" role="status"><span className="sr-only">{t('common.loading', 'Loading...')}</span><Loader2 aria-hidden="true" className="h-8 w-8 animate-spin text-navy motion-reduce:animate-none" /></div>}>
+      <AccountSignup
+        variant="dialog"
+        initialType={defaultPersona}
+        then={then}
+        // The caller closes its window (and heads for /onboarding, which front_door forwards);
+        // the replace right after lands on where this account continues instead.
+        onFinished={(dest) => { onSuccess?.(); navigate(dest, { replace: true }); }}
+      />
+    </Suspense>
+  );
+}
+
+function LegacySignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const { t, i18n } = useTranslation();
   const { signUp } = useAuth();
   // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.

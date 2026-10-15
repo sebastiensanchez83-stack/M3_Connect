@@ -36,9 +36,10 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
 | `status` | `token` (status link) or, signed in, `registration_id` or a selector | the status view (below) |
 | `update` | same keys as `status` + the changed fields: `first_name, last_name` (only while requested / needs_info / waitlisted), `company, job_title, phone, country`, `answers` (only the keys that change); while `needs_info`: `info_answer` (free text to M3, up to 2000 characters) | the status view |
 | `cancel` | same keys as `status` | `{ ok: true, status: "cancelled" }` |
+| `restore` | `token` (wys26 personal link only) | the wys26 personal-link view (below); 409 `locked`, 400 `closed` |
 | `reminders` | same keys as `status` + `on: boolean` | `{ ok: true, reminders_on }` (false also stops the absentee follow-up) |
 | `resend_links` | `email` | always `{ ok: true }` ("Get my links": one e-mail with a fresh link per upcoming registration) |
-| `attach` (session required) | `token` | `{ ok: true }`, `{ ok: true, already: true }`, 409 `linked_elsewhere` / `already_registered` |
+| `attach` (session required) | `token` | `{ ok: true }`, `{ ok: true, already: true }`, 409 `linked_elsewhere` / `already_registered`; wys26 personal link: also 409 `locked` (not requested / invited / confirmed) and `use_invitation_email` (below) |
 
 - `form.state`: `open, not_published, not_yet_open, closed, full, waitlist, members_only,
   invitation_only, registered, not_found` (contract §4). `paused: true` = the kill switch of
@@ -83,8 +84,32 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
 - wys26 parity (guest_list_v1 event, flag `wys_form_v2`, or a hidden canary): the body of
   `guest-list`'s `request` (`slug, first_name, last_name, email, phone, company, job_title,
   country, motivation, wants_conference, wants_gala, captcha, website`) + `consents`. Same
-  rules, codes and answers as `guest-list`. The acknowledgement gets a "View my request"
-  button to `/{slug}/guest?t=`.
+  rules, codes and answers as `guest-list`; like guest-list it never writes on a row that
+  exists (same `{ ok: true }`, nothing sent). The acknowledgement gets a "View my request"
+  button to `SITE_URL/{slug}/guest?t=` (a HIDDEN event: `REGISTRATION_SITE_URL/wys26/guest?t=`,
+  the only personal-page route, which reads the token only; same for `resend_links` and
+  `send_status_link`). Field-by-field proof and the live comparison on canary-onsite:
+  `scripts/contract/wys-parity.mjs` (its header lists the known differences).
+  - Linked to the caller (`user_id`) only when the session's address is PROVEN and equals
+    the form's e-mail (the DB guard drops any other `user_id` on a guest-list insert). If that
+    account already holds another row of the event (unique event + user), the request is
+    written again unlinked: it is never lost because of the link.
+  - Differences that are on purpose (none changes the row guest-list writes): the switch
+    (403 `not_available` while `wys_form_v2` is off, except on a hidden canary); Turnstile is
+    also required when the `turnstile` switch is on (guest-list: `TURNSTILE_ENFORCE` only);
+    an expired session answers 401 `session_expired` (the page then posts to guest-list); a
+    database error answers 500 `server` (guest-list: the raw message); the e-mails go out
+    after the answer, with a retry on Resend's rate limit and a plain-text part.
+  - E-MAIL LOOK: the deployed guest-list (version 6, frozen until 28 Nov) still sends the
+    pre-refonte HTML frame (no text part, reply-to fallback `contact@smartmarinaconnect.com`);
+    the repo's guest-list and this function use the SMC e-mail layout v1 (reply-to fallback
+    `events@m3monaco.com`). Subjects, sender, recipients, wording and log kinds are the same;
+    wys26 sets `settings.contact_email`, so its reply-to is the same too. The contract script
+    compares the REPOSITORY templates: the two inboxes must be compared by eye once before
+    the switch (Victor decides whether the new look for the acknowledgement only is fine).
+  - The page (`src/lib/guestList.ts`) posts to guest-list instead only when this function
+    provably did nothing (403 `not_available`, 401, gateway 404 or BOOT_ERROR): the
+    Turnstile token is single-use. Any other failure shows "try again".
 
 Status view (`status`, `update`):
 ```
@@ -125,14 +150,41 @@ show a button "Stop e-mails about this event" that calls `reminders` with `on: f
 act on the page load alone (mail scanners open links).
 
 wys26 personal page `/wys26/guest?t=<gl_guest.token>`, flag `wys_status_edit` (else 403
-`not_available`): `update` (only while `requested`: `phone, company, job_title, country,
-motivation, wants_conference, wants_gala`), `cancel` (a request only), `attach` (signed in,
-"Add to my account"). The e-mail address is never editable. `status` does not take this token
-(the page keeps guest-list's `guest` action). A request cancelled from this page comes back
-as a new request when the person sends the `/wys26` form again, but ONLY through the parity
-form (`wys_form_v2` on): while it is off, `/wys26` posts to the frozen guest-list, which
-answers `{ ok: true }` and records nothing. Label the cancel button accordingly ("You will
-not be able to send a new request from this page") while `wys_form_v2` is off.
+`not_available`; a HIDDEN guest-list event, i.e. canary-onsite, skips the switch, like the
+parity form, so `scripts/contract/wys-parity.mjs` runs with every switch off):
+- `status` with that token: `{ ok, engine: "guest_list_v1", via: "guest_link", status, source,
+  is_plus_one, can_edit, can_cancel, can_restore, linked, linked_to_me, can_attach, same_email,
+  email_masked, request }`. `request` (only while `can_edit`): `first_name, last_name,
+  email_masked, phone, company, job_title, country, motivation, wants_conference, wants_gala`.
+  The page keeps guest-list's `guest` action for everything else (invitation, RSVP, pass,
+  plus-one): this only drives the buttons below. An unknown link answers 403 `not_available`
+  while the switch is off (404 `not_found` once on).
+- `update` (an invitation REQUEST only, `source = 'request'`, only while `requested`: `phone,
+  company, job_title, country, motivation, wants_conference, wants_gala`; company and job title
+  stay required, at least one part): answers the same view as `status`. A plus-one request
+  follows its host: 409 `locked`. Names and e-mail are never editable.
+- `cancel` (any `requested` row, plus-ones included): `{ ok: true, status: "cancelled" }`
+  (`decided_at` / `decided_by` stay empty: that is how a self-cancelled request is told from
+  a staff cancel; `review_log` action `cancelled_by_guest`). Invited and confirmed guests keep
+  guest-list's RSVP decline.
+- `restore` ("Send my request again", `can_restore`): an invitation request (not a plus-one)
+  its author cancelled from this link, never touched by staff, while `requests_open`: back to
+  `requested` (same row, token and details; `cancelled_at` cleared; `review_log`
+  `restored_by_guest`), then `request_ack` again and `staff_notify` at most once a day for
+  that row. Holding the link proves the inbox; it does not depend on `wys_form_v2`, so a
+  self-cancel is never final while requests are open. Staff-cancelled, plus-one or decided:
+  409 `locked`; requests closed: 400 `closed`. The restored row keeps its `created_at` (its
+  first place in `AdminGuestList`; not counted by the flood guard).
+- `attach` (signed in, "Add to my account", `can_attach`): requested, invited or confirmed
+  rows. The account's own address (`same_email`): always. Another address: only a requested
+  or invited row (its link was only ever e-mailed) and never a staff account; a confirmed
+  row's `gl_guest.token` is also its door QR (printed on every pass), so another address
+  gets 409 `use_invitation_email`. `email_masked` (where the link was sent) is given only for
+  that case, so the page can ask before adding it to another address's account.
+
+Switch-on checklist for `wys_status_edit`: "Add to my account" and the "My events" line show
+only when `webinar_v2` or `onsite_v2` is on (My events lists guest-list rows only then,
+`MyEvents.tsx`). A canary page (`canary-*`) shows them with every switch off, for testing.
 
 ### Staff (verified admin or moderator session)
 

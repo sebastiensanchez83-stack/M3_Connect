@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { RowSkeleton, StatusPill } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  cancelTeamInvitation, inviterName, leaveOrg, removeOrgMember, resendTeamInvitation, type TeamMember,
+  cancelTeamInvitation, inviterName, leaveOrg, removeOrgMember, resendTeamInvitation, seatCapApplies, type TeamMember,
 } from '@/components/organization/orgActions';
 import { toast } from '@/hooks/use-toast';
+import { useRegistrationFlags } from '@/lib/flags';
 import { displayCase } from '@/lib/displayCase';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { requireFreshSession } from '@/lib/session';
@@ -61,6 +62,7 @@ export function TeamPanel({
   const [joinOpen, setJoinOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const { flags: regFlags } = useRegistrationFlags();
 
   if (!user || !organization || !orgId) return null;
   const isOwner = orgRole === 'owner';
@@ -73,7 +75,8 @@ export function TeamPanel({
   const joinRequests = invitations.filter((i) => i.status === 'join_requested');
   const pending = invitations.filter((i) => i.status === 'pending');
   const isMarinaOrg = organization.organization_type === 'marina' || organization.organization_type === 'developer';
-  const maxSeats = organization.max_seats ?? 0;
+  // Flag account_signup_v2: no seat cap (the platform is free), so no count of places either.
+  const maxSeats = seatCapApplies(regFlags) ? organization.max_seats ?? 0 : 0;
   // The full editor's count: members plus every invitation it lists (the rule invitationProblem applies).
   const occupied = members.length + invitations.length;
   // Never offer an invitation that the places would refuse (one-place plans are most companies).

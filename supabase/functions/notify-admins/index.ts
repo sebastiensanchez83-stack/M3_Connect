@@ -11,6 +11,9 @@
 //         was just created (< 30 min old), and each account alerts once.
 //       * "Webinar Proposal", "RFP", "Project", "Consultation" (submit pages) --
 //         signed-in members only; the real sender's sign-in address is appended.
+//       * "account review requested again" (the redesign's dashboard, flag
+//         front_door: a person M3 did not accept asks to be reviewed again) --
+//         signed-in members only, same caps (registration Phase 2, 15 Oct 2026).
 //
 // Security (audit S4, 7 Oct 2026): this function used to be public, forward any
 // caller text to every admin and answer with the full list of admin addresses.
@@ -44,6 +47,7 @@ const MEMBER_SUBMISSION_TYPES: Record<string, string> = {
   "rfp": "RFP",
   "project": "Project",
   "consultation": "Consultation",
+  "account review requested again": "Account review requested again",
 };
 
 function corsHeaders(req: Request) {

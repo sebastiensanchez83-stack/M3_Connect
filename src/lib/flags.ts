@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -32,6 +32,25 @@ import { supabase } from '@/lib/supabase';
  * the switch without a reload).
  */
 
+/*
+ * Go-live order of the Phase 2 front door (registration AUTH lane, 15 Oct 2026):
+ *  - account_signup_v2 needs Supabase Auth "Confirm email" ON first. With it off,
+ *    GoTrue answers a sign-up on a new address with a session and on a known one
+ *    with "already registered", so the form cannot hide which addresses have an
+ *    account (spec §5); notify_existing only works as designed with it on.
+ *  - front_door needs account_signup_v2 on (turn them on together, or v2 first).
+ *    front_door alone keeps claim links (/?signup=true&code=, /onboarding?code=)
+ *    on the forms of before, which predate the 11 Oct claim rules.
+ *  - The redesign's "Ask M3 to review again" needs notify-admins with the type
+ *    "account review requested again" deployed before front_door goes on.
+ *  - account_signup_v2 stays off in production until Phase 3 ships M3's screens for
+ *    claims and new companies (admin_decide_claim, a queue that reads claim_requested
+ *    rows and signup_intent): registration contract §10.8.
+ *  - invite_links_v2 is read by the server only (send-notification): with it AND
+ *    account_signup_v2 on, team invitation e-mails carry the signed /join/<token> link.
+ *    The old live site cannot open such a link: switch it on at go-live only. It is not
+ *    in the list below on purpose (no page reads it).
+ */
 export const REGISTRATION_FLAG_KEYS = [
   'webinar_v2', 'onsite_v2', 'front_door', 'account_signup_v2', 'password_only_login',
   'wys_form_v2', 'wys_status_edit', 'review_queue', 'provisioning', 'capabilities_enforced', 'turnstile',
@@ -178,6 +197,24 @@ export function useRegistrationFlags(): FlagsState & { retry: () => void } {
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
   return useMemo(() => ({ ...state, retry }), [state, retry]);
+}
+
+/**
+ * For a screen that decides once what it shows (which sign-up form, the page or the
+ * 404, a redirect): the first value READ, never the defaults of a failed or timed-out
+ * read, kept while the component stays mounted. The row is read again when the tab
+ * regains focus and every hook hears of it: a switch moved meanwhile must not swap a
+ * form under someone typing in it, nor turn an open page into a 404 (the next page
+ * load follows it).
+ *
+ * `known` is false until a read has answered: show a loader, and while `failed` a way
+ * to try again (retry(); the row is also read again on focus) rather than guess "off".
+ */
+export function useRegistrationFlagsOnce(): { flags: RegistrationFlags; known: boolean; failed: boolean; retry: () => void } {
+  const live = useRegistrationFlags();
+  const kept = useRef<RegistrationFlags | null>(null);
+  if (!kept.current && live.ready && !live.failed) kept.current = live.flags;
+  return { flags: kept.current ?? live.flags, known: !!kept.current, failed: !kept.current && live.failed, retry: live.retry };
 }
 
 /**

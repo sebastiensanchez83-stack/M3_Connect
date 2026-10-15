@@ -16,6 +16,9 @@ import { isInvalidCredentials, signInErrorMessage, signUpErrorMessage } from '@/
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { readAuthLanding, scrubAuthLandingUrl } from '@/components/auth/AuthRedirector';
 import { Loader2, Mail, MailWarning, AlertTriangle } from 'lucide-react';
+import { JoinInvitation } from '@/components/auth/JoinInvitation';
+import { useRegistrationFlagsOnce } from '@/lib/flags';
+import { FlagsUnavailable } from '@/components/auth/FrontDoorRoutes';
 
 type PageState = 'loading' | 'signup' | 'login' | 'accept' | 'check-email' | 'error';
 
@@ -46,7 +49,33 @@ function clearJoinIntent(id?: string) {
   try { localStorage.removeItem(joinIntentKey(id)); } catch { /* ignore */ }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A /join/<token> link of the new invitation e-mails: the signed "SMC invite token v1"
+// (base64url(20 bytes) "." base64url(16 bytes)), minted by send-notification and checked
+// by accept-invite. The integration of 15 Oct 2026 kept this one format (registration
+// contract §10.6); the database has no token table for them.
+// Never a bare invitation id.
+const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]{27}\.[A-Za-z0-9_-]{22}$/;
+
+/**
+ * /join/:inviteId, the team invitation. The new invitation e-mails (send-notification,
+ * flags invite_links_v2 + account_signup_v2) carry a signed token (/join/<token>, never a bare id): it
+ * always opens the new one-screen page (JoinInvitation, edge function accept-invite).
+ * An old /join/<invitation id> keeps the page below while account_signup_v2 is off,
+ * and gets the new page (a fresh signed link by e-mail) once it is on. Decided on the
+ * switches as first read (a failed read offers to try again rather than guess "off").
+ */
 export function JoinPage() {
+  const { inviteId = '' } = useParams<{ inviteId: string }>();
+  const { flags, known, failed, retry } = useRegistrationFlagsOnce();
+  if (SIGNED_TOKEN_RE.test(inviteId)) return <JoinInvitation token={inviteId} />;
+  if (!known) return failed ? <FlagsUnavailable retry={retry} /> : <AuthLoading />;
+  if (flags.account_signup_v2 && UUID_RE.test(inviteId)) return <JoinInvitation token={inviteId} />;
+  // Anything else (an id with the flag off, a mistyped link) gets the page of before.
+  return <LegacyJoinPage />;
+}
+
+function LegacyJoinPage() {
   const { inviteId } = useParams<{ inviteId: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();

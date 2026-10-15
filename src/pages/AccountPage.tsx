@@ -13,6 +13,9 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { accountHref, legacyTabTarget, memberHomeHref } from '@/lib/accountNav';
+import { useRegistrationFlags } from '@/lib/flags';
+import { FlagsUnavailable } from '@/components/auth/FrontDoorRoutes';
+import { isV2Signup } from '@/lib/accountSignup';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,8 +43,16 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const [searchParams] = useSearchParams();
   const tab = searchParams.get('tab');
   const isDraft = profile?.onboarding_status === 'draft';
+  // Flag front_door: no company wizard. The registration screen goes to the dashboard (its
+  // status card says where the account stands), and a draft account uses the dashboard like
+  // everyone else. ?tab=pricing (no Pricing tab exists any more) keeps going where the six
+  // payment e-mails that link to it need: the sponsor portal, else the events block.
+  // A failed read is not "off": the redirects below wait for the switches as stored.
+  const { flags, ready: flagsRead, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
+  const flagsReady = flagsRead && !flagsFailed;
+  const frontDoor = flags.front_door;
   // Only ?tab=pricing needs to know about sponsors: the query runs for it alone.
-  const access = useMemberAccess(!forceTab && tab === 'pricing' && !!profile && !isDraft);
+  const access = useMemberAccess(!forceTab && tab === 'pricing' && !!profile && flagsReady && (frontDoor || !isDraft));
 
   if (authLoading) return <LoadingSkeleton variant="screen" />;
   if (!user) return null;
@@ -67,6 +78,20 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
       </div>
     );
   }
+
+  if (!flagsReady) return flagsFailed ? <FlagsUnavailable retry={retryFlags} /> : <LoadingSkeleton variant="screen" />;
+  if (frontDoor) {
+    if (tab === 'pricing') {
+      if (!access) return <LoadingSkeleton variant="screen" />;
+      return <Navigate to={memberHomeHref(access.sponsorIds.length > 0 ? 'sponsorship' : 'registrations')} replace />;
+    }
+    if (tab === 'complete-registration') return <Navigate to="/#dashboard" replace />;
+    const target = legacyTabTarget(tab, searchParams.get('section'));
+    return <Navigate to={target ? memberHomeHref(target.panel, target.section) : '/'} replace />;
+  }
+  // A sign-up v2 account (account_signup_v2 on, front_door still off) never gets the old
+  // wizard: its company request is with M3, and the dashboard says where it stands.
+  if (isV2Signup(profile) && (tab === 'complete-registration' || isDraft)) return <Navigate to="/#dashboard" replace />;
 
   // A member whose registration was just submitted (not yet reviewed) still
   // gets the wizard's "submitted for review" step on this address.

@@ -11,6 +11,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { SignupForm } from '@/components/auth/SignupForm';
+import { useRegistrationFlags } from '@/lib/flags';
+import { openSignup } from '@/lib/authModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
 import { useNetworkFigures, formatFigure } from '@/lib/networkStats';
@@ -70,6 +72,7 @@ export function BecomePartnerPage() {
   const { reduced } = useMotion();
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
+  const { flags: regFlags } = useRegistrationFlags();
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
 
   useScrollToHash(hash, reduced);
@@ -185,11 +188,15 @@ export function BecomePartnerPage() {
   const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team reviews your company, then opens the features of your profile.');
 
   // A member who is already signed in has nothing to sign up for: a draft finishes the sign-up, everyone else goes to their space.
-  const mySpacePath = !profile || profile.onboarding_status === 'draft' ? '/onboarding' : '/dashboard';
+  // front_door: no company wizard, the dashboard is everyone's space.
+  const mySpacePath = !regFlags.front_door && (!profile || profile.onboarding_status === 'draft') ? '/onboarding' : '/dashboard';
 
   const handleJoin = (persona?: PersonaType) => {
     if (user) {
       navigate(mySpacePath);
+    } else if (regFlags.account_signup_v2) {
+      // The sign-up v2: the site's one sign-up window (the Navbar's), on this profile.
+      openSignup(persona);
     } else {
       setSelectedPersonaType(persona);
       setSignupOpen(true);

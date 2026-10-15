@@ -148,7 +148,10 @@ export const DEAL_FLOW_ITEM: NavItem = {
 
 /** Shown in the public bar as the call to action, never to a signed-in member. */
 export const JOIN_ITEM: NavItem = {
-  // The presentation page (moved from /become-partner, which redirects here).
+  // The presentation page (moved from /become-partner, which redirects here). It stays
+  // /join with the registration flags on too (Victor, 8 Oct 2026, overriding the spec's
+  // /signup): every "Sign up" button opens the sign-up form itself (openSignup, the
+  // Navbar's window), and /signup is that form as a page (flag front_door).
   href: '/join',
   labelKey: 'nav.becomePartner',
   fallback: 'Join the network',

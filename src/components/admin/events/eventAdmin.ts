@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 
@@ -35,6 +36,8 @@ export interface CatalogueRow {
   image_url: string | null;
   replay_url: string | null;
   published: boolean | null;
+  /** {venue, address, city, country, map_url, lat, lng}: read by the event page (main and the redesign). */
+  location_details?: Record<string, unknown> | null;
 }
 
 export interface GlEventRow {
@@ -60,6 +63,9 @@ export interface GlEventRow {
   replay_url?: string | null;
   reminders?: string[] | null;
   staff_alert_mode?: 'each' | 'digest';
+  account_email_timing?: 'with_confirmation' | 'after_event';
+  account_email_send_at?: string | null;
+  door_token?: 'shared' | 'separate';
   hidden?: boolean;
   /** Stamped by admin_save_event on every save: tells the editor someone saved since it loaded. */
   updated_at?: string | null;
@@ -86,6 +92,28 @@ export interface QuestionRow {
   editable_after_submit: boolean;
   display_order: number;
 }
+
+/** A participation type (gl_ticket) as stored. Prices are display only until December. */
+export interface TicketRow {
+  key: string;
+  label: string;
+  description: string | null;
+  price_cents: number | null;
+  currency: string | null;
+  price_note: string | null;
+  invite_only: boolean;
+  capacity: number | null;
+  allowed_company_types: string[] | null;
+  parts: string[] | null;
+  display_order: number;
+  active: boolean;
+}
+
+/** One part of an on-site event (gl_event.settings.parts, the shape wys26 uses): conference, gala dinner. */
+export interface EventPart { key: string; label: string; when: string }
+
+/** The company types a participation type can be kept for (organizations.organization_type). */
+export const COMPANY_TYPES = ['marina', 'partner', 'investor', 'developer', 'media_partner'] as const;
 
 export type GuestStatus =
   | 'requested' | 'needs_info' | 'waitlisted' | 'invited' | 'approved'
@@ -114,6 +142,8 @@ export interface GuestRow {
   checked_in_at: string | null;
   created_at: string;
   decided_at: string | null;
+  /** When they answered an invitation (accepted or declined). */
+  responded_at: string | null;
   account_action: string | null;
   payment_status: string | null;
 }
@@ -121,7 +151,23 @@ export interface GuestRow {
 export const GUEST_COLUMNS =
   'id, status, source, first_name, last_name, email, phone, company, job_title, country, ticket_key, answers, consents, '
   + 'source_detail, user_id, info_request, info_requested_at, link_opened_at, checked_in_at, created_at, decided_at, '
-  + 'account_action, payment_status';
+  + 'responded_at, account_action, payment_status';
+
+/**
+ * The account set-up of a confirmed on-site registration (account_provision_job, staff
+ * SELECT): queued by the database when the row is confirmed, run by provision-person.
+ */
+export interface ProvisionJob {
+  id: string;
+  source_id: string;
+  status: 'queued' | 'done' | 'skipped' | 'failed';
+  attempts: number;
+  last_error: string | null;
+  email_due_at: string | null;
+  email_sent_at: string | null;
+  created_at: string;
+  done_at: string | null;
+}
 
 /* ------------------------------------------------------------------ errors */
 
@@ -202,6 +248,8 @@ export interface LoadedEvent {
   catalogue: CatalogueRow | null;
   gl: GlEventRow;
   questions: QuestionRow[];
+  /** Participation types (gl_ticket), active or not, in their order. */
+  tickets: TicketRow[];
   sectorIds: string[];
 }
 
@@ -225,26 +273,48 @@ export async function findGlEvent(id: string): Promise<GlEventRow | null> {
 }
 
 export async function loadEvent(gl: GlEventRow): Promise<LoadedEvent> {
-  const [cat, qs, secs] = await Promise.all([
+  const [cat, qs, tks, secs] = await Promise.all([
     gl.legacy_event_id
       ? supabase.from('events').select('*').eq('id', gl.legacy_event_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     supabase.from('gl_question').select('*').eq('event_id', gl.id).order('display_order').order('key'),
+    supabase.from('gl_ticket').select('*').eq('event_id', gl.id).order('display_order').order('key'),
     gl.legacy_event_id
       ? supabase.from('event_sectors').select('sector_id').eq('event_id', gl.legacy_event_id)
       : Promise.resolve({ data: [], error: null }),
   ]);
   // Any failed read stops here: an editable form built from a missing catalogue row
-  // would save an empty description, no date and "unpublished" over the real event.
+  // would save an empty description, no date and "unpublished" over the real event
+  // (and a list of participation types read as empty would delete them all on save).
   if (cat.error) throw fromPg(cat.error);
   if (qs.error) throw fromPg(qs.error);
+  if (tks.error) throw fromPg(tks.error);
   if (secs.error) throw fromPg(secs.error);
   if (gl.legacy_event_id && !cat.data) throw new EditorError('catalogue_missing', 'catalogue row missing');
   return {
     catalogue: (cat.data as CatalogueRow | null) ?? null,
     gl,
     questions: ((qs.data || []) as QuestionRow[]).map(normaliseQuestion),
+    tickets: ((tks.data || []) as TicketRow[]).map(normaliseTicket),
     sectorIds: ((secs.data || []) as { sector_id: string }[]).map((r) => r.sector_id),
+  };
+}
+
+function normaliseTicket(tk: TicketRow): TicketRow {
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : null);
+  return {
+    key: tk.key,
+    label: tk.label || tk.key,
+    description: tk.description ?? null,
+    price_cents: typeof tk.price_cents === 'number' ? tk.price_cents : null,
+    currency: tk.currency || 'EUR',
+    price_note: tk.price_note ?? null,
+    invite_only: !!tk.invite_only,
+    capacity: typeof tk.capacity === 'number' ? tk.capacity : null,
+    allowed_company_types: list(tk.allowed_company_types),
+    parts: list(tk.parts),
+    display_order: Number(tk.display_order) || 0,
+    active: tk.active !== false,
   };
 }
 
@@ -295,6 +365,169 @@ export async function loadAnswerKeys(glEventId: string): Promise<string[]> {
     if (rows.length < PAGE) break;
   }
   return [...keys];
+}
+
+/**
+ * How many registrations use each participation type (gl_guest.ticket_key): a type
+ * someone registered with is only switched off when removed, never deleted.
+ */
+export async function loadTicketUsage(glEventId: string): Promise<Record<string, number>> {
+  const PAGE = 1000;
+  const out: Record<string, number> = {};
+  for (let from = 0; from < 100000; from += PAGE) {
+    const { data, error } = await supabase
+      .from('gl_guest')
+      .select('ticket_key')
+      .eq('event_id', glEventId)
+      .not('ticket_key', 'is', null)
+      .order('id')
+      .range(from, from + PAGE - 1);
+    if (error) throw fromPg(error);
+    const rows = (data || []) as { ticket_key: string | null }[];
+    for (const r of rows) if (r.ticket_key) out[r.ticket_key] = (out[r.ticket_key] || 0) + 1;
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+/** The account set-up jobs of these registrations (account_provision_job, staff SELECT), by registration id. */
+export async function loadProvisionJobs(guestIds: string[]): Promise<Map<string, ProvisionJob>> {
+  const out = new Map<string, ProvisionJob>();
+  const CHUNK = 100;
+  for (let i = 0; i < guestIds.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from('account_provision_job')
+      .select('id, source_id, status, attempts, last_error, email_due_at, email_sent_at, created_at, done_at')
+      .eq('source_kind', 'gl_guest')
+      .in('source_id', guestIds.slice(i, i + CHUNK));
+    if (error) throw fromPg(error);
+    for (const j of (data || []) as ProvisionJob[]) out.set(j.source_id, j);
+  }
+  return out;
+}
+
+/**
+ * The confirmation e-mail with the QR code (gl_email_log kind 'reg_confirmed', logged by
+ * the registration function once Resend accepted it; staff SELECT): the latest one per
+ * registration. The account e-mail never goes before it (Victor, 15 Oct 2026).
+ */
+export async function loadConfirmationMails(guestIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const CHUNK = 100;
+  for (let i = 0; i < guestIds.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from('gl_email_log')
+      .select('guest_id, sent_at')
+      .eq('kind', 'reg_confirmed')
+      .in('guest_id', guestIds.slice(i, i + CHUNK));
+    if (error) throw fromPg(error);
+    for (const r of (data || []) as { guest_id: string | null; sent_at: string }[]) {
+      if (!r.guest_id) continue;
+      const prev = out.get(r.guest_id);
+      if (!prev || Date.parse(r.sent_at) > Date.parse(prev)) out.set(r.guest_id, r.sent_at);
+    }
+  }
+  return out;
+}
+
+/** Clock slack between the decision and the e-mail log (the same 5 minutes as provision-person). */
+const CONFIRMATION_SLACK_MS = 5 * 60_000;
+
+/**
+ * A confirmed registration whose confirmation e-mail with the QR code is logged for its
+ * latest confirmation (staff approval or invitation accepted). False: not sent (failed,
+ * or a bulk confirmation cut short) or still sending.
+ */
+export function confirmationMailSent(g: Pick<GuestRow, 'decided_at' | 'responded_at'>, sentAt: string | undefined): boolean {
+  if (!sentAt) return false;
+  const times = [g.decided_at, g.responded_at].map((x) => (x ? Date.parse(x) : Number.NaN)).filter((x) => Number.isFinite(x));
+  if (!times.length) return true;
+  return Date.parse(sentAt) >= Math.max(...times) - CONFIRMATION_SLACK_MS;
+}
+
+/* ------------------------------------------------------------ server actions */
+
+/**
+ * What the deployed `registration` function can do beyond Phase 2, from its
+ * {action: 'capabilities'} answer: {ok: true, actions: ['invite', 'status_link',
+ * 'send_test'], email_intros: true, decide_from_invited: true}. The function in
+ * production today answers "unknown_action" (before any sign-in check): everything off,
+ * and the screens hide what has no server behind it. Asked once per page load.
+ */
+export interface RegistrationCaps {
+  /** The answer came back (from either version): the screens can say "comes later". */
+  checked: boolean;
+  invite: boolean;
+  statusLink: boolean;
+  sendTest: boolean;
+  /** The e-mails print settings.email_intros (registration and registration-cron). */
+  intros: boolean;
+  /** gl_decide_v2 takes 'invited' rows: confirm for them, or withdraw the invitation. */
+  decideInvited: boolean;
+}
+
+export const NO_CAPS: RegistrationCaps = { checked: false, invite: false, statusLink: false, sendTest: false, intros: false, decideInvited: false };
+
+let capsPromise: Promise<RegistrationCaps> | null = null;
+
+export function loadRegistrationCaps(): Promise<RegistrationCaps> {
+  if (!capsPromise) {
+    capsPromise = registrationStaff<{ ok?: boolean; actions?: unknown; email_intros?: unknown; decide_from_invited?: unknown }>({ action: 'capabilities' })
+      .then((res) => {
+        if (res.error || res.ok !== true) {
+          // An older function says so for good; anything else (offline) is asked again next time.
+          if (res.error !== 'unknown_action') capsPromise = null;
+          return { ...NO_CAPS, checked: res.error === 'unknown_action' };
+        }
+        const actions = Array.isArray(res.actions) ? res.actions.filter((x): x is string => typeof x === 'string') : [];
+        return {
+          checked: true,
+          invite: actions.includes('invite'),
+          statusLink: actions.includes('status_link'),
+          sendTest: actions.includes('send_test'),
+          intros: res.email_intros === true,
+          decideInvited: res.decide_from_invited === true,
+        };
+      })
+      .catch(() => {
+        capsPromise = null;
+        return NO_CAPS;
+      });
+  }
+  return capsPromise;
+}
+
+/** The capabilities of the registration function (NO_CAPS until known, or when `enabled` is false). */
+export function useRegistrationCaps(enabled: boolean): RegistrationCaps {
+  const [caps, setCaps] = useState<RegistrationCaps>(NO_CAPS);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    void loadRegistrationCaps().then((c) => { if (alive) setCaps(c); });
+    return () => { alive = false; };
+  }, [enabled]);
+  return enabled ? caps : NO_CAPS;
+}
+
+/**
+ * Invitations from a hidden test event go only to M3's own addresses (and the signed-in
+ * staff member's, with or without a +tag): a test never e-mails real people.
+ */
+export const TEST_INVITE_DOMAINS = ['m3monaco.com', 'smartmarinaconnect.com'];
+export const MAX_TEST_INVITES = 10;
+
+export function isTestAddress(email: string, ownEmail: string | null | undefined): boolean {
+  const e = email.trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return false;
+  const domain = e.slice(at + 1);
+  if (TEST_INVITE_DOMAINS.includes(domain)) return true;
+  const own = (ownEmail || '').trim().toLowerCase();
+  const ownAt = own.lastIndexOf('@');
+  if (ownAt < 1) return false;
+  // jane+test1@example.com is jane@example.com's own address.
+  const local = e.slice(0, at).replace(/\+.*$/, '');
+  return domain === own.slice(ownAt + 1) && local === own.slice(0, ownAt).replace(/\+.*$/, '');
 }
 
 /** One line of a registration's history (review_log, staff RLS): decisions and the person's answers. */
@@ -390,6 +623,24 @@ export async function registrationStaff<T = Record<string, unknown>>(body: Recor
   return { error: (error as { message?: string }).message || 'network' } as T & { error?: string };
 }
 
+/**
+ * Staff actions of the `provision-person` function: {action: 'run' | 'send_emails', job_ids}
+ * (100 ids at most per call). Same error handling as registrationStaff.
+ */
+export async function provisionStaff<T = Record<string, unknown>>(body: Record<string, unknown>): Promise<T & { error?: string }> {
+  const { data, error } = await supabase.functions.invoke('provision-person', { body });
+  if (!error) return (data ?? {}) as T & { error?: string };
+  try {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === 'function') {
+      const answer = (await ctx.json()) as Record<string, unknown> | null;
+      const code = typeof answer?.error === 'string' ? answer.error : typeof answer?.code === 'string' ? answer.code : 'unavailable';
+      return { ...(answer || {}), error: code } as T & { error?: string };
+    }
+  } catch { /* fall through */ }
+  return { error: (error as { message?: string }).message || 'network' } as T & { error?: string };
+}
+
 /** registration function codes a staff screen can meet, in plain English. */
 export function staffErrorText(code: string | undefined, t: TFunction): string {
   switch (code) {
@@ -414,6 +665,25 @@ export function staffErrorText(code: string | undefined, t: TFunction): string {
     case 'NOT_FOUND':
     case 'unavailable':
       return t('adminEvents.staffErr.notInstalled', 'The registration service is not installed yet. Ask the developer to deploy it.');
+    case 'unknown_action':
+      return t('adminEvents.staffErr.actionMissing', 'This action is not installed on the server yet. Ask the developer to deploy the latest registration service.');
+    case 'provisioning_off':
+      return t('adminEvents.staffErr.provisioningOff', 'Accounts are set up once M3 switches account creation on. Until then this works only for hidden test events.');
+    case 'job_ids required':
+      return t('adminEvents.staffErr.noJobs', 'Nobody in the selection has an account to set up.');
+    case 'too_many':
+      return t('adminEvents.staffErr.tooMany', 'Too many people at once: 500 at most.');
+    case 'too_large':
+      return t('adminEvents.staffErr.tooLarge', 'Too much at once. Send a shorter list (100 people at a time).');
+    case 'test_addresses_only':
+      return t('adminEvents.staffErr.testOnly', 'A hidden test event invites only M3 addresses (@m3monaco.com, @smartmarinaconnect.com) or your own, 10 at most.');
+    case 'nothing_to_resend':
+      return t('adminEvents.staffErr.nothingToResend', 'There is no e-mail to send again at this stage. Send their personal link instead.');
+    case 'use_guest_list':
+      return t('adminEvents.staffErr.engine', 'This event runs on the guest list. Use its guest-list page.');
+    case 'capacity':
+    case 'ticket_capacity':
+      return t('adminEvents.staffErr.full', 'There are not enough places left for all of them.');
     case 'network':
     case 'Failed to send a request to the Edge Function':
       return t('adminEvents.staffErr.network', 'The registration service could not be reached. Check your connection; if it keeps failing, it is not installed yet.');
@@ -450,6 +720,14 @@ export function historyWord(action: string, t: TFunction): string {
     case 'info_provided': return t('adminEvents.hist.infoProvided', 'They answered');
     case 'attach': return t('adminEvents.hist.attach', 'Added to their account');
     case 'provisioned': return t('adminEvents.hist.provisioned', 'Account set up');
+    case 'invite':
+    case 'invited': return t('adminEvents.hist.invited', 'Invited by M3');
+    case 'invitation_accepted': return t('adminEvents.hist.accepted', 'Accepted the invitation');
+    case 'invitation_declined': return t('adminEvents.hist.declined', 'Declined the invitation');
+    case 'invitation_withdrawn': return t('adminEvents.hist.withdrawn', 'Invitation withdrawn by M3');
+    case 'accepted_for_them': return t('adminEvents.hist.acceptedForThem', 'Marked as accepted by M3');
+    case 'status_link': return t('adminEvents.hist.statusLink', 'Personal link copied by M3');
+    case 'cancelled_by_guest': return t('adminEvents.hist.cancelledByGuest', 'Cancelled by them');
     default: return action;
   }
 }
@@ -493,6 +771,91 @@ export function profileFieldWord(field: ProfileField, t: TFunction): string {
   }
 }
 
+export function companyTypeWord(type: string, t: TFunction): string {
+  switch (type) {
+    case 'marina': return t('adminEvents.orgType.marina', 'Marina');
+    case 'partner': return t('adminEvents.orgType.partner', 'Service provider');
+    case 'investor': return t('adminEvents.orgType.investor', 'Investor');
+    case 'developer': return t('adminEvents.orgType.developer', 'Developer');
+    case 'media_partner': return t('adminEvents.orgType.media', 'Media');
+    default: return type;
+  }
+}
+
+/** gl_guest.payment_status in words (display only until December: nothing is paid on the platform yet). */
+export function paymentWord(status: string | null | undefined, t: TFunction): string {
+  switch (status) {
+    case 'due': return t('adminEvents.pay.due', 'Payment due');
+    case 'pending': return t('adminEvents.pay.pending', 'Payment pending');
+    case 'invoiced': return t('adminEvents.pay.invoiced', 'Invoiced');
+    case 'paid': return t('adminEvents.pay.paid', 'Paid');
+    case 'waived': return t('adminEvents.pay.waived', 'Free of charge');
+    case 'refunded': return t('adminEvents.pay.refunded', 'Refunded');
+    default: return t('adminEvents.pay.none', 'Nothing to pay');
+  }
+}
+
+/**
+ * Where a confirmed on-site registration's account stands, from its job and the row's
+ * account_action (provision-person writes both).
+ */
+export type AccountState =
+  | 'none' | 'waiting' | 'failed' | 'skipped' | 'email_due' | 'email_sent' | 'created' | 'linked' | 'pending_link' | 'gave_up';
+
+export function accountState(g: Pick<GuestRow, 'account_action'>, job: ProvisionJob | undefined): AccountState {
+  if (!job) return 'none';
+  if (job.status === 'queued') return 'waiting';
+  if (job.status === 'failed') return 'failed';
+  if (job.status === 'skipped') return 'skipped';
+  if (g.account_action === 'pending_link') return 'pending_link';
+  if (g.account_action === 'linked') return 'linked';
+  if (job.email_sent_at) return 'email_sent';
+  if (job.email_due_at) return 'email_due';
+  if ((job.last_error || '').startsWith('e-mail: gave up')) return 'gave_up';
+  return 'created';
+}
+
+/**
+ * An account e-mail that has not left yet: "Send account e-mails now" applies (provision-person
+ * send_emails). Callers also need the confirmation e-mail with the QR code to be sent
+ * (confirmationMailSent): the account e-mail never goes first.
+ */
+export const accountSendable = (s: AccountState) => s === 'email_due' || s === 'gave_up';
+/** A job waiting for its run: "Set up the accounts now" applies (provision-person run). */
+export const accountRunnable = (s: AccountState) => s === 'waiting' || s === 'failed';
+
+export function accountWord(s: AccountState, job: ProvisionJob | undefined, tz: string, t: TFunction): string {
+  const day = (iso: string | null | undefined) => (iso ? formatInZone(iso, tz, false) : '');
+  switch (s) {
+    case 'waiting': return t('adminEvents.acct.waiting', 'Account: being set up');
+    case 'failed': return t('adminEvents.acct.failed', 'Account: set-up failed');
+    case 'skipped': return t('adminEvents.acct.skipped', 'Account: not needed');
+    case 'pending_link': return t('adminEvents.acct.pendingLink', 'Account: waiting for them to confirm their e-mail');
+    case 'linked': return t('adminEvents.acct.linked', 'Added to their existing account');
+    case 'email_sent': return t('adminEvents.acct.sent', 'Account e-mail sent {{day}}', { day: day(job?.email_sent_at) });
+    case 'email_due':
+      return job?.email_due_at && Date.parse(job.email_due_at) > Date.now()
+        ? t('adminEvents.acct.due', 'Account e-mail due {{day}}', { day: day(job.email_due_at) })
+        : t('adminEvents.acct.dueNow', 'Account e-mail about to go');
+    case 'gave_up': return t('adminEvents.acct.gaveUp', 'Account e-mail could not be sent');
+    case 'created': return t('adminEvents.acct.created', 'Account created');
+    default: return '';
+  }
+}
+
+export const ACCOUNT_TONE: Record<AccountState, 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
+  none: 'neutral',
+  waiting: 'info',
+  failed: 'danger',
+  skipped: 'neutral',
+  pending_link: 'warning',
+  linked: 'success',
+  email_sent: 'success',
+  email_due: 'info',
+  gave_up: 'danger',
+  created: 'success',
+};
+
 /* ------------------------------------------------------------------ helpers */
 
 export const RESERVED_SLUGS = ['sm26', 'wys26', 'admin', 'register', 'registration', 'signup', 'events', 'join', 'welcome'];
@@ -510,8 +873,8 @@ export function slugify(text: string, max = 60): string {
 }
 
 /** An internal key for a question: letters, digits and underscores, unique in the list. */
-export function questionKey(label: string, taken: string[]): string {
-  const base = slugify(label, 32).replace(/-/g, '_') || 'question';
+export function questionKey(label: string, taken: string[], fallback = 'question'): string {
+  const base = slugify(label, 32).replace(/-/g, '_') || fallback;
   let key = base;
   let n = 2;
   while (taken.includes(key)) key = `${base}_${n++}`;

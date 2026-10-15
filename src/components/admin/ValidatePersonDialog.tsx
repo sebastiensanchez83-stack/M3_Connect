@@ -16,10 +16,11 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY, AdminStatusPill, type AdminTone } from './AdminUI';
-import { CompanyChoice, companyPickToOrg, orgTypeLabel, type CompanyPick, type CurrentCompany } from './review/CompanyChoice';
+import { CompanyChoice, companyPickToOrg, createPickOf, orgTypeLabel, type CompanyPick, type CurrentCompany } from './review/CompanyChoice';
 import {
-  ORG_TYPES, ReviewError, fBool, fObj, fStr, personCandidates, reviewErrorText, validatePerson,
-  type Facts, type OrgAction, type OrgType, type PersonAction, type PersonCandidate, type PersonDecisionResult,
+  ORG_TYPES, ReviewError, decideClaim, decisionMailText, fBool, fObj, fStr, loadOpenRequests, personCandidates,
+  reviewErrorText, useOutboxSender, validatePerson,
+  type Facts, type OpenRequest, type OrgAction, type OrgType, type PersonAction, type PersonCandidate, type PersonDecisionResult,
 } from './review/reviewApi';
 
 /**
@@ -33,8 +34,12 @@ import {
  *  - Not accepted (a reason the person reads; templates);
  *  - Ask for a detail (a question the person reads; they stay under review).
  * The person's signals and possible duplicates (person_match_candidates) are shown first.
- * The server writes review_log and queues the e-mail (notification_outbox); nothing is
- * e-mailed from here.
+ * An open claim or join request of theirs (organization_invitations) is said first, and
+ * never decided here: a claim on its card (admin_decide_claim, or "Approve the claim" in the
+ * banner), a join request by the company's owner. Validating then defaults to "participant
+ * only", nothing picked, and "owner" is never offered for the claimed company.
+ * The server writes review_log and queues the e-mail (notification_outbox, sent while
+ * registration_flags.outbox_sender is on); nothing is e-mailed from here.
  */
 
 interface PersonData {
@@ -99,10 +104,12 @@ export interface ValidatePersonDialogProps {
   initialAction?: PersonAction;
   /** The queue card's signals (e-mail confirmed, SM26, duplicate…), shown as they are. */
   signals?: Facts;
+  /** The person's LOGIN address (the queue card's facts.email), where claims are filed. */
+  loginEmail?: string | null;
   onDone?: (result: PersonDecisionResult, action: PersonAction) => void;
 }
 
-export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction, signals, onDone }: ValidatePersonDialogProps) {
+export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction, signals, loginEmail, onDone }: ValidatePersonDialogProps) {
   const { t } = useTranslation();
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [person, setPerson] = useState<PersonData | null>(null);
@@ -115,6 +122,9 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingOrgId, setExistingOrgId] = useState<string | null>(null);
+  const [requests, setRequests] = useState<OpenRequest[]>([]);
+  const [claimBusy, setClaimBusy] = useState(false);
+  const senderOn = useOutboxSender();
 
   // Load the person each time the window opens.
   useEffect(() => {
@@ -126,6 +136,7 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
     setText('');
     setNotify(true);
     setDups([]);
+    setRequests([]);
     (async () => {
       const [{ data: p, error: pErr }, { data: mems }] = await Promise.all([
         supabase.from('profiles').select(PERSON_COLUMNS).eq('user_id', userId).maybeSingle(),
@@ -147,11 +158,21 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
         } : null)
         .filter((c): c is CurrentCompany => !!c && (c.status === 'verified' || c.status === 'pending'))
         .sort((a, b) => Number(b.role === 'owner') - Number(a.role === 'owner'));
+      // An open claim or join request (filed on the login address) changes the defaults.
+      const intent = prof.signup_intent && typeof prof.signup_intent === 'object' ? prof.signup_intent : null;
+      const open = (await loadOpenRequests([loginEmail, prof.email])) ?? [];
+      if (!alive) return;
+      const path = fStr(fObj(intent ?? undefined, 'result'), 'path');
+      if (!open.length && (path === 'claim_requested' || path === 'join_requested')) {
+        // The rows could not be read (or the address differs): the intent still says so.
+        const orgId = fStr(intent ?? undefined, 'org_id') ?? fStr(fObj(intent ?? undefined, 'result'), 'organization_id');
+        if (orgId) open.push({ id: '', kind: path === 'claim_requested' ? 'claim' : 'join', organization_id: orgId, org_name: fStr(intent ?? undefined, 'name') ?? null, created_at: null });
+      }
+      setRequests(open);
       setPerson(prof);
       setCurrent(companies);
 
       // The best first choice: their own company, the one they declared, or none.
-      const intent = prof.signup_intent && typeof prof.signup_intent === 'object' ? prof.signup_intent : null;
       const declaredType = fStr(intent ?? undefined, 'type');
       // The type they declared at sign-up; for a company of the old wizard, their account type.
       const intentType = (ORG_TYPES as string[]).includes(declaredType ?? '')
@@ -160,22 +181,27 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
       if (companies.length) {
         const c = companies[0];
         setPick({ mode: 'current', orgId: c.id, type: (ORG_TYPES as string[]).includes(c.type ?? '') ? (c.type as OrgType) : intentType });
+      } else if (open.length) {
+        // A claim or a join request waits: nothing is picked for M3 (the claim is decided on
+        // its card, the join request by the owner); linking needs an explicit click.
+        setPick({ mode: 'link', orgId: null, asOwner: false });
       } else if (fStr(intent ?? undefined, 'action') === 'new' && fStr(intent ?? undefined, 'name')) {
-        setPick({
-          mode: 'create',
-          name: fStr(intent ?? undefined, 'name') ?? '',
+        setPick(createPickOf({
+          name: fStr(intent ?? undefined, 'name'),
           type: intentType,
-          website: fStr(intent ?? undefined, 'website') ?? '',
-          country: fStr(intent ?? undefined, 'country') ?? prof.country ?? '',
-          forceNew: false,
-        });
+          website: fStr(intent ?? undefined, 'website'),
+          country: fStr(intent ?? undefined, 'country') ?? prof.country,
+        }));
       } else if (fStr(intent ?? undefined, 'action') === 'join' && fStr(intent ?? undefined, 'org_id')) {
         setPick({ mode: 'link', orgId: fStr(intent ?? undefined, 'org_id') ?? null, asOwner: false });
       } else {
         setPick({ mode: 'link', orgId: null, asOwner: false });
       }
       const nothingDeclared = !companies.length && !fStr(intent ?? undefined, 'name') && fStr(intent ?? undefined, 'action') !== 'join';
-      setAction(initialAction ?? (nothingDeclared ? 'participant' : 'validate'));
+      const waitingRequest = !companies.length && open.length > 0;
+      setAction(initialAction && !(waitingRequest && initialAction === 'validate')
+        ? initialAction
+        : nothingDeclared || waitingRequest ? 'participant' : 'validate');
       setState('ready');
 
       // Possible duplicates (other accounts, registrations, SM26), never this account itself.
@@ -190,7 +216,7 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
       } catch { /* the lookup is a help, not a requirement */ }
     })();
     return () => { alive = false; };
-  }, [open, userId, initialAction]);
+  }, [open, userId, initialAction, loginEmail]);
 
   const intent = person?.signup_intent && typeof person.signup_intent === 'object' ? person.signup_intent : null;
   const firstName = person?.first_name?.trim() || fullName(person ?? {});
@@ -248,13 +274,15 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
         res.company_verified && !res.company_created ? t('adminValidate.done.verified', '{{company}} is validated too.', { company: res.organization_name ?? '' }) : '',
         res.owner_ignored ? t('adminValidate.done.ownerIgnored', 'The company already had an owner: they joined as a team member.') : '',
         res.type_ignored ? t('adminValidate.done.typeIgnored', 'The company type was kept: a validated company keeps its type. Change it on the company page if needed.') : '',
-        (action === 'ask' || notify) && !res.unchanged ? t('adminValidate.done.mail', 'They will receive an e-mail.') : '',
+        (action === 'ask' || notify) && !res.unchanged ? decisionMailText(t, senderOn) : '',
       ].filter(Boolean).join(' ');
       toast({
         title: action === 'reject'
           ? t('adminValidate.done.rejectTitle', '{{name}}: not accepted', { name })
           : action === 'ask'
-            ? t('adminValidate.done.askTitle', 'Question sent to {{name}}', { name })
+            ? (senderOn === true
+              ? t('adminValidate.done.askTitle', 'Question sent to {{name}}', { name })
+              : t('adminValidate.done.askQueuedTitle', 'Question for {{name}} saved', { name }))
             : action === 'participant'
               ? t('adminValidate.done.participantTitle', '{{name}} is validated as a participant', { name })
               : t('adminValidate.done.validateTitle', '{{name}} is validated', { name }),
@@ -265,6 +293,26 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
     } catch (e) {
       setSaving(false);
       if (e instanceof ReviewError && e.code === 'org_exists') setExistingOrgId(e.detail ?? null);
+      setError(reviewErrorText(e, t));
+    }
+  };
+
+  /** The claim's own decision (admin_decide_claim): owner of the company, and validated. */
+  const approveClaimHere = async (r: OpenRequest) => {
+    if (!person || !r.id || claimBusy) return;
+    setClaimBusy(true);
+    setError(null);
+    try {
+      await decideClaim(r.id, true);
+      setClaimBusy(false);
+      toast({
+        title: t('adminReview.v2.done.claimApproved', '{{name}} now manages {{org}}', { name: fullName(person), org: r.org_name ?? '' }),
+        description: decisionMailText(t, senderOn),
+      });
+      onDone?.({ ok: true, action: 'validate', organization_id: r.organization_id, organization_name: r.org_name ?? undefined, role: 'owner' }, 'validate');
+      onOpenChange(false);
+    } catch (e) {
+      setClaimBusy(false);
       setError(reviewErrorText(e, t));
     }
   };
@@ -358,6 +406,35 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
                 </section>
               )}
 
+              {/* A claim (M3 decides it on its card) or a join request (the owner decides it). */}
+              {requests.map(r => (
+                <section
+                  key={`${r.kind}:${r.id || r.organization_id}`}
+                  className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-[14px] leading-5 text-amber-950"
+                  aria-label={r.kind === 'claim' ? t('adminValidate.request.claimLabel', 'Company claim waiting') : t('adminValidate.request.joinLabel', 'Join request waiting')}
+                >
+                  <p className="flex items-start gap-1.5 font-semibold">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    {r.kind === 'claim'
+                      ? t('adminValidate.request.claim', '{{name}} also asked to manage {{org}}.', { name: firstName, org: r.org_name ?? t('adminReview.v2.aCompany', 'a company') })
+                      : t('adminValidate.request.join', '{{name}} asked to join {{org}}.', { name: firstName, org: r.org_name ?? t('adminReview.v2.aCompany', 'a company') })}
+                  </p>
+                  <p className="mt-1">
+                    {r.kind === 'claim'
+                      ? t('adminValidate.request.claimBody', 'Approving the claim makes them its owner and validates them. If they should not manage it, decline it on the claim card in To review, then decide on them here.')
+                      : t('adminValidate.request.joinBody', 'Its owner decides whether they join. You can validate them as a participant now: they join the company when the owner says yes.')}
+                  </p>
+                  {r.kind === 'claim' && r.id && (
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" className={cn(ADMIN_BTN_PRIMARY, 'h-auto min-h-11 whitespace-normal py-2 text-left')} disabled={claimBusy || saving} onClick={() => approveClaimHere(r)}>
+                        {claimBusy ? <Loader2 className="mr-1.5 h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="mr-1.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                        {t('adminValidate.request.approveClaim', 'Approve the claim: they manage {{org}}', { org: r.org_name ?? t('adminValidate.theCompany', 'the company') })}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              ))}
+
               {/* What M3 decides */}
               <fieldset>
                 <legend className="text-[14px] font-semibold text-navy">{t('adminValidate.decision', 'Your decision')}</legend>
@@ -388,6 +465,7 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
                     allowNone={false}
                     lookup={lookup}
                     disabled={saving}
+                    ownerBlocked={requests.filter(r => r.kind === 'claim').map(r => r.organization_id)}
                   />
                 </section>
               )}
@@ -433,6 +511,9 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
                   <Checkbox checked={notify} onCheckedChange={v => setNotify(v === true)} />
                   <span>{t('adminValidate.notify', 'E-mail them the decision')}</span>
                 </label>
+              )}
+              {(action === 'ask' || notify) && senderOn !== true && (
+                <p className="text-[13px] leading-5 text-amber-800">{decisionMailText(t, senderOn)}</p>
               )}
 
               {error && (

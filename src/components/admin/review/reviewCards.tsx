@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
   AlertTriangle, ArrowRight, Building2, Check, Clock, Copy, Eye, History, Inbox, KeyRound, Link2, Mail,
-  Ticket, UserCheck, UserPlus, Users, type LucideIcon,
+  MoreHorizontal, Ticket, UserCheck, UserPlus, Users, type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { partsLabel } from '@/lib/guestList';
 import { cn } from '@/lib/utils';
 import {
@@ -107,12 +110,18 @@ export function signalChips(row: QueueRow, t: TFunction): { chips: FactChip[]; l
   if (account === false && (row.kind === 'event_request' || row.kind === 'claim' || row.kind === 'join_request')) {
     chips.push({ label: t('adminReview.v2.signal.noAccount', 'No account yet') });
   }
-  if (fBool(s, 'sm26') || fBool(s, 'sm26_by_email')) {
+  if (fBool(s, 'sm26')) {
     chips.push({
       label: row.kind === 'claim' || row.kind === 'join_request'
         ? t('adminReview.v2.signal.sm26Company', 'Company at Smart Marina 2026')
         : t('adminReview.fact.sm26Confirmed', 'Confirmed for Smart Marina 2026'),
       tone: 'info',
+    });
+  } else if (fBool(s, 'sm26_by_email')) {
+    // Only the address typed in the registration matches: anyone can type any address.
+    chips.push({
+      label: t('adminReview.v2.signal.sm26ByEmail', 'Same e-mail as a Smart Marina 2026 attendee (not verified)'),
+      title: t('adminReview.fact.domainMatchUnprovenHint', 'Anyone can sign up with any address: this is a hint, not a proof.'),
     });
   }
   if (fBool(s, 'linkedin') ?? fBool(f, 'linkedin')) chips.push({ label: t('adminReview.fact.linkedin', 'LinkedIn given'), tone: 'success' });
@@ -234,6 +243,10 @@ export function describeRow(row: QueueRow, t: TFunction, canOpen: boolean): Card
       }
       if (fBool(f, 'draft')) chips.push({ label: t('adminReview.v2.fact.draft', 'Old sign-up form not finished'), tone: 'warning' });
       if (fBool(fObj(f, 'intent'), 'has_code')) chips.push({ label: t('adminReview.v2.fact.typedCode', 'Typed a company code'), tone: 'info' });
+      // A claim (its own card, M3 decides) or a join request (the owner decides) filed at sign-up.
+      const path = fStr(fObj(fObj(f, 'intent'), 'result'), 'path');
+      if (path === 'claim_requested') chips.push({ label: t('adminReview.v2.fact.claimWaiting', 'Company claim waiting: see its card'), tone: 'warning', icon: KeyRound });
+      if (path === 'join_requested') chips.push({ label: t('adminReview.v2.fact.joinWaiting', 'Asked the owner to join: the owner decides'), tone: 'info', icon: UserPlus });
       const members = fNum(f, 'company_members');
       if (members !== undefined && members > 1) {
         chips.push({ label: t('adminReview.fact.members', { count: members, defaultValue_one: '{{count}} person in the company', defaultValue_other: '{{count}} people in the company' }) });
@@ -403,6 +416,10 @@ export const QueueCard = forwardRef<HTMLLIElement, {
   const since = unreadable ? '' : sinceText(row, t);
   const contactLine = [model.contact, since].filter(Boolean).join(' · ');
   const hints = actions.filter(a => a.disabled && a.hint).map(a => a.hint as string);
+  // More than three buttons: on a phone the secondary ones (outline actions, links) fold
+  // under "More", so the gold action stays the obvious one.
+  const secondary = actions.filter(a => a.tone === 'outline').length + links.length;
+  const folded = actions.length + links.length > 3 && secondary > 1;
 
   return (
     <li
@@ -494,7 +511,11 @@ export const QueueCard = forwardRef<HTMLLIElement, {
               type="button"
               size="sm"
               variant={a.tone === 'primary' ? 'default' : 'outline'}
-              className={cn(a.tone === 'primary' ? ADMIN_BTN_PRIMARY : a.tone === 'danger' ? ADMIN_BTN_DANGER : ADMIN_BTN, 'h-11')}
+              className={cn(
+                a.tone === 'primary' ? ADMIN_BTN_PRIMARY : a.tone === 'danger' ? ADMIN_BTN_DANGER : ADMIN_BTN, 'h-11',
+                // On a phone, only the gold action and "Not accepted" stay out; the rest is under "More".
+                folded && a.tone === 'outline' && 'hidden sm:inline-flex',
+              )}
               onClick={e => { e.stopPropagation(); a.run(); }}
               disabled={busy || a.disabled}
               aria-label={a.ariaLabel}
@@ -504,13 +525,39 @@ export const QueueCard = forwardRef<HTMLLIElement, {
             </Button>
           ))}
           {links.map(l => (
-            <Button key={l.to + l.label} asChild variant="outline" size="sm" className={cn(ADMIN_BTN, 'h-11')}>
+            <Button key={l.to + l.label} asChild variant="outline" size="sm" className={cn(ADMIN_BTN, 'h-11', folded && 'hidden sm:inline-flex')}>
               <Link to={l.to} target={l.newTab ? '_blank' : undefined} onClick={e => e.stopPropagation()}>
                 {l.label}
                 <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           ))}
+          {folded && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className={cn(ADMIN_BTN, 'h-11 sm:hidden')} onClick={e => e.stopPropagation()} disabled={busy}>
+                  <MoreHorizontal className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  {t('adminReview.v2.more', 'More')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[220px]">
+                {actions.filter(a => a.tone === 'outline').map(a => (
+                  <DropdownMenuItem key={a.key} disabled={busy || a.disabled} onSelect={() => a.run()} className="min-h-11 cursor-pointer text-[14px]">
+                    {a.icon && <a.icon className="mr-2 h-4 w-4" aria-hidden="true" />}
+                    {a.label}
+                  </DropdownMenuItem>
+                ))}
+                {links.map(l => (
+                  <DropdownMenuItem key={l.to + l.label} asChild className="min-h-11 cursor-pointer text-[14px]">
+                    <Link to={l.to} target={l.newTab ? '_blank' : undefined}>
+                      <ArrowRight className="mr-2 h-4 w-4" aria-hidden="true" />
+                      {l.label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {hints.map(h => <span key={h} className="text-[13px] leading-5 text-meta">{h}</span>)}
         </div>
       )}

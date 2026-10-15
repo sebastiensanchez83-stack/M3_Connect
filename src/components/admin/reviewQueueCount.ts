@@ -16,12 +16,25 @@ import { supabase } from '@/lib/supabase';
  * - when a screen asks for it (refresh(), e.g. the dashboard's Refresh button).
  * null = unknown (function not deployed yet, not staff, or an error): no badge.
  *
- * With registration_flags.review_queue on, the figure is the v2 list's total
- * (admin_review_queue_counts().total: every tab, as /admin/review v2 shows it);
- * if that function is not installed yet, the v1 count as before.
+ * With registration_flags.review_queue on, the figure is what waits for a DECISION in the
+ * v2 list: the People & companies, Event registrations and Reports & content topics
+ * (admin_review_queue_counts(): people + registrations + content). The FYI topics (Team
+ * joins, Duplicates, Retro-review) are left out, as the 08:00 digest leaves them out; their
+ * own counts show on their tabs. A join request (the owner decides) is in People & companies
+ * and counts until M3 marks it seen: admin_review_queue_counts() does not split it out, and
+ * /admin/review announces the same figure (needsDecision). If that function is not installed
+ * yet, the v1 count as before.
  */
 
 export const REVIEW_QUEUE_EVENT = 'smc:review-queue-changed';
+
+/** The v2 topics whose items wait for a decision (the badge); the others are FYI. */
+export const DECISION_TABS = ['people', 'registrations', 'content'] as const;
+
+/** A v2 row that counts in the badge (same rule as the counts below). */
+export function needsDecision(row: { tab: string }): boolean {
+  return (DECISION_TABS as readonly string[]).includes(row.tab);
+}
 
 export interface ReviewCount {
   count: number | null;
@@ -54,9 +67,10 @@ export function useReviewCountSource(enabled: boolean, uid: string | undefined, 
       const flags = await readRegistrationFlags();
       if (flags?.review_queue) {
         const { data, error } = await supabase.rpc('admin_review_queue_counts');
-        const total = !error && data && typeof data === 'object' ? (data as { total?: unknown }).total : undefined;
-        if (typeof total === 'number') {
-          if (mounted.current) setCount(total);
+        const counts = !error && data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+        const parts = counts ? DECISION_TABS.map(k => counts[k]) : [];
+        if (counts && parts.every(n => typeof n === 'number')) {
+          if (mounted.current) setCount((parts as number[]).reduce((a, b) => a + b, 0));
           return;
         }
       }

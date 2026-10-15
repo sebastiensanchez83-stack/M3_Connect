@@ -18,9 +18,10 @@ import {
 import { ToastAction } from '@/components/ui/toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { useRegistrationFlags } from '@/lib/flags';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
-import { REVIEW_QUEUE_EVENT } from '../reviewQueueCount';
+import { REVIEW_QUEUE_EVENT, needsDecision } from '../reviewQueueCount';
 import { readSlaDays, toTime, workingDaysSince } from '../AdminReviewQueue';
 import {
   ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY, AdminEmpty, AdminLoading, AdminPageHeader, AdminSegmented,
@@ -29,8 +30,8 @@ import { ValidatePersonDialog } from '../ValidatePersonDialog';
 import { CompanyChoice, companyPickToOrg, type CompanyPick } from './CompanyChoice';
 import {
   QUEUE_TABS, ReviewError, addOrgMemberBack, closeReport, decideClaim, decideGuestList, decideRegistrationV2,
-  dismissCard, fStr, loadEventKinds, loadGuestIdentity, loadQueueV2, markDuplicateOrg, reviewErrorText,
-  revokeTeamJoin, rowKey, validatePerson,
+  decisionMailText, dismissCard, fStr, loadEventKinds, loadGuestIdentity, loadQueueV2, markDuplicateOrg, reviewErrorText,
+  revokeTeamJoin, rowKey, useOutboxSender, validatePerson,
   type OrgAction, type PersonAction, type QueueRow, type QueueTab, type RegDecisionResult,
 } from './reviewApi';
 import { QueueCard, describeRow, hasPart, partsText, type CardAction, type CardLink } from './reviewCards';
@@ -69,6 +70,8 @@ interface CapGroup {
   held: number;
   capacity: number;
   adding: number;
+  /** The registrations not decided yet (those the yes would send). */
+  remaining: string[];
   retry: () => Promise<RegDecisionResult>;
 }
 
@@ -97,10 +100,10 @@ function tabLabel(tab: QueueTab, t: TFunction): string {
 
 function tabIntro(tab: QueueTab, t: TFunction): string {
   switch (tab) {
-    case 'people': return t('adminReview.v2.intro.people', 'New accounts, the companies they declared, and requests to manage a company. M3 decides each one.');
+    case 'people': return t('adminReview.v2.intro.people', 'New accounts, the companies they declared, and requests to manage a company. M3 decides each one, except requests to join a company, which its owner decides.');
     case 'registrations': return t('adminReview.v2.intro.registrations', 'Requests to attend events that M3 checks, the World Yachting Summit included. Tick several to approve them together.');
     case 'team_joins': return t('adminReview.v2.intro.teamJoins', 'People who joined a validated company through its team. Nothing to do unless something looks wrong.');
-    case 'duplicates': return t('adminReview.v2.intro.duplicates', 'Companies or accounts that may be the same. Say they are different, or hide the duplicate company from the directory.');
+    case 'duplicates': return t('adminReview.v2.intro.duplicates', 'Companies or accounts that may be the same. Say they are different, or mark which company is the duplicate: it then leaves sign-up search and company matching (merging comes later).');
     case 'retro': return t('adminReview.v2.intro.retro', 'People validated before M3 reviewed every account. Keep them as they are, or review them again. Each appears once.');
     case 'content': return t('adminReview.v2.intro.content', 'Reported conversations, needs, webinar proposals and article drafts.');
   }
@@ -153,6 +156,13 @@ export function ReviewQueueV2() {
   const cardRefs = useRef<(HTMLLIElement | null)[]>([]);
   const deferred = useDeferredActions();
   const lastWindow = useRef<Exclude<DialogState, { mode: 'validate' }> | null>(null);
+  // Decision e-mails leave only while outbox_sender is on: the toasts say where they wait.
+  const senderOn = useOutboxSender();
+  // provisioning on: a confirmed WYS guest gets a second e-mail (their account) after the QR.
+  const { flags: regFlags } = useRegistrationFlags();
+  const accountMailNote = regFlags.provisioning
+    ? t('adminReview.v2.wysAccountMail', 'About a minute later they get a second e-mail to choose the password of their Smart Marina Connect account.')
+    : '';
 
   /* ─── loading ─── */
 
@@ -171,10 +181,12 @@ export function ReviewQueueV2() {
       const list = res.rows;
       setRows(list);
       setState('ready');
-      window.dispatchEvent(new CustomEvent(REVIEW_QUEUE_EVENT, { detail: { count: list.length } }));
-      // Which core_v2 events are on-site (their approval creates an account: company choice).
+      // The badge counts what waits for a decision (not the FYI topics), as the sidebar does.
+      window.dispatchEvent(new CustomEvent(REVIEW_QUEUE_EVENT, { detail: { count: list.filter(needsDecision).length } }));
+      // Which core_v2 events are webinars (their approval creates no account). Until this is
+      // known, a core_v2 approval opens the company window (isOnsiteV2 fails safe).
       const ids = [...new Set(list.filter(r => r.kind === 'event_request' && fStr(r.facts, 'engine') === 'core_v2').map(r => fStr(r.facts, 'event_id')).filter((x): x is string => !!x))];
-      if (ids.length) loadEventKinds(ids).then(setEventKinds, () => undefined);
+      if (ids.length) loadEventKinds(ids).then(k => setEventKinds(prev => ({ ...prev, ...k })), () => undefined);
       // Selections of rows that left the list are dropped.
       setSelected(sel => {
         const keep = new Set(list.map(r => r.id));
@@ -300,7 +312,7 @@ export function ReviewQueueV2() {
       description: res.changed < count
         ? t('adminReview.v2.done.partly', 'The others were already decided by someone else.')
         : decision === 'approve'
-          ? (engineV1 ? t('adminReview.toast.approvedBody', 'The entry pass was e-mailed.') : t('adminReview.v2.done.approvedV2', 'Their confirmation was e-mailed.'))
+          ? (engineV1 ? [t('adminReview.toast.approvedBody', 'The entry pass was e-mailed.'), accountMailNote].filter(Boolean).join(' ') : t('adminReview.v2.done.approvedV2', 'Their confirmation was e-mailed.'))
           : res.sent ? t('adminReview.v2.done.mailed', 'They were e-mailed.') : undefined,
     });
   };
@@ -308,7 +320,14 @@ export function ReviewQueueV2() {
   /* ─── registrations ─── */
 
   const isV1 = (r: QueueRow) => fStr(r.facts, 'engine') !== 'core_v2';
-  const isOnsiteV2 = (r: QueueRow) => !isV1(r) && eventKinds[fStr(r.facts, 'event_id') ?? '']?.kind === 'onsite';
+  /**
+   * A core_v2 registration whose approval makes an account (on-site): M3 chooses its company in
+   * a window. Fails safe: while the event's kind is not known (not read yet, or the read
+   * failed) it counts as on-site; only a known webinar is approved in one click.
+   */
+  const isOnsiteV2 = (r: QueueRow) => !isV1(r) && eventKinds[fStr(r.facts, 'event_id') ?? '']?.kind !== 'webinar';
+  /** A WYS guest who asked for neither part cannot be approved here (the guest list chooses). */
+  const canApprove = (r: QueueRow) => !isV1(r) || hasPart(r);
 
   /** One decision on registrations of ONE event (one engine). */
   const decideRegs = async (
@@ -322,7 +341,7 @@ export function ReviewQueueV2() {
       const slug = fStr(first.facts, 'event_slug');
       if (!slug) throw new ReviewError('bad_input');
       if (decision !== 'approve' && decision !== 'reject') throw new ReviewError('wrong_engine');
-      return decideGuestList(slug, ids, decision, { force: opts.force, notify: opts.notify, glEventId: fStr(first.facts, 'event_id') });
+      return decideGuestList(slug, ids, decision, { force: opts.force, notify: opts.notify, glEventId: fStr(first.facts, 'event_id'), actorId: user?.id ?? null });
     }
     const glEventId = fStr(first.facts, 'event_id');
     if (!glEventId) throw new ReviewError('bad_input');
@@ -352,6 +371,12 @@ export function ReviewQueueV2() {
       } catch (e) { failToast(e); }
       await load();
     });
+  };
+
+  /** The rows of `group` still to send after a capacity stop. */
+  const remainingOf = (group: QueueRow[], remaining: string[]) => {
+    const keep = new Set(remaining);
+    return group.filter(r => keep.has(r.id));
   };
 
   const openRegApprove = (row: QueueRow) => {
@@ -387,7 +412,11 @@ export function ReviewQueueV2() {
       const notify = opts.notify ?? (decision === 'reject' ? !isV1(g[0]) : undefined);
       try {
         const res = await decideRegs(g, decision, { notify, infoRequest: opts.infoRequest });
-        if (res.capacity) full.push({ label: eventLabel(g[0]), v1: isV1(g[0]), ...res.capacity, retry: () => decideRegs(g, decision, { force: true, notify }) });
+        if (res.capacity) {
+          const rest = remainingOf(g, res.capacity.remaining);
+          full.push({ label: eventLabel(g[0]), v1: isV1(g[0]), ...res.capacity, retry: () => decideRegs(rest, decision, { force: true, notify }) });
+        }
+        if (res.stopped) errors.push(`${eventLabel(g[0])}: ${t('adminReview.v2.done.stopped', 'stopped part-way ({{count}} done).', { count: res.changed })} ${reviewErrorText(res.stopped, t)}`);
         changed += res.changed;
         failed += res.failed;
         sent += res.sent;
@@ -395,7 +424,9 @@ export function ReviewQueueV2() {
         errors.push(`${eventLabel(g[0])}: ${reviewErrorText(e, t)}`);
       }
     }
-    if (changed || !full.length) regOutcome({ changed, failed, sent }, decision, list.length, list.every(isV1));
+    // Only the rows actually sent count as "expected" (those waiting for the capacity answer do not).
+    const waitingForCapacity = full.reduce((n, g) => n + g.remaining.length, 0);
+    if (changed || (!full.length && !errors.length)) regOutcome({ changed, failed, sent }, decision, list.length - waitingForCapacity, list.every(isV1));
     if (errors.length) toast({ title: t('adminReview.toast.notDone', 'Not done'), description: errors.join(' '), variant: 'destructive' });
     if (full.length) setDialog({ mode: 'capacity', groups: full });
     else setDialog(null);
@@ -409,7 +440,7 @@ export function ReviewQueueV2() {
     deferred.schedule(rowKey(row), t('adminReview.v2.undo.participant', 'Validating {{name}} as a participant', { name: row.title }), async () => {
       try {
         await validatePerson(row.id, { action: 'participant', notify: true });
-        toast({ title: t('adminValidate.done.participantTitle', '{{name}} is validated as a participant', { name: row.title }), description: t('adminValidate.done.mail', 'They will receive an e-mail.') });
+        toast({ title: t('adminValidate.done.participantTitle', '{{name}} is validated as a participant', { name: row.title }), description: decisionMailText(t, senderOn) });
       } catch (e) { failToast(e); }
       await load();
     });
@@ -420,7 +451,7 @@ export function ReviewQueueV2() {
     deferred.schedule(rowKey(row), t('adminReview.v2.undo.claim', 'Making {{name}} the owner of {{org}}', { name: row.title, org }), async () => {
       try {
         await decideClaim(fStr(row.facts, 'invitation_id') ?? row.id, true);
-        toast({ title: t('adminReview.v2.done.claimApproved', '{{name}} now manages {{org}}', { name: row.title, org }), description: t('adminValidate.done.mail', 'They will receive an e-mail.') });
+        toast({ title: t('adminReview.v2.done.claimApproved', '{{name}} now manages {{org}}', { name: row.title, org }), description: decisionMailText(t, senderOn) });
       } catch (e) { failToast(e); }
       await load();
     });
@@ -450,17 +481,18 @@ export function ReviewQueueV2() {
     const hideName = fStr(row.facts, `${hide}_name`) ?? '?';
     const keepName = fStr(row.facts, `${keep}_name`) ?? '?';
     if (!hideId || !keepId) return;
-    deferred.schedule(rowKey(row), t('adminReview.v2.undo.hide', 'Hiding {{hide}} (duplicate of {{keep}})', { hide: hideName, keep: keepName }), async () => {
+    deferred.schedule(rowKey(row), t('adminReview.v2.undo.markDuplicate', 'Marking {{hide}} as a duplicate of {{keep}}', { hide: hideName, keep: keepName }), async () => {
       try {
         await markDuplicateOrg(hideId, keepId);
+        // The public directories do not filter duplicates yet (contract §11.6): say what it does today.
         toast({
-          title: t('adminReview.v2.done.hidden', '{{hide}} is hidden from the directory', { hide: hideName }),
-          description: t('adminReview.v2.done.hiddenBody', 'Its people and links stay as they are; merging comes later.'),
+          title: t('adminReview.v2.done.markedDuplicate', '{{hide}} is marked as a duplicate of {{keep}}', { hide: hideName, keep: keepName }),
+          description: t('adminReview.v2.done.markedDuplicateBody', 'It no longer appears in sign-up search or company matching, and nobody can be linked to it. The public directory still lists it until the directory update; its people and links stay as they are.'),
           action: (
-            <ToastAction altText={t('adminReview.v2.done.showAgain', 'Show it again')} onClick={() => {
-              markDuplicateOrg(hideId, null).then(() => { toast({ title: t('adminReview.v2.done.shownAgain', '{{hide}} is listed again', { hide: hideName }) }); void load(); }, failToast);
+            <ToastAction altText={t('adminReview.v2.done.unmark', 'Undo: not a duplicate')} onClick={() => {
+              markDuplicateOrg(hideId, null).then(() => { toast({ title: t('adminReview.v2.done.unmarked', '{{hide}} is no longer marked as a duplicate', { hide: hideName }) }); void load(); }, failToast);
             }}>
-              {t('adminReview.v2.done.showAgain', 'Show it again')}
+              {t('adminReview.v2.done.undo', 'Undo')}
             </ToastAction>
           ),
         });
@@ -524,9 +556,9 @@ export function ReviewQueueV2() {
         add({
           key: 'approve', label: t('adminReview.v2.act.approveClaim', 'Approve: they manage it'), icon: Check, tone: 'primary',
           run: () => claimApprove(row), disabled: hasOwner || f.org_status !== 'verified',
-          hint: hasOwner ? t('adminReview.v2.hint.claimOwner', 'The company has an owner now: decline the claim.') : f.org_status !== 'verified' ? t('adminReview.v2.hint.claimPending', 'Approve the company first, then the claim.') : undefined,
+          hint: hasOwner ? t('adminReview.v2.hint.claimOwnerNA', 'The company has an owner now: mark the claim as not accepted.') : f.org_status !== 'verified' ? t('adminReview.v2.hint.claimPending', 'Approve the company first, then the claim.') : undefined,
         }, 'primary');
-        add({ key: 'decline', label: t('adminReview.v2.act.declineClaim', 'Decline…'), icon: X, tone: 'danger', run: () => { setDialogError(null); setDialog({ mode: 'claimDecline', row, note: '' }); } }, 'refuse');
+        add({ key: 'decline', label: t('adminReview.v2.act.reject', 'Not accepted…'), icon: X, tone: 'danger', run: () => { setDialogError(null); setDialog({ mode: 'claimDecline', row, note: '' }); } }, 'refuse');
         push(orgLink(fStr(f, 'organization_id')));
         push(userLink(fStr(f, 'user_id')));
         break;
@@ -553,12 +585,12 @@ export function ReviewQueueV2() {
           const sm26 = f[`${side}_sm26`] === true;
           add({
             key: `hide-${side}`,
-            label: t('adminReview.v2.act.hide', 'Hide {{name}}', { name: fStr(f, `${side}_name`) ?? '?' }),
+            label: t('adminReview.v2.act.markDuplicate', '{{name}} is the duplicate', { name: fStr(f, `${side}_name`) ?? '?' }),
             icon: EyeOff,
             tone: 'outline',
             run: () => hideDuplicate(row, side),
             disabled: sm26,
-            ariaLabel: t('adminReview.v2.act.hideAria', 'Hide {{name}} as a duplicate of {{keep}}', { name: fStr(f, `${side}_name`) ?? '?', keep: fStr(f, `${other}_name`) ?? '?' }),
+            ariaLabel: t('adminReview.v2.act.markDuplicateAria', 'Mark {{name}} as a duplicate of {{keep}}', { name: fStr(f, `${side}_name`) ?? '?', keep: fStr(f, `${other}_name`) ?? '?' }),
           });
         }
         push(orgLink(fStr(f, 'a_id'), t('adminReview.v2.open.named', 'Open {{name}}', { name: fStr(f, 'a_name') ?? '?' })));
@@ -592,7 +624,7 @@ export function ReviewQueueV2() {
         add({
           key: 'reject', label: t('adminReview.v2.act.reject', 'Not accepted…'), icon: X, tone: 'danger',
           run: () => { setDialogError(null); setDialog({ mode: 'regReject', rows: [row], notify: !v1 }); },
-          ariaLabel: t('adminReview.refuse.aria', 'Refuse the request from {{name}}', { name: row.title }),
+          ariaLabel: t('adminReview.v2.regReject.aria', 'Mark the request from {{name}} as not accepted', { name: row.title }),
         }, 'refuse');
         links.push({ to: row.url, label: v1 ? t('adminReview.open.eventRequest', 'Open the guest list') : t('adminReview.open.event', 'Open the event') });
         break;
@@ -609,8 +641,8 @@ export function ReviewQueueV2() {
 
   /* ─── keyboard: J / K / A / R / X / U ─── */
 
-  const keyState = useRef({ tabRows, focusIndex, dialog, cardActions, tab, selected });
-  keyState.current = { tabRows, focusIndex, dialog, cardActions, tab, selected };
+  const keyState = useRef({ tabRows, focusIndex, dialog, cardActions, tab, selected, canApprove });
+  keyState.current = { tabRows, focusIndex, dialog, cardActions, tab, selected, canApprove };
 
   const moveFocus = (to: number) => {
     const n = keyState.current.tabRows.length;
@@ -647,7 +679,8 @@ export function ReviewQueueV2() {
       } else if (row && key === 'r') {
         const r = s.cardActions(row).refuse;
         if (r && !r.disabled) { e.preventDefault(); r.run(); }
-      } else if (row && key === 'x' && s.tab === 'registrations') {
+      } else if (row && key === 'x' && s.tab === 'registrations' && s.canApprove(row)) {
+        // Same rule as the card's tick box: a WYS guest with no part cannot be ticked.
         e.preventDefault();
         toggleSelect(row.id, !s.selected.has(row.id));
       }
@@ -671,13 +704,13 @@ export function ReviewQueueV2() {
   const header = (
     <AdminPageHeader
       title={t('adminReview.title', 'To review')}
-      count={state === 'ready' ? live.length : undefined}
+      count={state === 'ready' ? live.filter(needsDecision).length : undefined}
       description={t('adminReview.v2.description', 'Everything waiting for a decision from the M3 team, by topic. The gold button on a card is the usual decision.')}
       meta={
         isAdmin ? (
           <span className="hidden items-center gap-1.5 md:inline-flex">
             <Keyboard className="h-4 w-4" aria-hidden="true" />
-            {t('adminReview.v2.keys', 'Keys: J and K to move, A for the gold action, R to refuse, X to tick, U to undo.')}
+            {t('adminReview.v2.keysNA', 'Keys: J and K to move, A for the gold action, R for not accepted, X to tick, U to undo.')}
           </span>
         ) : <span>{t('adminReview.moderatorNote', 'As a moderator, you see reported conversations, webinar proposals and article drafts. People, companies and event requests are reviewed by the administrators.')}</span>
       }
@@ -711,12 +744,14 @@ export function ReviewQueueV2() {
   const shown = windowShown ?? lastWindow.current;
 
   const regSelectable = tab === 'registrations';
-  const selectedRows = regSelectable ? tabRows.filter(r => selected.has(r.id)) : [];
-  const selectableRows = tabRows.filter(r => !isV1(r) || hasPart(r));
+  // Never a row that cannot be approved, however it was ticked (second guard after the tick box and X).
+  const selectedRows = regSelectable ? tabRows.filter(r => selected.has(r.id) && canApprove(r)) : [];
+  const selectableRows = tabRows.filter(canApprove);
   const allSelected = regSelectable && selectableRows.length > 0 && selectableRows.every(r => selected.has(r.id));
 
   return (
-    <div className="pb-28">
+    // Room under the last card for the Undo bars (about 76 px each), so none hides a button.
+    <div className="pb-28" style={deferred.waiting.length ? { paddingBottom: `${112 + deferred.waiting.length * 76}px` } : undefined}>
       {header}
 
       {/* Tabs: one line that scrolls sideways on a phone. */}
@@ -823,7 +858,7 @@ export function ReviewQueueV2() {
           {tabRows.map((row, i) => {
             const { actions, links } = cardActions(row);
             const model = describeRow(row, t, canOpenContent(row));
-            const selectable = regSelectable && (!isV1(row) || hasPart(row));
+            const selectable = regSelectable && canApprove(row);
             return (
               <QueueCard
                 key={rowKey(row)}
@@ -841,7 +876,7 @@ export function ReviewQueueV2() {
                 onFocusCard={() => setFocusIndex(i)}
                 busy={busy}
                 footer={row.kind === 'event_request' && isV1(row) && hasPart(row)
-                  ? <p className="mt-2 text-[13px] leading-5 text-meta">{t('adminReview.v2.wysPass', 'Approving e-mails the entry pass for {{parts}} at once.', { parts: partsText(row) })}</p>
+                  ? <p className="mt-2 text-[13px] leading-5 text-meta">{[t('adminReview.v2.wysPass', 'Approving e-mails the entry pass for {{parts}} at once.', { parts: partsText(row) }), accountMailNote].filter(Boolean).join(' ')}</p>
                   : undefined}
               />
             );
@@ -860,6 +895,7 @@ export function ReviewQueueV2() {
           userId={dialog.userId}
           initialAction={dialog.action}
           signals={dialog.row?.signals}
+          loginEmail={dialog.row ? fStr(dialog.row.facts, 'email') ?? null : null}
           onDone={() => { void load(); }}
         />
       )}
@@ -868,16 +904,16 @@ export function ReviewQueueV2() {
         <DialogContent className={SHEET}>
           {shown?.mode === 'claimDecline' && (
             <WindowBody
-              title={t('adminReview.v2.claimDecline.title', 'Decline the claim of {{name}}?', { name: shown.row.title })}
-              description={t('adminReview.v2.claimDecline.body', '{{name}} will not manage {{org}}. Their account stays as it is, and they are e-mailed. Add a note if it helps them.', { name: shown.row.title, org: fStr(shown.row.facts, 'org_name') ?? '' })}
+              title={t('adminReview.v2.claimDecline.titleNA', 'Mark the claim of {{name}} as not accepted?', { name: shown.row.title })}
+              description={t('adminReview.v2.claimDecline.bodyNA', '{{name}} will not manage {{org}}. Their account stays as it is (decide on it separately), and they are e-mailed. Add a note if it helps them.', { name: shown.row.title, org: fStr(shown.row.facts, 'org_name') ?? '' })}
               error={dialogError}
               busy={busy}
               onCancel={() => setDialog(null)}
-              confirm={{ label: t('adminReview.v2.claimDecline.confirm', 'Decline the claim'), danger: true, run: async () => {
+              confirm={{ label: t('adminReview.v2.markNotAccepted', 'Mark as not accepted'), danger: true, run: async () => {
                 setBusy(true);
                 try {
                   await decideClaim(fStr(shown.row.facts, 'invitation_id') ?? shown.row.id, false, shown.note);
-                  toast({ title: t('adminReview.v2.done.claimDeclined', 'Claim declined'), description: t('adminValidate.done.mail', 'They will receive an e-mail.') });
+                  toast({ title: t('adminReview.v2.done.claimNotAccepted', 'Claim not accepted'), description: decisionMailText(t, senderOn) });
                   setDialog(null);
                   void load();
                 } catch (e) { setDialogError(reviewErrorText(e, t)); }
@@ -898,13 +934,13 @@ export function ReviewQueueV2() {
           {shown?.mode === 'regReject' && (
             <WindowBody
               title={shown.rows.length === 1
-                ? t('adminReview.refuse.title', 'Refuse the request from {{name}}?', { name: shown.rows[0].title })
-                : t('adminReview.v2.regReject.titleN', 'Refuse {{count}} requests?', { count: shown.rows.length })}
-              description={t('adminReview.refuse.body', 'The request is marked as refused. They will not be told unless you tick the box below.')}
+                ? t('adminReview.v2.regReject.title1', 'Mark the request from {{name}} as not accepted?', { name: shown.rows[0].title })
+                : t('adminReview.v2.regReject.titleNA', 'Mark {{count}} requests as not accepted?', { count: shown.rows.length })}
+              description={t('adminReview.v2.regReject.body', 'The request is marked as not accepted. They are not told unless you tick the box below.')}
               error={dialogError}
               busy={busy}
               onCancel={() => setDialog(null)}
-              confirm={{ label: t('adminReview.refuse.confirm', 'Refuse the request'), danger: true, run: async () => {
+              confirm={{ label: t('adminReview.v2.markNotAccepted', 'Mark as not accepted'), danger: true, run: async () => {
                 setBusy(true);
                 setDialogError(null);
                 try { await runGrouped(shown.rows, 'reject', { notify: shown.notify }); setSelected(new Set()); } catch (e) { setDialogError(reviewErrorText(e, t)); }
@@ -914,7 +950,7 @@ export function ReviewQueueV2() {
             >
               <label htmlFor="v2-refuse-notify" className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy">
                 <Checkbox id="v2-refuse-notify" checked={shown.notify} onCheckedChange={v => setDialog(d => (d && d.mode === 'regReject' ? { ...d, notify: v === true } : d))} />
-                <span>{t('adminReview.refuse.notify', 'Send them a polite decline e-mail')}</span>
+                <span>{t('adminReview.v2.regReject.notify', 'Send them a polite e-mail saying the request was not accepted')}</span>
               </label>
             </WindowBody>
           )}
@@ -974,6 +1010,9 @@ export function ReviewQueueV2() {
               } }}
             >
               <div className="space-y-3">
+                {!eventKinds[fStr(shown.row.facts, 'event_id') ?? ''] && (
+                  <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.regApprove.kindUnknown', 'The type of this event could not be checked yet. If it is a webinar, no account is made and the company below is not used.')}</p>
+                )}
                 <p className="text-[14px] font-semibold text-navy">{t('adminReview.v2.regApprove.company', 'Their company on the platform')}</p>
                 {shown.lookup ? (
                   <CompanyChoice
@@ -1017,6 +1056,9 @@ export function ReviewQueueV2() {
               </ul>
               {shown.rows.some(isOnsiteV2) && (
                 <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.onsite', 'On-site events: their accounts are made with no company; M3 can link the company later from the person\'s page.')}</p>
+              )}
+              {accountMailNote && shown.rows.some(isV1) && (
+                <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.wysAccount', 'World Yachting Summit guests: about a minute after their entry pass, they get a second e-mail to choose the password of their Smart Marina Connect account.')}</p>
               )}
             </WindowBody>
           )}
@@ -1073,7 +1115,7 @@ export function ReviewQueueV2() {
                     description: res.person_reset ? t('adminReview.v2.done.removedReset', 'Their account is back under review.') : undefined,
                     action: !res.person_reset && userId && orgId ? (
                       <ToastAction altText={t('adminReview.v2.done.addBack', 'Add back')} onClick={() => {
-                        addOrgMemberBack(userId, orgId).then(() => { toast({ title: t('adminReview.v2.done.addedBack', '{{name}} is a member again', { name: row.title }) }); void load(); }, failToast);
+                        addOrgMemberBack(userId, orgId, row.id).then(() => { toast({ title: t('adminReview.v2.done.addedBack', '{{name}} is a member again', { name: row.title }) }); void load(); }, failToast);
                       }}>
                         {t('adminReview.v2.done.addBack', 'Add back')}
                       </ToastAction>

@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Building2, Check, Loader2, Plus, Search, UserX } from 'lucide-react';
+import { AlertTriangle, Building2, Check, Loader2, Plus, Search, UserX } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { AdminStatusPill } from '../AdminUI';
-import { ORG_TYPES, orgCandidates, reviewErrorText, type OrgAction, type OrgCandidate, type OrgType } from './reviewApi';
+import { NEAR_MATCH_SCORE, ORG_TYPES, orgCandidates, reviewErrorText, type OrgAction, type OrgCandidate, type OrgType } from './reviewApi';
 
 /**
  * Which company a person belongs to once M3 says yes: one of their current companies, an
@@ -19,7 +19,18 @@ export type CompanyPick =
   | { mode: 'none' }
   | { mode: 'current'; orgId: string; type: OrgType | '' }
   | { mode: 'link'; orgId: string | null; asOwner: boolean }
-  | { mode: 'create'; name: string; type: OrgType | ''; website: string; country: string; forceNew: boolean };
+  | {
+    mode: 'create'; name: string; type: OrgType | ''; website: string; country: string; forceNew: boolean;
+    /** The closest listed company (NEAR_MATCH_SCORE or more), set by CompanyChoice; null = none. */
+    nearMatch?: string | null;
+    /** M3 ticked "This is a different company" (needed to create while nearMatch is set). */
+    different?: boolean;
+  };
+
+/** A new "create" pick (nothing near found yet). */
+export function createPickOf(p: { name?: string | null; type?: OrgType | ''; website?: string | null; country?: string | null }): CompanyPick {
+  return { mode: 'create', name: p.name ?? '', type: p.type ?? '', website: p.website ?? '', country: p.country ?? '', forceNew: false, nearMatch: null, different: false };
+}
 
 /** A company the person already belongs to. */
 export interface CurrentCompany {
@@ -71,6 +82,7 @@ export function CompanyChoice({
   noneHint,
   lookup,
   disabled = false,
+  ownerBlocked = [],
 }: {
   value: CompanyPick;
   onChange: (next: CompanyPick) => void;
@@ -82,6 +94,11 @@ export function CompanyChoice({
   /** What to look for first: the declared company, the website, the e-mail, the country. */
   lookup: { name?: string | null; website?: string | null; email?: string | null; country?: string | null };
   disabled?: boolean;
+  /**
+   * Companies this person has an open CLAIM on: becoming their owner is decided on the claim
+   * card (admin_decide_claim), never by ticking "owner" here.
+   */
+  ownerBlocked?: string[];
 }) {
   const { t } = useTranslation();
   const groupName = useId();
@@ -90,18 +107,25 @@ export function CompanyChoice({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
+  const linkPick = value.mode === 'link' ? value : null;
+  const createPick = value.mode === 'create' ? value : null;
 
-  // Candidates for the declared company at once, then for what M3 types (300 ms pause).
+  // What is looked up: the company M3 is about to create (its name and website), or what M3
+  // types in the search box. The declared company at once, then after a 300 ms pause.
+  const searchName = createPick ? createPick.name : query;
+  const searchWebsite = createPick
+    ? createPick.website
+    : query.trim() === (lookup.name ?? '').trim() ? lookup.website : null;
   useEffect(() => {
     const n = ++seq.current;
-    const typed = query.trim();
+    const typed = searchName.trim();
     const timer = setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
         const rows = await orgCandidates({
           name: typed || lookup.name,
-          website: typed && typed !== (lookup.name ?? '').trim() ? null : lookup.website,
+          website: searchWebsite,
           email: lookup.email,
           country: lookup.country,
         });
@@ -110,15 +134,27 @@ export function CompanyChoice({
         if (n === seq.current) { setCandidates([]); setError(reviewErrorText(e, t)); }
       }
       if (n === seq.current) setLoading(false);
-    }, typed === (lookup.name ?? '').trim() ? 0 : 300);
+    }, n === 1 ? 0 : 300);
     return () => clearTimeout(timer);
-  }, [query, lookup.name, lookup.website, lookup.email, lookup.country, t]);
+  }, [searchName, searchWebsite, lookup.name, lookup.email, lookup.country, t]);
 
   const currentIds = new Set(current.map(c => c.id));
   const shown = candidates.filter(c => !currentIds.has(c.id));
-  const linkPick = value.mode === 'link' ? value : null;
-  const createPick = value.mode === 'create' ? value : null;
   const picked = linkPick?.orgId ? candidates.find(c => c.id === linkPick.orgId) : undefined;
+  const ownerBlockedHere = !!picked && ownerBlocked.includes(picked.id);
+
+  // Before creating: the listed companies close to it, shown above the form; creating anyway
+  // needs "This is a different company" (companyPickToOrg refuses it otherwise).
+  const nearby = createPick
+    ? shown.filter(c => (c.score ?? 0) >= NEAR_MATCH_SCORE).slice(0, 3)
+    : [];
+  const nearName = nearby[0]?.name ?? null;
+  useEffect(() => {
+    if (!createPick || loading || error) return;
+    if ((createPick.nearMatch ?? null) === nearName) return;
+    onChange({ ...createPick, nearMatch: nearName, different: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearName, loading, error, createPick?.nearMatch, createPick ? 1 : 0]);
 
   const option = (checked: boolean, onSelect: () => void, children: React.ReactNode, key: string) => (
     <label
@@ -179,7 +215,7 @@ export function CompanyChoice({
         () => onChange({ mode: 'link', orgId: linkPick?.orgId ?? null, asOwner: false }),
         <>
           <span className="font-semibold">{t('adminReview.v2.company.link', 'Link to a company already on the platform')}</span>
-          <span className="block text-[13px] text-meta">{t('adminReview.v2.company.linkHint', 'They join it as a team member. The owner is told.')}</span>
+          <span className="block text-[13px] text-meta">{t('adminReview.v2.company.linkHint', 'They join it as a team member. The owner is not e-mailed: they see them in their team.')}</span>
         </>,
         'link',
       )}
@@ -251,7 +287,7 @@ export function CompanyChoice({
               );
             })}
           </ul>
-          {picked && !picked.has_owner && linkPick && (
+          {picked && !picked.has_owner && linkPick && !ownerBlockedHere && (
             <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-rule bg-white px-3 py-2 text-[14px] text-navy">
               <Checkbox
                 checked={linkPick.asOwner}
@@ -261,6 +297,11 @@ export function CompanyChoice({
               <span>{t('adminReview.v2.company.asOwner', 'Make them the owner of {{name}} (it has no owner yet)', { name: picked.name })}</span>
             </label>
           )}
+          {picked && ownerBlockedHere && (
+            <p className="text-[13px] leading-5 text-amber-800">
+              {t('adminReview.v2.company.ownerViaClaim', 'They asked to manage {{name}}: decide that on their claim card. Linking here only adds them as a team member.', { name: picked.name })}
+            </p>
+          )}
           {picked?.has_owner && (
             <p className="text-[13px] text-meta">{t('adminReview.v2.company.ownerExists', '{{name}} already has an owner: they join as a team member.', { name: picked.name })}</p>
           )}
@@ -269,12 +310,55 @@ export function CompanyChoice({
 
       {option(
         value.mode === 'create',
-        () => onChange(createPick ?? { mode: 'create', name: lookup.name ?? '', type: '', website: lookup.website ?? '', country: lookup.country ?? '', forceNew: false }),
+        () => onChange(createPick ?? createPickOf({ name: lookup.name, website: lookup.website, country: lookup.country })),
         <>
           <span className="flex items-center gap-1.5 font-semibold"><Plus className="h-4 w-4 text-teal" aria-hidden="true" />{t('adminReview.v2.company.create', 'Create a new company')}</span>
           <span className="block text-[13px] text-meta">{t('adminReview.v2.company.createHint', 'Validated at once, with them as its owner.')}</span>
         </>,
         'create',
+      )}
+
+      {createPick && nearby.length > 0 && (
+        <div className="ml-2 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 sm:ml-7" role="group" aria-label={t('adminReview.v2.company.nearTitle', 'Already on the platform?')}>
+          <p className="flex items-start gap-1.5 text-[14px] font-semibold leading-5 text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('adminReview.v2.company.nearTitle', 'Already on the platform?')}
+          </p>
+          <ul className="space-y-1.5">
+            {nearby.map(c => {
+              const pct = c.score !== null ? Math.round(c.score * 100) : null;
+              const why = [pct !== null ? `${pct}%` : null, ...c.reasons.map(r => reasonWord(r, t))].filter(Boolean).join(', ');
+              const linkable = c.access_status === 'verified';
+              return (
+                <li key={c.id} className="flex flex-wrap items-center gap-2 text-[14px] leading-5 text-navy">
+                  <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                    <span className="font-semibold">{c.name}</span>
+                    {why && <span className="text-meta"> ({why})</span>}
+                    {!linkable && <span className="block text-[12px] text-meta">{t('adminReview.v2.company.pendingNotLinkable', 'Waiting for approval: approve this company first.')}</span>}
+                  </span>
+                  {linkable && (
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => onChange({ mode: 'link', orgId: c.id, asOwner: false })}
+                      className="inline-flex h-11 shrink-0 items-center rounded-pill border border-navy/25 bg-white px-4 text-[14px] font-semibold text-navy hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+                    >
+                      {t('adminReview.v2.company.linkInstead', 'Link to it instead')}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-amber-300 bg-white px-3 py-2 text-[14px] leading-5 text-navy">
+            <Checkbox
+              checked={createPick.different === true}
+              onCheckedChange={v => onChange({ ...createPick, different: v === true })}
+              disabled={disabled}
+            />
+            <span>{t('adminReview.v2.company.different', 'This is a different company: create {{name}}', { name: createPick.name.trim() || t('adminValidate.theCompany', 'the company') })}</span>
+          </label>
+        </div>
       )}
 
       {createPick && (
@@ -393,6 +477,7 @@ export function companyPickToOrg(
     case 'create':
       if (!pick.name.trim()) return { ok: false, code: 'name_required' };
       if (!pick.type) return { ok: false, code: 'type_required' };
+      if (pick.nearMatch && !pick.different && !pick.forceNew) return { ok: false, code: 'near_match' };
       return {
         ok: true,
         org: {

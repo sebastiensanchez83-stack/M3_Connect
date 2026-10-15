@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 import { guestList } from '@/lib/guestList';
@@ -180,11 +181,11 @@ export function reviewErrorText(err: unknown, t: TFunction): string {
     case 'not_an_open_claim':
       return t('adminReview.v2.err.claimGone', 'This request was already decided or withdrawn. Refresh the list.');
     case 'no_account':
-      return t('adminReview.v2.err.noAccount', 'This person has no account any more. Decline the request.');
+      return t('adminReview.v2.err.noAccountNA', 'This person has no account any more. Mark the request as not accepted.');
     case 'account_suspended':
-      return t('adminReview.v2.err.suspended', 'This account is suspended. Decline the request, or lift the suspension first.');
+      return t('adminReview.v2.err.suspendedNA', 'This account is suspended. Mark the request as not accepted, or lift the suspension first.');
     case 'org_has_owner':
-      return t('adminReview.v2.err.hasOwner', 'This company already has an owner. Decline the claim: the person can ask the owner to invite them.');
+      return t('adminReview.v2.err.hasOwnerNA', 'This company already has an owner. Mark the claim as not accepted: the person can ask the owner to invite them.');
     case 'member_not_found':
       return t('adminReview.v2.err.memberGone', 'This person is no longer in the company. Refresh the list.');
     case 'owner_not_removable':
@@ -206,6 +207,12 @@ export function reviewErrorText(err: unknown, t: TFunction): string {
       return t('adminReview.v2.err.noPart', 'Choose conference or gala dinner in the guest list first.');
     case 'already_decided':
       return t('adminReview.toast.alreadyDecidedBody', 'Someone else decided this request. The list is now up to date.');
+    case 'not_proven':
+      return t('adminReview.v2.err.notProvenNA', 'This person has not confirmed their e-mail address yet, so the claim cannot be approved. Mark it as not accepted, or wait until they confirm it.');
+    case 'claimant_changed':
+      return t('adminReview.v2.err.claimantChangedNA', 'The account using this e-mail address was made after the claim was sent, so it is not the person who asked. Mark the claim as not accepted.');
+    case 'near_match':
+      return t('adminReview.v2.err.nearMatch', 'A company with a similar name is already on the platform. Link the person to it, or tick "This is a different company" first.');
     default: {
       // The registration function's own codes (onsite_not_live, wrong_engine…).
       return staffErrorText(code, t);
@@ -309,10 +316,23 @@ export async function revokeTeamJoin(memberId: string, resetPerson: boolean, not
   return (data ?? {}) as { organization_id?: string; user_id?: string; person_reset?: boolean };
 }
 
-/** Undo of a removed team join: the person goes back into the company as a team member. */
-export async function addOrgMemberBack(userId: string, orgId: string): Promise<void> {
+/**
+ * Undo of a removed team join: the person goes back into the company as a team member, and
+ * the audit says so (admin_add_org_member writes no review_log row itself): one 'join_restored'
+ * row on the removed membership, next to its 'join_revoked'.
+ */
+export async function addOrgMemberBack(userId: string, orgId: string, memberId: string): Promise<void> {
   const { error } = await supabase.rpc('admin_add_org_member', { p_user_id: userId, p_org_id: orgId, p_role: 'collaborator' });
   if (error) throw fromPg(error);
+  await supabase
+    .rpc('review_log_add', {
+      p_subject_type: 'join',
+      p_subject_id: memberId,
+      p_action: 'join_restored',
+      p_note: null,
+      p_details: { source: 'review_queue_v2', organization_id: orgId, user_id: userId },
+    })
+    .then(() => undefined, () => undefined);
 }
 
 export type DismissKind = 'team_join' | 'retro' | 'duplicate_org' | 'duplicate_person';
@@ -349,6 +369,13 @@ export interface OrgCandidate {
   has_owner: boolean;
   members: number | null;
 }
+
+/**
+ * A listed company this close to the one M3 is about to create is shown above the create
+ * form, and creating anyway needs "This is a different company" ticked (org_match_candidates
+ * lists from 0.55; the server's org_exists only catches an identical normalised name).
+ */
+export const NEAR_MATCH_SCORE = 0.55;
 
 export async function orgCandidates(q: { name?: string | null; website?: string | null; email?: string | null; country?: string | null }): Promise<OrgCandidate[]> {
   const name = (q.name ?? '').trim();
@@ -427,8 +454,13 @@ export interface RegDecisionResult {
   changed: number;
   sent: number;
   failed: number;
-  /** A capacity refusal: nothing changed, ask before going over. */
-  capacity?: { held: number; capacity: number; adding: number };
+  /**
+   * A capacity refusal: `remaining` (the ids not sent yet, the refused batch included) were
+   * not decided; ask before going over. Earlier batches may have gone through (`changed`).
+   */
+  capacity?: { held: number; capacity: number; adding: number; remaining: string[] };
+  /** A later batch failed with this code after earlier ones went through (`changed`). */
+  stopped?: string;
 }
 
 /** The registration function takes 200 registrations per decision (gl_decide_v2). */
@@ -461,10 +493,16 @@ export async function decideRegistrationV2(
       force: opts.force || undefined,
     });
     if (res.error === 'capacity' || res.error === 'ticket_capacity') {
-      if (changed) return { changed, sent, failed };
-      return { changed, sent, failed, capacity: { held: Number(res.held ?? 0), capacity: Number(res.capacity ?? 0), adding: Number(res.adding ?? 0) } };
+      const remaining = guestIds.slice(i);
+      return {
+        changed, sent, failed,
+        capacity: { held: Number(res.held ?? 0), capacity: Number(res.capacity ?? 0), adding: Number(res.adding ?? remaining.length), remaining },
+      };
     }
-    if (res.error || res.ok !== true) throw new ReviewError(res.error || 'unknown');
+    if (res.error || res.ok !== true) {
+      if (changed) return { changed, sent, failed, stopped: res.error || 'unknown' };
+      throw new ReviewError(res.error || 'unknown');
+    }
     changed += res.changed?.length ?? 0;
     sent += Number(res.sent ?? 0);
     failed += Number(res.failed ?? 0);
@@ -473,29 +511,70 @@ export async function decideRegistrationV2(
 }
 
 /**
+ * guest-list approves and e-mails one guest after the other inside ONE request: a few dozen
+ * per call keeps each call well inside the function's time limit (the body of each call is
+ * the unchanged one; only the list is shorter).
+ */
+export const GUEST_LIST_BATCH = 25;
+
+type GuestState = { id: string; status: string | null; decided_by: string | null };
+
+async function guestStates(ids: string[]): Promise<Map<string, GuestState> | null> {
+  const { data, error } = await supabase.from('gl_guest').select('id, status, decided_by').in('id', ids);
+  if (error || !Array.isArray(data)) return null;
+  return new Map((data as GuestState[]).map(g => [g.id, g]));
+}
+
+/**
  * A decision on a guest-list event (wys26): the guest-list function's `decide`, exactly the
- * call of /admin/guest-list/<slug> (staff session; `force` goes over capacity after a yes).
- * The decision is then noted in review_log (review_log_add), as queue v1 does.
+ * call of /admin/guest-list/<slug> (staff session; `force` goes over capacity after a yes),
+ * sent GUEST_LIST_BATCH guests at a time. Each decision is then noted in review_log
+ * (review_log_add), as queue v1 does, but only for the guests THIS call decided: the rows
+ * that were 'requested' just before and are now in the target status with this staff member
+ * as decided_by (guest-list skips, without saying which, those someone else decided).
  */
 export async function decideGuestList(
   slug: string,
   guestIds: string[],
   decision: 'approve' | 'reject',
-  opts: { force?: boolean; notify?: boolean; glEventId?: string | null } = {},
+  opts: { force?: boolean; notify?: boolean; glEventId?: string | null; actorId?: string | null } = {},
 ): Promise<RegDecisionResult> {
   const extra: Record<string, unknown> = {};
   if (decision === 'approve' && opts.force) extra.force = true;
   if (decision === 'reject') extra.notify = opts.notify === true;
-  const r = await guestList<{ approved?: number; rejected?: number; sent?: number; failed?: number; held?: number; capacity?: number; adding?: number }>({
-    action: 'decide', slug, guest_ids: guestIds, decision, ...extra,
-  });
-  if (r.error === 'capacity') {
-    return { changed: 0, sent: 0, failed: 0, capacity: { held: Number(r.held ?? 0), capacity: Number(r.capacity ?? 0), adding: Number(r.adding ?? guestIds.length) } };
-  }
-  if (r.error) throw new ReviewError(r.error);
-  const changed = decision === 'approve' ? Number(r.approved ?? 0) : Number(r.rejected ?? 0);
-  if (changed > 0) {
-    for (const id of guestIds) {
+  const target = decision === 'approve' ? 'confirmed' : 'rejected';
+  let changed = 0;
+  let sent = 0;
+  let failed = 0;
+  for (let i = 0; i < guestIds.length; i += GUEST_LIST_BATCH) {
+    const batch = guestIds.slice(i, i + GUEST_LIST_BATCH);
+    const before = await guestStates(batch);
+    const r = await guestList<{ approved?: number; rejected?: number; sent?: number; failed?: number; held?: number; capacity?: number; adding?: number }>({
+      action: 'decide', slug, guest_ids: batch, decision, ...extra,
+    });
+    if (r.error === 'capacity') {
+      const remaining = guestIds.slice(i);
+      return { changed, sent, failed, capacity: { held: Number(r.held ?? 0), capacity: Number(r.capacity ?? 0), adding: Number(r.adding ?? batch.length), remaining } };
+    }
+    if (r.error) {
+      // Earlier batches went through: say so rather than lose them.
+      if (changed) return { changed, sent, failed, stopped: r.error };
+      throw new ReviewError(r.error);
+    }
+    const n = decision === 'approve' ? Number(r.approved ?? 0) : Number(r.rejected ?? 0);
+    changed += n;
+    sent += Number(r.sent ?? 0);
+    failed += Number(r.failed ?? 0);
+    if (n <= 0) continue;
+    const after = await guestStates(batch);
+    const decidedHere = batch.filter(id => {
+      const was = before?.get(id);
+      const now = after?.get(id);
+      // Unknown (a read failed): logged only when the whole batch changed, as before.
+      if (!before || !after) return n === batch.length;
+      return was?.status === 'requested' && now?.status === target && (!opts.actorId || now?.decided_by === opts.actorId);
+    });
+    for (const id of decidedHere) {
       void supabase
         .rpc('review_log_add', {
           p_subject_type: 'registration',
@@ -505,7 +584,7 @@ export async function decideGuestList(
           p_details: {
             source: 'review_queue_v2',
             gl_event_id: opts.glEventId ?? null,
-            status: decision === 'approve' ? 'confirmed' : 'rejected',
+            status: target,
             forced: opts.force || undefined,
             notify: decision === 'reject' ? opts.notify === true : undefined,
             mails_failed: Number(r.failed ?? 0) || undefined,
@@ -514,7 +593,7 @@ export async function decideGuestList(
         .then(() => undefined, () => undefined);
     }
   }
-  return { changed, sent: Number(r.sent ?? 0), failed: Number(r.failed ?? 0) };
+  return { changed, sent, failed };
 }
 
 /** The account choices of an on-site registration (gl_guest, staff RLS): for the company lookup. */
@@ -538,6 +617,101 @@ export async function loadEventKinds(ids: string[]): Promise<Record<string, { ki
     out[r.id] = { kind: r.kind ?? null, hidden: r.hidden === true, engine: r.engine ?? null };
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ open company requests of a person */
+
+export interface OpenRequest {
+  id: string;
+  kind: 'claim' | 'join';
+  organization_id: string;
+  org_name: string | null;
+  created_at: string | null;
+}
+
+/**
+ * The person's open claim (claim_requested: M3 decides it, admin_decide_claim) or join request
+ * (join_requested: the company's owner decides it), filed on their login address by
+ * complete_signup_for. Admins read organization_invitations (RLS admins_can_view_invitations).
+ * Null when it could not be read.
+ */
+export async function loadOpenRequests(emails: (string | null | undefined)[]): Promise<OpenRequest[] | null> {
+  const list = [...new Set(emails.map(e => (e ?? '').trim().toLowerCase()).filter(Boolean))];
+  if (!list.length) return [];
+  const { data, error } = await supabase
+    .from('organization_invitations')
+    .select('id, status, organization_id, created_at, email')
+    .in('status', ['claim_requested', 'join_requested'])
+    .in('email', list);
+  if (error || !Array.isArray(data)) return null;
+  const rows = data as { id: string; status: string; organization_id: string; created_at: string | null }[];
+  const orgIds = [...new Set(rows.map(r => r.organization_id).filter(Boolean))];
+  const names = new Map<string, string>();
+  if (orgIds.length) {
+    const { data: orgs } = await supabase.from('organizations').select('id, name').in('id', orgIds);
+    for (const o of (orgs ?? []) as { id: string; name: string | null }[]) if (o.name) names.set(o.id, o.name);
+  }
+  return rows.map(r => ({
+    id: r.id,
+    kind: r.status === 'claim_requested' ? 'claim' as const : 'join' as const,
+    organization_id: r.organization_id,
+    org_name: names.get(r.organization_id) ?? null,
+    created_at: r.created_at,
+  }));
+}
+
+/* ------------------------------------------------------------------ e-mail sender switch */
+
+/**
+ * registration_flags.outbox_sender (read by the server only, so not in src/lib/flags.ts):
+ * while it is not JSON true, the e-mails of M3's decisions (validated, not accepted, a
+ * question, claim approved or declined) wait in notification_outbox and nobody receives them.
+ * The pages say so instead of "they will receive an e-mail". Null = could not be read.
+ */
+let outboxCache: { at: number; on: boolean } | null = null;
+
+export async function readOutboxSender(force = false): Promise<boolean | null> {
+  if (!force && outboxCache && Date.now() - outboxCache.at < 60_000) return outboxCache.on;
+  const { data, error } = await supabase.from('platform_settings').select('value').eq('key', 'registration_flags').maybeSingle();
+  if (error) return null;
+  const v = (data as { value?: unknown } | null)?.value;
+  const on = !!v && typeof v === 'object' && !Array.isArray(v) && (v as Record<string, unknown>).outbox_sender === true;
+  outboxCache = { at: Date.now(), on };
+  return on;
+}
+
+/** The sender switch for a component: null until read (or when the read failed). */
+export function useOutboxSender(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(outboxCache ? outboxCache.on : null);
+  useEffect(() => {
+    let alive = true;
+    void readOutboxSender().then(v => { if (alive) setOn(v); });
+    return () => { alive = false; };
+  }, []);
+  return on;
+}
+
+/** "They will receive an e-mail", or where it waits while the sender is off (or unknown). */
+export function decisionMailText(t: TFunction, senderOn: boolean | null): string {
+  return senderOn === true
+    ? t('adminValidate.done.mail', 'They will receive an e-mail.')
+    : t('adminValidate.done.mailQueued', 'Their e-mail is queued: it leaves once "Send the e-mails queued by sign-ups and M3\'s decisions" is on (Platform settings).');
+}
+
+/* ------------------------------------------------------------------ registration switches */
+
+/**
+ * Sets ONE registration switch on the server (admin_set_registration_flag, migration
+ * 20261016093000): `value || {key: on}` in one statement, so a switch somebody else moved
+ * meanwhile (from another page, or by SQL) is never written back. Returns the row as stored.
+ */
+export async function setRegistrationFlag(key: string, on: boolean): Promise<{ value: Record<string, unknown>; updated_at: string | null }> {
+  const { data, error } = await supabase.rpc('admin_set_registration_flag', { p_key: key, p_on: on });
+  if (error) throw fromPg(error);
+  const d = (data ?? {}) as { value?: unknown; updated_at?: unknown };
+  const value = d.value && typeof d.value === 'object' && !Array.isArray(d.value) ? (d.value as Record<string, unknown>) : {};
+  outboxCache = { at: Date.now(), on: value.outbox_sender === true };
+  return { value, updated_at: typeof d.updated_at === 'string' ? d.updated_at : null };
 }
 
 /* ------------------------------------------------------------------ content */

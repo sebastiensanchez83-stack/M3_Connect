@@ -4,7 +4,7 @@
 > 1. La base de données est sauvegardée chaque jour par Supabase (7 jours), mais on peut perdre jusqu'à 24 h de données et la restauration écrase tout le projet.
 > 2. Les fichiers (2,6 Go : logos, documents, médias SM26, factures) n'ont AUCUNE sauvegarde ; 7 fonctions déployées n'existent nulle part ailleurs que chez Supabase.
 > 3. Les réglages (secrets, Auth, Netlify, Lyra, Resend, DNS) ne sont inventoriés nulle part.
-> 4. Ce document donne les procédures de restauration et un export mensuel (20 min) à faire par Victor ou Sébastien, vers un dossier privé chiffré, jamais dans le dépôt public.
+> 4. Si quelque chose casse : noter l'heure, arrêter les modifications, ne rien restaurer, appeler le contact technique (encadré en tête de la section 2) ; les procédures et l'export mensuel (20 min, vers un dossier privé chiffré, jamais dans le dépôt public) sont pour Sébastien ou le contact technique.
 > 5. Décisions à prendre en fin de document : récupération à la seconde près (~100 $/mois, ou seulement autour du WYS), copie des fichiers, sauvegarde des 7 fonctions.
 
 State on 15 Oct 2026, read from production (read-only). Project `djjbgzasuomhyfvtlidi`
@@ -17,10 +17,10 @@ State on 15 Oct 2026, read from production (read-only). Project `djjbgzasuomhyfv
 | Database: schema, data, `auth.users` (with password hashes), cron jobs, Vault secrets, migration history | Supabase **daily physical backups** (Pro) | last 7 days | Up to ~24 h of changes lost (no point-in-time recovery, see below). Restoring **overwrites the whole project** with downtime. Physical backups **cannot be downloaded**. Deleting the project deletes them. |
 | Point-in-time recovery (PITR) | **Almost certainly not enabled** | - | Paid add-on that needs at least Small compute; the database runs Micro settings (60 connections, 224 MB shared buffers). Confirm in Dashboard > Database > Backups > Point in Time. |
 | Off-site copy of the database | **None** | - | No `pg_dump` / `supabase db dump` has ever been kept. The database is small (44 MB), so a dump takes seconds. |
-| Storage files: 9 buckets, 1,508 files, 2.59 GB | **Nothing.** Database backups hold only the metadata rows, not the files | - | A deleted or overwritten file cannot be recovered from any Supabase backup. |
+| Storage files: 9 buckets, 1,508 files, 2.59 GB (2,586 MB) | **Nothing.** Database backups hold only the metadata rows, not the files | - | A deleted or overwritten file cannot be recovered from any Supabase backup. |
 | Edge function code | git for 42 functions | git history | **7 deployed functions were never in git**: `zoom-verify`, `sm26-rehost`, `sm26-upload`, `sm26-import-up`, `sm26-ecat-designer`, `sm26-media-kit`, `sm26-ecat-change-files`. Their only copy dies with the project. |
 | Rollback copies of recent deploys | session scratchpad `deploy-ts/` (a Windows Temp folder) | - | Not durable: copy it to a private folder. It holds e.g. `guest-list.deployed-v6.ts`, `payment-ipn-v13-rollback`, `notify-admins-before-p2`, `registration-before-p2`. |
-| Edge function secrets | Supabase project settings only | - | No inventory anywhere. Names read by the code: `RESEND_API_KEY`, `SENDER_EMAIL`, `SITE_URL`, `ACCOUNT_SITE_URL`, `REGISTRATION_SITE_URL`, `SM26_ADMIN_EMAIL`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_ENFORCE`, `LYRA_SHOP_ID`, `LYRA_API_PASSWORD`, `LYRA_API_URL`, `LYRA_MODE`, `LYRA_HMAC_KEY`, `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `MAILCHIMP_API_KEY`, `MAILCHIMP_AUDIENCE_ID`, `MAILCHIMP_SERVER_PREFIX`, `SEND_EMAIL_HOOK_SECRET` (the 7 git-less functions may read others). |
+| Edge function secrets | Supabase project settings only | - | No inventory anywhere. Names read by the code: `RESEND_API_KEY`, `SENDER_EMAIL`, `SITE_URL`, `ACCOUNT_SITE_URL`, `REGISTRATION_SITE_URL`, `SM26_ADMIN_EMAIL`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_ENFORCE`, `LYRA_SHOP_ID`, `LYRA_API_PASSWORD`, `LYRA_API_URL`, `LYRA_MODE`, `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `MAILCHIMP_API_KEY`, `MAILCHIMP_AUDIENCE_ID`, `MAILCHIMP_SERVER_PREFIX`, `SEND_EMAIL_HOOK_SECRET` (the 7 git-less functions may read others). Not read by any function in git: `LYRA_HMAC_KEY` (payment-ipn says it is not used); if it is set in the project, keep it in the inventory all the same. |
 | Auth configuration | Supabase project settings only | - | Site URL, redirect allow-list, the **Send Email hook** (URL of `send-email` + secret), "Confirm email" (off), rate limits, JWT settings, API keys, Storage S3 keys. Auth e-mail texts are in git (`send-email`). `docs/AUDIT_REPORT.md` holds an old Site URL: do not trust it. |
 | Netlify | Netlify only | Netlify deploy history | Production variables set in the Netlify UI: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_TURNSTILE_SITE_KEY`, `VITE_SM26_ENABLED`, and the pair read by the `rss`, `seo`, `sitemap` edge functions. |
 | Third parties | their own back offices | - | Resend (sending domain DNS, key), Lyra (shop, API password, HMAC key, IPN URL to `payment-ipn`, auto-retry), Zoom app, Mailchimp key and audience, Cloudflare Turnstile, the domain registrar's DNS, GA4. Not inventoried. |
@@ -29,20 +29,25 @@ State on 15 Oct 2026, read from production (read-only). Project `djjbgzasuomhyfv
 
 ### Storage, bucket by bucket
 
+Sizes in decimal units (1 MB = 1,000,000 bytes, 1 GB = 1,000 MB), from `storage.objects`
+on 15 Oct; Windows shows about 5 % less for the same files.
+
 | Bucket | Files | Size | Replaceable? |
 |---|---|---|---|
-| `event-media` (private) | 894 | 1.88 GB | **No** for 367 per-registration uploads (860 MB: media kits, architecture entries, decks, uploaded on the platform). Partly for `imported/` (464 files, 963 MB, JotForm imports: Dropbox `Dev plateform/JotForm …` folders hold 300 files / 822 MB, not matched file by file). `invoices/` (42 PDFs): originals presumably in the CRM or accounting. `architecture-pack/`, `letterhead/`: admin uploads. |
-| `org-logos` (public) | 425 | 324 MB | No (uploaded by companies) |
-| `org-documents` (private) | 19 | 74 MB | No |
-| `resource-images` (public) | 64 | 68 MB | Mostly (admin uploads) |
-| `site-media` (public) | 1 | 39 MB | Yes (homepage teaser, in Dropbox) |
-| `profile-images` (public) | 80 | 37 MB | No |
-| `sponsorship-files` (private) | 5 | 30 MB | No |
-| `ad-banners` (public) | 20 | 15 MB | Mostly |
+| `event-media` (private) | 894 | 1,971 MB | **No** for 367 per-registration uploads (902 MB: media kits, architecture entries, decks, uploaded on the platform). Partly for `imported/` (464 files, 1,010 MB, JotForm imports: Dropbox `Dev plateform/JotForm …` folders hold 300 files, about 0.8 GB, not matched file by file). `invoices/` (42 PDFs, 24 MB): originals presumably in the CRM or accounting. `architecture-pack/` (16 files, 33 MB), `letterhead/` (5 files, 2 MB): admin uploads. |
+| `org-logos` (public) | 425 | 340 MB | No (uploaded by companies) |
+| `org-documents` (private) | 19 | 78 MB | No |
+| `resource-images` (public) | 64 | 71 MB | Mostly (admin uploads) |
+| `site-media` (public) | 1 | 40 MB | Yes (homepage teaser, in Dropbox) |
+| `profile-images` (public) | 80 | 38 MB | No |
+| `sponsorship-files` (private) | 5 | 32 MB | No |
+| `ad-banners` (public) | 20 | 16 MB | Mostly |
 | `message-attachments` (private) | 0 | - | - |
+| **Total** | **1,508** | **2,586 MB** | |
 
-The health monitor's `storage.event_media` check fails when files disappear from
-`event-media` (see `health-monitor.md`): it detects a loss, it does not prevent it.
+The health monitor's `storage.event_media` check (once installed) fails when files disappear
+from a folder group of `event-media` (see `health-monitor.md`): it detects a loss, it does not
+prevent it.
 
 ### Tables whose loss would hurt most (row counts, 15 Oct)
 
@@ -55,12 +60,33 @@ frozen SM26 history (`sm_registration` 201, `sm_attendee` 263, `sm_badge` 247, `
 `sm_email_log` 802 and the rest of `sm_*`).
 
 **The WYS tokens live in `gl_guest.token`.** Every e-mailed QR code and personal link depends
-on them. Any restore that keeps the database and the domain `smartmarinaconnect.com` keeps
-every QR code working. Never regenerate a token.
+on them. A restore keeps the QR code working for every guest whose row existed at the restore
+point, as long as the domain `smartmarinaconnect.com` stays. A guest invited, added or
+confirmed AFTER that point loses their row and their token: their QR shows **Unknown QR
+code** and the name search cannot find them. Never regenerate a token.
+
+**After any restore that touches `gl_guest`** (2.1 on that table, 2.3, 2.6): export the guest
+list (**Export CSV**), compare it with the last CSV kept, and re-invite everyone missing (they
+receive a new invitation and, once they accept, a new QR). Passes e-mailed after the restore
+point no longer work: tell those guests.
 
 ## 2. Recovery procedures
 
-Every production write below needs Victor's explicit OK. Rule of thumb: **restore next to
+> **Something broke: first steps (Victor, 15 minutes, no technical skill needed)**
+> 1. Write down the exact time the damage happened (or was first seen), the screen, and what
+>    was being done.
+> 2. Stop the edits: ask the team to stop working on the affected screens; do not retry the
+>    action that went wrong.
+> 3. Do **not** restore anything and do not press **Restore** in Supabase: it overwrites
+>    every change made after the backup (sign-ups, guest confirmations, check-ins, payments).
+> 4. Call the technical contact (or Sébastien) with the time, the screen, and what disappeared
+>    or broke.
+> 5. Decide together: copy the lost rows back from a copy (2.1, nothing else is lost), or,
+>    only if the platform is unusable, restore the whole project (2.3).
+
+**Who:** every procedure below (2.1 to 2.6) is for **Sébastien or the technical contact**:
+it needs `psql`, `pg_dump`, `rclone` or the Supabase CLI, and SQL run in a transaction.
+Every production write needs Victor's explicit OK. Rule of thumb: **restore next to
 production, then copy back what is needed; never overwrite production unless the platform
 is unusable.**
 
@@ -148,10 +174,21 @@ Held files (`supabase/migrations/held/`) have their own downs in the same folder
      the deployed v6 is commit `446b1c9a`, NOT the branch head**;
    - or from the rollback copies of `deploy-ts/` (`<fn>.deployed-v<N>.ts`,
      `<fn>-before-…`, `payment-ipn-v13-rollback`);
-   - for the 7 git-less functions, only from Supabase: `supabase functions download <fn> --project-ref <PROJECT_REF>`.
-2. Grep it for a literal backslash-u: the MCP deploy doubles it (it broke the auth e-mail hook
-   for 8 minutes on 6 Oct). Rewrite any as described in the deploy rules.
-3. Deploy with `verify_jwt` **set explicitly**, to the value the function has today
+   - for the 7 git-less functions, only from Supabase: `supabase functions download <fn> --project-ref <PROJECT_REF>`
+     (in a scratch folder: it writes `supabase/functions/<fn>/` under the current folder).
+2. Put it where the CLI deploys from, **in a scratch folder outside the repository** (inside
+   the repository it would overwrite the current source):
+   ```bash
+   mkdir -p rollback/supabase/functions/<fn>
+   cp <fn>-rollback.ts rollback/supabase/functions/<fn>/index.ts   # plus any other file the function imports
+   cd rollback
+   ```
+   The CLI deploys `supabase/functions/<fn>/index.ts` of the folder it runs in.
+3. Backslash-u: a deploy through the Supabase **MCP tool** (`deploy_edge_function`) doubles a
+   literal backslash-u (it broke the auth e-mail hook for 8 minutes on 6 Oct): grep the file
+   first and rewrite any as described in the deploy rules. The CLI command below uploads the
+   file as it is; grep anyway, it costs nothing.
+4. Deploy with `verify_jwt` **set explicitly**, to the value the function has today
    (`list_edge_functions` shows it). On 15 Oct these 21 were **false**: `send-email`,
    `claim-code-signup`, `send-notification`, `notify-admins`, `send-status-notification`,
    `send-profile-reminders`, `send-reference-email`, `sm26-register`, `sm26-draft`,
@@ -161,8 +198,10 @@ Held files (`supabase/migrations/held/`) have their own downs in the same folder
    new `ops-health`.
    ```bash
    supabase functions deploy <fn> --project-ref <PROJECT_REF> --no-verify-jwt   # only for the "false" list
+   supabase functions deploy <fn> --project-ref <PROJECT_REF>                   # all the others (true, the CLI default)
    ```
-4. Compare the sha256 of the deployed source (`get_edge_function`) with the file.
+5. Compare the sha256 of the deployed source (`get_edge_function`) with the file, and check
+   `verify_jwt` with `list_edge_functions`.
 
 **guest-list is never redeployed before 28 Nov**, not even to roll back, unless the technical
 contact decides it is the only way to keep the door working.
@@ -178,26 +217,40 @@ export) > edge functions (git + the downloaded copies) and their secrets (passwo
 Auth settings and the Send Email hook > Storage files (`rclone copy` back) > Netlify variables
 (new URL and anon key), Lyra IPN URL, the Realtime publication (`conversation_messages`,
 `partner_requests`). Users keep their passwords (hashes are in `auth.users`), but every
-session must sign in again. QR codes keep working because the tokens are in the data and the
-domain does not change.
+session must sign in again. QR codes keep working for every guest in the export, because the
+tokens are in the data and the domain does not change (guests added after the export: see
+"After any restore that touches `gl_guest`" in section 1).
 
-## 3. Monthly export (Victor or Sébastien, about 20 minutes)
+## 3. Monthly export (Sébastien or the technical contact, about 20 minutes)
 
-First working day of each month, and on **12 Nov** and **26 Nov** for WYS. Never in the
-public repository, never in a shared folder: a private folder, then an encrypted archive.
-Secrets go in the password manager, never in a file next to the export.
+First working day of each month, and on **12 Nov** and **25 Nov** for WYS (25 Nov from
+Monaco, before travel: the export downloads 2.6 GB and must never run on venue or hotel
+Wi-Fi). Never in the public repository, never in a shared folder: a private folder, then an
+encrypted archive. Secrets go in the password manager, never in a file next to the export.
+
+> **Untested (15 Oct).** The functions loop of step 2 (`supabase functions list -o json | jq`),
+> how `supabase functions download` lays out its files, and the S3 endpoint form were not run.
+> Do the first export with the technical contact, correct this section, then remove this note.
+
+**The archive password** (7-Zip asks for it at the end) goes into the password manager at once,
+and is known to two people (Victor and Sébastien). An archive whose password is lost is no
+backup.
 
 **Once:** install the Supabase CLI, Docker Desktop (the CLI dumps through Docker), `psql`
 (Postgres 17 client), `rclone`, `jq` and 7-Zip. Run `supabase login`. In the dashboard: copy
 the **Session pooler** connection string (Connect button), and under Storage > Configuration >
 S3, enable the S3 protocol and create an access key (shown once: straight into the password
 manager). Configure rclone interactively (`rclone config`, type `s3`, provider `Other`, the
-endpoint shown on that page, of the form `https://<PROJECT_REF>.storage.supabase.co/storage/v1/s3`,
-region `eu-west-1`) and set an rclone config password so the keys are not stored in clear.
+endpoint shown on that page (untested: use exactly what the dashboard shows; the documented
+form is `https://<PROJECT_REF>.storage.supabase.co/storage/v1/s3`), region `eu-west-1`) and set
+an rclone config password so the keys are not stored in clear.
 
-**Each month** (Git Bash or any bash; replace the `<…>` placeholders, type secrets at the prompt):
+**Each month** (Git Bash or any bash; replace the `<…>` placeholders, type secrets at the
+prompt). The first line moves to a private folder OUTSIDE the repository: the export holds
+the whole database, and the repository is public.
 
 ```bash
+cd "<PRIVATE_FOLDER_OUTSIDE_THE_REPO>" || exit 1
 read -s -p "Database URL (session pooler, with password): " SMC_DB_URL; echo
 REF=<PROJECT_REF>
 D="smc-backup-$(date +%Y-%m-%d)"; mkdir -p "$D/storage" && cd "$D"
@@ -226,13 +279,14 @@ cd .. && 7z a -p -mhe=on "$D.7z" "$D" && rm -rf "$D"
 unset SMC_DB_URL
 ```
 
-Run step 2 in the export folder, never inside the repository: `download` writes into
+Never run the script inside the repository: step 2's `download` writes into
 `supabase/functions/` of the current folder and would overwrite the repository's sources.
 
 **Check before deleting the clear copy:** the five `.sql` files are not empty; the number of
-files per bucket on disk matches `storage_counts.csv`; `functions/` holds one folder per
-deployed function (47 on 15 Oct, 48 once `ops-health` is deployed). Keep the last 12 monthly archives and the two WYS ones.
-Write one line per export in a private log: date, who, archive size.
+files per bucket on disk matches `storage_counts.csv`; `functions/supabase/functions/` holds
+one folder per deployed function (47 on 15 Oct, 48 once `ops-health` is deployed). Keep the
+last 12 monthly archives and the two WYS ones. Write one line per export in a private log:
+date, who, archive size.
 
 **Configuration inventory (with the first export, then when something changes):** in the
 password manager, one entry per secret listed in section 1 (name, value, where it is set),
@@ -258,12 +312,12 @@ and gives the real recovery time.
    else, including 367 SM26 uploads. Recommended this week.
 3. **Save the 7 git-less functions** (`supabase functions download`) and commit them after a
    secrets check. Recommended before 13 Nov.
-4. **Who runs the monthly export, and where it is kept** (Victor or Sébastien; a private,
-   encrypted place).
+4. **Who runs the monthly export, and where it is kept** (Sébastien or the technical contact;
+   a private, encrypted place; the archive password known to two people).
 5. **Rehearse one restore into a throwaway project** before 20 Nov (a few dollars).
-6. **The two functions anyone can call** (`cleanup_guest_rate_limits` empties the sign-up
-   rate limit, `invoke_guest_webinar_reminders` triggers reminder runs): close them with a
-   one-line revoke migration, or mute the monitor's warning.
+6. **Two internal functions are open to the API** (the health report names them): close them
+   with a one-line revoke migration, best before the health monitor is switched on, or mute
+   the monitor's warning.
 7. **The two SM26 reminder jobs** (`sm26-remind-7d`, `sm26-remind-1d`) fire again in
    September 2027: unschedule them.
 8. **Organisation access:** who can delete the Supabase project (that deletes every backup

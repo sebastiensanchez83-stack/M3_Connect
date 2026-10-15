@@ -2,7 +2,7 @@
 -- compatibility, access, counts). NOT A MIGRATION. ONE query text, ONE execute_sql call, AFTER
 -- 20261016090500_review_and_validation_people is applied and BEFORE this one. Reads today's v1
 -- queue as a temporary admin, applies the migration verbatim, then compares and runs the cases.
--- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "12 PASS, 0 FAIL".
+-- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "14 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -284,7 +284,7 @@ begin
         select lower(regexp_replace(regexp_replace(btrim(coalesce(o.website, '')), '^[a-z][a-z0-9+.-]*://', '', 'i'),
                                     '^www\.|[/:?#].*$', '', 'g')) as whost
       ) w
-     where p_admin and o.access_status = 'pending'
+     where p_admin and o.access_status = 'pending' and (not p_v2 or o.archived_at is null)
        and not exists (select 1 from member_org mo2 join ppl on ppl.user_id = mo2.user_id where mo2.organization_id = o.id)
        and not (exists (select 1 from public.organization_members m where m.organization_id = o.id)
                 and not exists (select 1 from public.organization_members m
@@ -703,7 +703,7 @@ declare
   results text := '';
   r8 text := substr(md5(random()::text), 1, 8);
 begin
-  vars := jsonb_build_object('admin', (select id::text from _dr_admin), 'owner', gen_random_uuid(), 'mod', gen_random_uuid(),
+  vars := jsonb_build_object('admin', (select id::text from _dr_admin), 'owner', gen_random_uuid(), 'mod', gen_random_uuid(), 'org', gen_random_uuid(),
     'e_owner', 'dryrun-owner-' || r8 || '@example.invalid', 'e_mod', 'dryrun-mod-' || r8 || '@example.invalid');
   s0 := $s$select pg_temp.dr_user({owner}, {e_owner}, '{}', true, 'verified', 'marina');
 select pg_temp.dr_user({mod}, {e_mod}, '{}', true, 'verified', 'moderator')$s$;
@@ -745,7 +745,16 @@ select pg_temp.dr_user({mod}, {e_mod}, '{}', true, 'verified', 'moderator')$s$;
                and (c ->> 'retro')::int = (select count(*) from public.admin_review_queue('{"tab": "retro"}')))::text
                from (select public.admin_review_queue_counts() as c) x$q$),
     jsonb_build_object('id', 'Q12', 'who', 'admin', 'expect', 'ret:true', 'label', 'every row has a tab and signals.age_days',
-      'q', $q$select coalesce(bool_and(tab is not null and signals ? 'age_days'), true)::text from public.admin_review_queue('{}')$q$)
+      'q', $q$select coalesce(bool_and(tab is not null and signals ? 'age_days'), true)::text from public.admin_review_queue('{}')$q$),
+    jsonb_build_object('id', 'Q13', 'who', 'jwt:admin', 'expect', 'ret:true/true', 'label', 'a pending company nobody waits with: a card in v1 and v2',
+      'setup', $s$select pg_temp.dr_org({org}, 'Dryrun Lone Co', 'pending', 'marina', null, null)$s$,
+      'q', $q$select concat_ws('/', exists (select 1 from public.admin_review_queue() where kind = 'company' and id = {org}::uuid)::text,
+               exists (select 1 from public.admin_review_queue('{}') where kind = 'company' and id = {org}::uuid)::text)$q$),
+    jsonb_build_object('id', 'Q14', 'who', 'jwt:admin', 'expect', 'ret:true/false', 'label', 'archived (Archive on its card): v1 unchanged, gone from v2 (integration, 15 Oct)',
+      'setup', $s$select pg_temp.dr_org({org}, 'Dryrun Lone Co', 'pending', 'marina', null, null);
+update public.organizations set archived_at = now() where id = {org}$s$,
+      'q', $q$select concat_ws('/', exists (select 1 from public.admin_review_queue() where kind = 'company' and id = {org}::uuid)::text,
+               exists (select 1 from public.admin_review_queue('{}') where kind = 'company' and id = {org}::uuid)::text)$q$)
   );
 
   -- Runner: setup s0 + setup (postgres), q as the caller (an expected error is caught around q

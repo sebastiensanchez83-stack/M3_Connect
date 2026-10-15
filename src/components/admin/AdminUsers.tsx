@@ -77,7 +77,9 @@ export function AdminUsers() {
   // validation window (admin_validate_person). Off = the direct updates below, as before.
   // Staff profiles (admin, moderator) always keep the direct path: admin_validate_person
   // refuses them (staff_profile).
-  const { flags: regFlags, ready: flagsReady } = useRegistrationFlags();
+  // A switch that could not be read is never taken for "off" (src/lib/flags.ts): Verified and
+  // Rejected then wait for a successful read (retried below and when the tab regains focus).
+  const { flags: regFlags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
   const validationV2 = regFlags.review_queue;
   const [validating, setValidating] = useState<{ userId: string; action: PersonAction } | null>(null);
 
@@ -238,6 +240,11 @@ export function AdminUsers() {
     if (newStatus === 'verified' || newStatus === 'rejected') {
       // Until the switches are read, the path (window or direct update) is not known yet.
       if (!flagsReady) { toast({ title: 'One moment', description: 'The page is still loading its settings. Try again in a second.' }); return; }
+      if (flagsFailed) {
+        retryFlags();
+        toast({ title: 'Settings not loaded', description: 'The review settings could not be loaded, so this decision cannot be made yet. Check your connection and try again in a moment.', variant: 'destructive' });
+        return;
+      }
       const persona = users.find(u => u.user_id === userId)?.persona;
       if (validationV2 && persona !== 'admin' && persona !== 'moderator') {
         setValidating({ userId, action: newStatus === 'verified' ? 'validate' : 'reject' });

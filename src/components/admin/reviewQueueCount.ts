@@ -65,7 +65,13 @@ export function useReviewCountSource(enabled: boolean, uid: string | undefined, 
     lastFetch.current = Date.now();
     void (async () => {
       const flags = await readRegistrationFlags();
-      if (flags?.review_queue) {
+      // Which list (v1 or v2) the badge counts depends on the switch: when it cannot be read,
+      // no badge rather than a guess (the next refresh tries again).
+      if (!flags) {
+        if (mounted.current) setCount(null);
+        return;
+      }
+      if (flags.review_queue) {
         const { data, error } = await supabase.rpc('admin_review_queue_counts');
         const counts = !error && data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
         const parts = counts ? DECISION_TABS.map(k => counts[k]) : [];

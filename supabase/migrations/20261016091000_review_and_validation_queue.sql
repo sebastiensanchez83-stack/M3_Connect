@@ -262,7 +262,7 @@ begin
         select lower(regexp_replace(regexp_replace(btrim(coalesce(o.website, '')), '^[a-z][a-z0-9+.-]*://', '', 'i'),
                                     '^www\.|[/:?#].*$', '', 'g')) as whost
       ) w
-     where p_admin and o.access_status = 'pending'
+     where p_admin and o.access_status = 'pending' and (not p_v2 or o.archived_at is null)
        and not exists (select 1 from member_org mo2 join ppl on ppl.user_id = mo2.user_id where mo2.organization_id = o.id)
        and not (exists (select 1 from public.organization_members m where m.organization_id = o.id)
                 and not exists (select 1 from public.organization_members m

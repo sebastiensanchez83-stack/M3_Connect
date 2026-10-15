@@ -43,12 +43,14 @@
 //     send-notification right away; two senders at once could both pass its checks);
 //   - held rows are read apart from the others, and only on a recheck (once a quarter of an
 //     hour), so however many pile up they never push the rows that can go out of the scan;
-//     a held account_under_review or team_join_request whose news is out of date (below) is
-//     settled then, without waiting for its sender;
+//     a held account_under_review, team_join_request or decision whose news is out of date
+//     (below) is settled then, without waiting for its sender;
 //   - a row whose news is out of date is settled WITHOUT sending (sent_at set, last_error
 //     "not sent: ..."): a team_join_request whose invitation is no longer join_requested
 //     (or is past its expiry), an account_under_review whose person is no longer pending
-//     or that waited more than 3 days, a decision the database no longer shows
+//     or that waited more than 3 days, a decision of M3 queued more than 72 hours ago
+//     ("not sent: stale: ...", contract §11.7: nothing old leaves in a burst on the day the
+//     sender is switched on), a decision the database no longer shows
 //     (send-status-notification answers 409 stale), a row the go-live send-notification
 //     could not resolve twice in a row (no real owner, no address: 400 "Could not resolve
 //     the row this notification is about");
@@ -1474,6 +1476,8 @@ const OUTBOX_FORCE_IDS = 50;
 const OUTBOX_HELD_CHECKS = 50;
 /** account_under_review is news for a few days only. */
 const OUTBOX_UNDER_REVIEW_MAX_AGE_MS = 3 * 86400000;
+/** A decision of M3 (the send-status-notification kinds) queued longer ago than this is settled unsent (see the header). */
+const OUTBOX_DECISION_MAX_AGE_MS = 72 * 3600000;
 const OUTBOX_COLS = "id, kind, user_id, subject_id, data, created_at, claimed_at, attempts, last_error";
 const FN_BASE = `${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1`;
 
@@ -1612,6 +1616,9 @@ const invitationOf = (r: OutboxRow) =>
 
 /** Why this row must not be sent any more, or null. */
 async function outboxOutOfDate(r: OutboxRow): Promise<string | null> {
+  if (senderOf(r.kind) === "send-status-notification" && Date.now() - Date.parse(r.created_at) > OUTBOX_DECISION_MAX_AGE_MS) {
+    return "stale: a decision queued more than 72 hours ago is never sent late";
+  }
   if (r.kind === "team_join_request") {
     const id = invitationOf(r);
     if (!id) return "no join request named";
@@ -1745,7 +1752,8 @@ async function jobOutbox(flags: Flags, force: boolean, ids: number[] = []): Prom
     if (support.get(r.kind) !== "no") continue;
     // News already out of date is settled now, not when its sender arrives (a held
     // account_under_review would otherwise wait for go-live to be found too old).
-    if (heldChecks < OUTBOX_HELD_CHECKS && (r.kind === "account_under_review" || r.kind === "team_join_request")) {
+    if (heldChecks < OUTBOX_HELD_CHECKS
+        && (r.kind === "account_under_review" || r.kind === "team_join_request" || senderOf(r.kind) === "send-status-notification")) {
       heldChecks++;
       try {
         const why = await outboxOutOfDate(r);

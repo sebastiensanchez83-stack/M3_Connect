@@ -561,13 +561,31 @@ const ReviewQueueV2 = lazyWithRetry(() => import('./review/ReviewQueueV2').then(
 
 /**
  * /admin/review. registration_flags.review_queue (spec 13) chooses the version: on = queue v2
- * (review/ReviewQueueV2.tsx); off, missing or unreadable = this page as it was (v1). The
- * switch is read once per visit, so a card never changes under the cursor.
+ * (review/ReviewQueueV2.tsx); off or missing = this page as it was (v1). The switch is read
+ * once per visit, so a card never changes under the cursor. A switch that cannot be read is
+ * never taken for "off" (src/lib/flags.ts): the page says so and offers to try again (the
+ * row is also read again when the tab regains focus).
  */
 export function AdminReviewQueue() {
-  const { flags, known, failed } = useRegistrationFlagsOnce();
-  if (!known && !failed) return <AdminLoading />;
-  if (known && flags.review_queue) {
+  const { t } = useTranslation();
+  const { flags, known, failed, retry } = useRegistrationFlagsOnce();
+  if (!known && failed) {
+    return (
+      <div>
+        <AdminPageHeader title={t('adminReview.title', 'To review')} />
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty
+            icon={AlertTriangle}
+            title={t('adminReview.flagsError.title', 'The review settings could not be loaded')}
+            body={t('adminReview.flagsError.body', 'Which version of the list to show depends on them. Check your connection, then try again.')}
+            action={<Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={retry}>{t('adminReview.error.retry', 'Try again')}</Button>}
+          />
+        </div>
+      </div>
+    );
+  }
+  if (!known) return <AdminLoading />;
+  if (flags.review_queue) {
     return (
       <Suspense fallback={<AdminLoading />}>
         <ReviewQueueV2 />

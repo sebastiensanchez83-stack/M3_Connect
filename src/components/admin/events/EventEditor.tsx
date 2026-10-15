@@ -58,7 +58,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const isNew = routeId === 'new';
-  const { flags } = useRegistrationFlags();
+  // A failed read of the switches is never taken for "off" (src/lib/flags.ts): see the render.
+  const { flags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
 
   const [loaded, setLoaded] = useState<LoadedEvent | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -78,7 +79,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   // create one (and its date would then override the runbook's settings.starts_at), so
   // this page only lists its registrations.
   const isCanary = !isNew && !!loaded && !loaded.gl.legacy_event_id;
-  // The on-site editor (see the header). A failed read of the flags counts as off (today's editor).
+  // The on-site editor (see the header). Until the switches are read (or while they cannot be),
+  // a real event shows a loader or a retry note instead (render), never a guess.
   const onsiteEditor = kind === 'onsite' && (flags.onsite_v2 || forced || loaded?.gl.hidden === true);
   // Decisions, invitations and e-mails to people: only where the registration function
   // serves the new pages (onsite_v2 on, or a SAVED hidden test). ?editor=new alone opens
@@ -421,6 +423,24 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
         <AdminDetailHeader className={HEADER_TOP} back={{ to: '/admin/events', label: t('adminEvents.back', 'Events') }} title={t('adminEvents.editTitle', 'Event')} />
         <Note tone="danger"><span role="alert">{loadError}</span></Note>
         <Button type="button" variant="outline" size="sm" className={cn(EDITOR_BTN, 'mt-4')} onClick={() => window.location.reload()}>
+          {t('adminEvents.tryAgainBtn', 'Try again')}
+        </Button>
+      </div>
+    );
+  }
+  // The registration switches choose the on-site editor, decisions and publishing. A hidden
+  // test (or ?editor=new) does not depend on them; any other event waits for them, and a
+  // failed read offers a retry rather than today's editor (a guess of "off").
+  const needsFlags = !forced && loaded?.gl.hidden !== true;
+  if (needsFlags && !flagsReady) return <AdminLoading />;
+  if (needsFlags && flagsFailed) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <AdminDetailHeader className={HEADER_TOP} back={{ to: '/admin/events', label: t('adminEvents.back', 'Events') }} title={t('adminEvents.editTitle', 'Event')} />
+        <Note tone="danger">
+          <span role="alert">{t('adminEvents.flagsError', 'The registration settings could not be loaded, so this event cannot be edited safely. Check your connection and try again.')}</span>
+        </Note>
+        <Button type="button" variant="outline" size="sm" className={cn(EDITOR_BTN, 'mt-4')} onClick={retryFlags}>
           {t('adminEvents.tryAgainBtn', 'Try again')}
         </Button>
       </div>

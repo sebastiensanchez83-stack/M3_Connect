@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { readRegistrationFlags, useRegistrationFlags } from '@/lib/flags';
 import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 import { guestList } from '@/lib/guestList';
@@ -684,32 +684,21 @@ export async function loadOpenRequests(emails: (string | null | undefined)[]): P
 /* ------------------------------------------------------------------ e-mail sender switch */
 
 /**
- * registration_flags.outbox_sender (read by the server only, so not in src/lib/flags.ts):
- * while it is not JSON true, the e-mails of M3's decisions (validated, not accepted, a
- * question, claim approved or declined) wait in notification_outbox and nobody receives them.
- * The pages say so instead of "they will receive an e-mail". Null = could not be read.
+ * registration_flags.outbox_sender, read through src/lib/flags.ts like every switch: while it
+ * is not JSON true, the e-mails of M3's decisions (validated, not accepted, a question, claim
+ * approved or declined) wait in notification_outbox and nobody receives them. The pages say
+ * so instead of "they will receive an e-mail". Null = not read yet, or the read failed (the
+ * pages then say "queued", never "sent").
  */
-let outboxCache: { at: number; on: boolean } | null = null;
-
 export async function readOutboxSender(force = false): Promise<boolean | null> {
-  if (!force && outboxCache && Date.now() - outboxCache.at < 60_000) return outboxCache.on;
-  const { data, error } = await supabase.from('platform_settings').select('value').eq('key', 'registration_flags').maybeSingle();
-  if (error) return null;
-  const v = (data as { value?: unknown } | null)?.value;
-  const on = !!v && typeof v === 'object' && !Array.isArray(v) && (v as Record<string, unknown>).outbox_sender === true;
-  outboxCache = { at: Date.now(), on };
-  return on;
+  const flags = await readRegistrationFlags(force);
+  return flags ? flags.outbox_sender : null;
 }
 
-/** The sender switch for a component: null until read (or when the read failed). */
+/** The sender switch for a component: null until read (or while the read failed). */
 export function useOutboxSender(): boolean | null {
-  const [on, setOn] = useState<boolean | null>(outboxCache ? outboxCache.on : null);
-  useEffect(() => {
-    let alive = true;
-    void readOutboxSender().then(v => { if (alive) setOn(v); });
-    return () => { alive = false; };
-  }, []);
-  return on;
+  const { flags, ready, failed } = useRegistrationFlags();
+  return ready && !failed ? flags.outbox_sender : null;
 }
 
 /** "They will receive an e-mail", or where it waits while the sender is off (or unknown). */

@@ -71,8 +71,10 @@ export function AdminUserDetail() {
   // Review list v2 (registration_flags.review_queue): Approve, Reject and Ask go through M3's
   // validation window (admin_validate_person: company, type, reason, e-mail). Off = as before.
   // Staff profiles (admin, moderator) keep the direct path: admin_validate_person refuses
-  // them (staff_profile). Until the switches are read, Approve and Reject wait.
-  const { flags: regFlags, ready: flagsReady } = useRegistrationFlags();
+  // them (staff_profile). Until the switches are read, Approve and Reject wait; a failed read
+  // is never taken for "off" (src/lib/flags.ts): they keep waiting, with a retry.
+  const { flags: regFlags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
+  const flagsKnown = flagsReady && !flagsFailed;
   const [validating, setValidating] = useState<PersonAction | null>(null);
 
   // Tier management
@@ -813,7 +815,7 @@ export function AdminUserDetail() {
             {user.access_status !== 'verified' && (
               <Button
                 onClick={validationV2 ? () => setValidating('validate') : handleApprove}
-                disabled={saving || !flagsReady}
+                disabled={saving || !flagsKnown}
                 className="gap-1.5"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
@@ -826,7 +828,7 @@ export function AdminUserDetail() {
               </Button>
             )}
             {user.access_status !== 'rejected' && !showRejectForm && (
-              <Button variant="destructive" disabled={!flagsReady} onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
+              <Button variant="destructive" disabled={!flagsKnown} onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
                 {validationV2 ? 'Not accepted…' : 'Reject'}
               </Button>
             )}
@@ -837,6 +839,12 @@ export function AdminUserDetail() {
             )}
             {/* Payment pending button removed — member tier is free */}
           </div>
+          {flagsFailed && user.access_status !== 'verified' && (
+            <p role="alert" className="text-sm text-red-700">
+              The review settings could not be loaded, so Approve and Reject wait.{' '}
+              <button type="button" className="font-semibold underline underline-offset-2" onClick={retryFlags}>Try again</button>
+            </p>
+          )}
 
           {validating && id && (
             <ValidatePersonDialog

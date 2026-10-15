@@ -13,7 +13,6 @@ import { toast } from '@/hooks/use-toast';
 import { readRegistrationFlags } from '@/lib/flags';
 import { cn } from '@/lib/utils';
 import { ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY, AdminPanel, AdminStatusPill } from '../AdminUI';
-import { readOutboxSender } from '../review/reviewApi';
 import { readSetting, saveSetting } from './settingsStore';
 
 /**
@@ -281,7 +280,6 @@ export function RegistrationFlagsPanel() {
     setUpdatedAt(res.updatedAt);
     // Every screen of this browser reads the switches again (the e-mail sender switch too).
     void readRegistrationFlags(true);
-    void readOutboxSender(true);
     toast({
       title: pending.next
         ? t('adminSettings.done.on', '"{{title}}" is on', { title: pending.info.title })

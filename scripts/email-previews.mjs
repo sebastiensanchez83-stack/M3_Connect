@@ -106,13 +106,13 @@ for (const name of fs.readdirSync(fnDir).sort()) {
 
 // ---------------------------------------------------------------- load the real code
 
-function load(fn, names) {
+function load(fn, names, env = {}) {
   let src = fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
   src = src.replace(/^import .*$/gm, ""); // remote (esm.sh) imports: not needed to render
   const js = ts.transpileModule(src, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
-  const Deno = { env: { get: () => undefined }, serve() {} };
+  const Deno = { env: { get: (k) => env[k] }, serve() {} };
   const createClient = () => ({}); // a few functions build their client at the top level
   const QRCode = {};
   return new Function("Deno", "createClient", "QRCode", `${js}\nreturn { ${names.join(", ")} };`)(Deno, createClient, QRCode);
@@ -140,6 +140,9 @@ const regCron = load("registration-cron", [
 ]);
 const provision = load("provision-person", ["renderAccountReady", "renderTeamMemberAdded"]);
 const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
+// Registration Phase 2 (11 Oct 2026): account-signup, accept-invite (+ new send-notification types).
+const acct = load("account-signup", ["renderAccountAlreadyExists", "renderEmailProof", "signInLinks", "typeLabel", "companyCard", "foldName", "significantLength"]);
+const invite = load("accept-invite", ["renderInviteLink", "signInviteToken", "readInviteToken", "inviteTokenValid", "maskEmail", "fmtDay"]);
 
 // A token signed by send-notification verifies in the unsubscribe function, and a
 // tampered or foreign one does not (sample key, nothing leaves this process).
@@ -235,6 +238,19 @@ const items = [];
   add(12, "profile_reminder_verified_but_thin", "alex.martin@example.com", { first_name: "Alex" }, "reminder with bullets");
   add(13, "team_invitation", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", signup_url: `${SITE}/?signup=true&email=new.colleague%40example.com` }, "ampersand in a name");
   add(14, "payment_failed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", event_title: "Example Marina Forum 2026" });
+  // Registration Phase 2 (11 Oct 2026). join_url / expires_on are set by the function itself
+  // (flag account_signup_v2, teamInvitationLink); the rest by authorizeResolvedSend.
+  const joinUrl = `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`;
+  add(15, "team_invitation", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", join_url: joinUrl, expires_on: "10 November 2026" }, "new sign-up: /join/<token> link");
+  add(16, "team_invitation_reminder", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", join_url: joinUrl, expires_on: "10 November 2026" }, "new sign-up: /join/<token> link");
+  add(17, "team_join_request", "camille.durand@example.com", { first_name: "Camille", org_name: "Port Azur Marina", requester_name: "Sam Rivera", requester_email: "sam.rivera@example.com", requester_job: "Harbour master" }, "to the company owner");
+  add("17b", "team_join_request", "camille.durand@example.com", { first_name: "Camille", org_name: "Port Azur Marina", requester_name: "Sam Rivera", requester_email: "sam.rivera@example.com", requester_job: "", requester_unproven: "yes" }, "requester address not proven (sent by M3 or the service)");
+  add(18, "team_join_approved", "sam.rivera@example.com", { first_name: "Sam", org_name: "Port Azur Marina", org_verified: "yes" }, "company verified by M3");
+  add("18b", "team_join_approved", "sam.rivera@example.com", { first_name: "Sam", org_name: "Harbourline & Sons", org_verified: "" }, "company not verified yet");
+  add(19, "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "new", org_name: "Bluequay Energy", sla: "within 2 working days" }, "person + new company");
+  add("19b", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "join", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to join a verified company");
+  add("19c", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "claim", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to manage an ownerless company");
+  add("19d", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "none", org_name: "", sla: "within 2 working days" }, "no company");
 }
 
 // Other Resend senders (each has its own function)
@@ -474,6 +490,12 @@ const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_
   }));
   add("account-5-ready-set-password", "provision-person · account created at confirmation (set password)", regGuest.email, provision.renderAccountReady("Sam", "Marina Days 2027", `${SITE}/welcome?token_hash=EXAMPLE_TOKEN_HASH&type=invite&next=%2Fdashboard`));
   add("account-6-team-member-added", "provision-person · FYI to the company owner", "camille.durand@example.com", provision.renderTeamMemberAdded("Camille", "Sam Rivera", regGuest.email, "Port Azur Marina & Yacht Club", "Marina Days 2027"));
+
+  // Registration Phase 2: account-signup and accept-invite (fictional data).
+  add("account-7-already-exists", "account-signup · sign-up tried with the address of an existing account", "alex.martin@example.com", acct.renderAccountAlreadyExists("Alex", acct.signInLinks(SITE)));
+  add("account-8-email-proof", "account-signup · confirm your e-mail address (dashboard banner)", "alex.martin@example.com", acct.renderEmailProof("alex.martin@example.com", `${SITE}/verify-email?t=EXAMPLE_PROOF_TOKEN_EXAMPLE_PROOF_TOKEN_1234567`));
+  add("account-9-invite-link", "accept-invite · fresh invitation link asked from an older e-mail", "new.colleague@example.com", invite.renderInviteLink("Sam", "Port Azur Marina & Yacht Club", true, `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`, "10 November 2026"));
+  add("account-9b-invite-link", "accept-invite · fresh invitation link, company not verified by M3 (no name typed by its owner)", "new.colleague@example.com", invite.renderInviteLink("Sam", "Harbourline & Sons", false, `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`, "10 November 2026"));
 }
 
 // ---------------------------------------------------------------- checks on what was rendered
@@ -656,6 +678,118 @@ for (const it of items) {
     "provision-person": provision.renderAccountReady(bad, evilImg, `${SITE}/?a="${bad}"`).html + provision.renderTeamMemberAdded(bad, evilImg, bad, evilImg, evilImg).html,
   };
   for (const [fn, html] of Object.entries(regEvils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
+}
+
+// ---------------------------------------------------------------- registration Phase 2 checks
+{
+  // The invite token block is pasted in send-notification (signs) and accept-invite (checks).
+  const I_START = "// ---- SMC invite token v1";
+  const I_END = "// ---- end SMC invite token ----";
+  const blockOf = (fn) => {
+    const src = fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
+    const a = src.indexOf(I_START);
+    const b = src.indexOf(I_END);
+    return a < 0 || b < 0 ? null : src.slice(a, b + I_END.length);
+  };
+  const sb = blockOf("send-notification");
+  const ab = blockOf("accept-invite");
+  if (!sb || !ab) fail("invite token block missing from send-notification or accept-invite");
+  else if (sb !== ab) fail("the invite token block differs between send-notification and accept-invite");
+
+  // A link signed by send-notification opens in accept-invite, for that row only.
+  const signer = load("send-notification", ["signInviteToken"]);
+  const key = "example-service-role-key";
+  const inv = "00000000-0000-4000-8000-0000000000e1";
+  const org = "00000000-0000-4000-8000-0000000000e2";
+  const tok = await signer.signInviteToken(key, inv, org, "Sam.Rivera@Example.com");
+  const t = invite.readInviteToken(tok);
+  if (!t || t.invitationId !== inv) fail("invite token: the invitation id does not read back");
+  if (/[^A-Za-z0-9_.-]/.test(tok) || tok.length > 120) fail(`invite token: not URL-safe or too long (${tok.length})`);
+  if (tok.toLowerCase().includes("sam") || tok.includes(inv)) fail("invite token: the address or the raw id is readable in the link");
+  if (!t || !(await invite.inviteTokenValid(key, t, org, "sam.rivera@example.com"))) fail("invite token: a fresh token does not verify in accept-invite");
+  if (t && (await invite.inviteTokenValid(key, t, org, "other@example.com"))) fail("invite token: verifies for another address");
+  if (t && (await invite.inviteTokenValid(key, t, "00000000-0000-4000-8000-0000000000e3", "sam.rivera@example.com"))) fail("invite token: verifies for another company");
+  if (t && (await invite.inviteTokenValid("another-key", t, org, "sam.rivera@example.com"))) fail("invite token: verifies under another key");
+  const [head, mac] = tok.split(".");
+  const flipped = `${head}.${mac.slice(0, -2)}${mac.slice(-2) === "AA" ? "AB" : "AA"}`;
+  const tf = invite.readInviteToken(flipped);
+  if (tf && (await invite.inviteTokenValid(key, tf, org, "sam.rivera@example.com"))) fail("invite token: a tampered signature verifies");
+  const other = await signer.signInviteToken(key, "00000000-0000-4000-8000-0000000000e4", org, "sam.rivera@example.com");
+  const swapped = invite.readInviteToken(`${other.split(".")[0]}.${mac}`);
+  if (swapped && (await invite.inviteTokenValid(key, swapped, org, "sam.rivera@example.com"))) fail("invite token: a signature moved to another invitation verifies");
+  for (const bad of ["", "abc", `${head}`, `${head}.${mac}.x`, "00000000-0000-4000-8000-0000000000e1", 42, null]) {
+    if (invite.readInviteToken(bad)) fail(`invite token: malformed token ${JSON.stringify(bad)} reads`);
+  }
+
+  // The new e-mails: the join link in both parts, no token in a subject, names for types.
+  for (const id of ["notif-15-team-invitation", "notif-16-team-invitation-reminder", "account-9-invite-link", "account-9b-invite-link"]) {
+    const it = items.find((i) => i.id === id);
+    const link = `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`;
+    if (!it || !it.html.includes(`href="${link}"`) || !it.text.includes(link)) fail(`${id}: the /join/<token> link is missing`);
+    if (it && !it.text.includes("10 November 2026")) fail(`${id}: the expiry day is missing`);
+  }
+  for (const it of items.filter((i) => /^(notif-1[5-9]|account-[7-9])/.test(i.id))) {
+    if (/join\/|verify-email|token|EXAMPLE_/i.test(it.subject)) fail(`${it.id}: a link or token in the subject`);
+  }
+  {
+    const old = items.find((i) => i.id === "notif-13-team-invitation");
+    if (!old || !old.html.includes("signup=true") || old.html.includes("/join/")) fail("notif-13-team-invitation: without join_url the old invitation (caller's link) must be unchanged");
+    const proof = items.find((i) => i.id === "account-8-email-proof");
+    if (!proof || !proof.text.includes(`${SITE}/verify-email?t=`)) fail("account-8-email-proof: the /verify-email link is missing");
+    const exists = items.find((i) => i.id === "account-7-already-exists");
+    if (!exists || !exists.html.includes(`${SITE}/?signin=true&amp;forgot=true`) || !exists.text.includes(`${SITE}/?signin=true&forgot=true`)) fail("account-7-already-exists: the reset link is missing");
+    const join = items.find((i) => i.id === "notif-19b-account-under-review");
+    if (!join || !join.text.includes("asked the owner of Port Azur Marina")) fail("notif-19b-account-under-review: the join wording is missing");
+    const none = items.find((i) => i.id === "notif-19d-account-under-review");
+    if (!none || /your company,/.test(none.text)) fail("notif-19d-account-under-review: a company is named for a person without one");
+    // The proof e-mail and an unverified company's link carry no name typed by someone else.
+    if (!proof || !/^Hello,$/m.test(proof.text) || /Alex/.test(proof.html)) fail("account-8-email-proof: the greeting must be a plain Hello, (unproven name)");
+    const unv = items.find((i) => i.id === "account-9b-invite-link");
+    if (!unv || !/^Hello,$/m.test(unv.text) || /Sam/.test(unv.html) || /Harbourline/.test(unv.subject)) fail("account-9b-invite-link: an unverified company's link must not carry the invitee name typed by its owner, nor the company in the subject");
+    const unproven = items.find((i) => i.id === "notif-17b-team-join-request");
+    const proven = items.find((i) => i.id === "notif-17-team-join-request");
+    if (!unproven || !unproven.text.includes("not confirmed this e-mail address")) fail("notif-17b-team-join-request: the unproven-address warning is missing");
+    if (!proven || proven.text.includes("not confirmed this e-mail address")) fail("notif-17-team-join-request: a proven requester gets the unproven warning");
+  }
+  if (acct.typeLabel("partner") !== "Service provider" || acct.typeLabel("media_partner") !== "Media" || acct.typeLabel("x") !== "") fail("account-signup: company type labels");
+  const card = acct.companyCard({ id: "00000000-0000-4000-8000-0000000000f1", name: " Port Azur ", logo_url: "javascript:alert(1)", city: "Cannes", country: "France", organization_type: "partner", owner_user_id: "x", claim_code: "SECRET", access_status: "verified" });
+  if (!card || Object.keys(card).sort().join(",") !== "city,country,id,logo_url,name,type,type_label" || card.logo_url !== null || card.type_label !== "Service provider") fail(`account-signup: a company card carries more than the public fields (${JSON.stringify(card)})`);
+  if (acct.foldName("Pört Àzur – Marina") !== "port azur - marina") fail(`account-signup: name folding gave ${acct.foldName("Pört Àzur – Marina")}`);
+  if (acct.significantLength(" a- b ") !== 2 || acct.significantLength("Port") !== 4) fail("account-signup: the 3-character rule counts the wrong characters");
+  if (invite.maskEmail("sam.rivera@example.com") !== "s***@example.com") fail("accept-invite: masked address");
+  if (invite.fmtDay("2026-11-10T08:00:00Z") !== "10 November 2026") fail(`accept-invite: expiry day ${invite.fmtDay("2026-11-10T08:00:00Z")}`);
+
+  // Untrusted values never turn into markup.
+  const bad = '"><b id=x>';
+  const evilImg = "<img src=x onerror=alert(1)>";
+  const spoiled = (html) => /<img src=x|<b id=x|<script|<s>x/.test(html.replace(/<style[\s\S]*?<\/style>/, ""));
+  const u = `${SITE}/unsubscribe`;
+  const phase2Evils = {
+    "account-signup": acct.renderAccountAlreadyExists(bad, { signIn: `${SITE}/?a="${bad}"`, reset: `${SITE}/?b="${bad}"` }).html +
+      acct.renderEmailProof(`${bad}@example.com`, `${SITE}/verify-email?t="${bad}"`).html,
+    "accept-invite": invite.renderInviteLink(bad, evilImg, true, `${SITE}/join/"${bad}"`, bad).html + invite.renderInviteLink(bad, evilImg, false, SITE, "").html,
+    "send-notification phase 2": notif.renderNotification("team_join_request", { first_name: bad, org_name: evilImg, requester_name: evilImg, requester_email: bad, requester_job: evilImg, requester_unproven: evilImg }, "", u).html +
+      notif.renderNotification("team_join_approved", { first_name: bad, org_name: evilImg, org_verified: "" }, "", u).html +
+      notif.renderNotification("account_under_review", { first_name: bad, review_path: "new", org_name: evilImg, sla: evilImg }, "", u).html +
+      notif.renderNotification("team_invitation", { first_name: bad, org_name: evilImg, join_url: `${SITE}/join/"${bad}"`, expires_on: evilImg }, "", u).html,
+  };
+  for (const [fn, html] of Object.entries(phase2Evils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
+  // The invitation button can only ever point at the site, whatever join_url says.
+  const off = notif.renderNotification("team_invitation", { org_name: "X", join_url: "https://evil.example.com/join/x" }, "", u);
+  if (off.html.includes("evil.example.com") || off.text.includes("evil.example.com")) fail("send-notification: the invitation button left the site origin");
+  // ACCOUNT_SITE_URL: the signed invitation link (and only it) opens on the account site,
+  // which must be one of our own sites.
+  const PREVIEW = "https://refonte--m3connectv2.netlify.app";
+  const onPreview = load("send-notification", ["renderNotification"], { SITE_URL: SITE, ACCOUNT_SITE_URL: `${PREVIEW}/` });
+  const joinP = onPreview.renderNotification("team_invitation", { org_name: "X", join_url: `${SITE}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE` }, "", u);
+  if (!joinP.text.includes(`${PREVIEW}/join/EXAMPLE_INVITE_TOKEN.EXAMPLE_SIGNATURE`)) fail("send-notification: with ACCOUNT_SITE_URL the invitation link is not on the account site");
+  const oldP = onPreview.renderNotification("team_invitation", { org_name: "X", signup_url: `${SITE}/join/00000000-0000-4000-8000-0000000000e1` }, "", u);
+  if (oldP.text.includes(PREVIEW) || !oldP.text.includes(`${SITE}/join/00000000-0000-4000-8000-0000000000e1`)) fail("send-notification: ACCOUNT_SITE_URL moved an old invitation link off the site");
+  const otherP = onPreview.renderNotification("team_join_request", { org_name: "X", requester_email: "a@example.com" }, "", u);
+  if (otherP.text.includes(PREVIEW)) fail("send-notification: ACCOUNT_SITE_URL moved a button that is not the invitation link");
+  const foreign = load("send-notification", ["renderNotification"], { SITE_URL: SITE, ACCOUNT_SITE_URL: "https://evil.example.com" })
+    .renderNotification("team_invitation", { org_name: "X", join_url: `${SITE}/join/x.y` }, "", u);
+  if (foreign.text.includes("evil.example.com") || !foreign.text.includes(`${SITE}/join/x.y`)) fail("send-notification: an ACCOUNT_SITE_URL outside our sites was used");
 }
 
 // Sign-up activation links always open /welcome (forced password step), whatever page

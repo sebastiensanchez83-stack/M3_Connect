@@ -74,7 +74,12 @@ type NotificationType =
   | "profile_reminder_signup_stalled"
   | "profile_reminder_onboarding_incomplete"
   | "profile_reminder_pending_review_followup"
-  | "profile_reminder_verified_but_thin";
+  | "profile_reminder_verified_but_thin"
+  // Registration Phase 2 (11 Oct 2026): data resolved here from the database, see
+  // authorizeResolvedSend.
+  | "team_join_request"
+  | "team_join_approved"
+  | "account_under_review";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -148,8 +153,11 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
   join_request_received: "team",
   join_request_approved: "team",
   join_request_rejected: "team",
+  team_join_request: "team",
+  team_join_approved: "team",
 
   // Account lifecycle
+  account_under_review: "account",
   user_account_approved: "account",
   user_account_rejected: "account",
   org_claim_code: "account",
@@ -449,7 +457,22 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
 
     // ── Team invitation ──
+    // join_url / expires_on are set only by this function (flag account_signup_v2, see
+    // teamInvitationLink): the signed /join/<token> link of accept-invite, where the
+    // invitee chooses a password and joins at once. Without them, the old text and the
+    // caller's signup_url, unchanged.
     case "team_invitation":
+      if (d.join_url) {
+        return {
+          subject: `You've been invited to join ${d.org_name || "an organization"} on Smart Marina Connect`,
+          greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+          title: "Join your team",
+          body: `${d.org_name || "An organization"} has invited you to join their team on Smart Marina Connect, the B2B platform for the marina industry.\n\nOpen the invitation and choose your password: your account is linked to the team straight away. Already have an account with this address? Sign in from the invitation page instead.${d.expires_on ? `\n\nThis invitation expires on ${d.expires_on}.` : ""}`,
+          buttonText: "Accept the invitation",
+          buttonUrl: d.join_url,
+          footer: "If you weren't expecting this invitation, you can safely ignore this email.",
+        };
+      }
       return {
         subject: `You've been invited to join ${d.org_name || "an organization"} on Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
@@ -460,6 +483,17 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         footer: "If you weren't expecting this invitation, you can safely ignore this email.",
       };
     case "team_invitation_reminder":
+      if (d.join_url) {
+        return {
+          subject: `Reminder: Join ${d.org_name || "your team"} on Smart Marina Connect`,
+          greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+          title: "Your invitation is waiting",
+          body: `This is a friendly reminder that ${d.org_name || "an organization"} has invited you to join their team on Smart Marina Connect.\n\nOpen the invitation and choose your password: your account is linked to the team straight away.${d.expires_on ? `\n\nThis invitation expires on ${d.expires_on}.` : ""}`,
+          buttonText: "Accept the invitation",
+          buttonUrl: d.join_url,
+          footer: "If you weren't expecting this invitation, you can safely ignore this email.",
+        };
+      }
       return {
         subject: `Reminder: Join ${d.org_name || "your team"} on Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
@@ -567,6 +601,55 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonUrl: `${SITE_URL}/account`,
         footer: "If you believe this was a mistake, please contact the organization directly.",
       };
+
+    // ── Registration Phase 2: team joins and the account under review ──
+    // Every field below is set by authorizeResolvedSend from the database, never by the
+    // caller (RESERVED_DATA_KEYS).
+    case "team_join_request":
+      return {
+        subject: `New request to join ${d.org_name || "your company"} on Smart Marina Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "A request to join your team",
+        body: `${d.requester_name || "Someone"} (${d.requester_email || "no address"})${d.requester_job ? `, ${d.requester_job},` : ""} has asked to join ${d.org_name || "your company"} on Smart Marina Connect.${d.requester_unproven ? "\n\nThey have not confirmed this e-mail address yet: approve the request only if you know them." : ""}\n\nIf they are part of your team, approve the request in your company settings. If you do not know them, decline it: nobody joins your company without your agreement.`,
+        buttonText: "Review the request",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "You are receiving this e-mail because you are the owner of this company on Smart Marina Connect.",
+      };
+
+    case "team_join_approved":
+      return {
+        subject: `You're now a member of ${d.org_name || "your team"} on Smart Marina Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Welcome to the team",
+        body: d.org_verified
+          ? `${d.org_name || "The company"} has accepted your request. You are now a member of the team on Smart Marina Connect, with full access to the platform.`
+          : `${d.org_name || "The company"} has accepted your request, and you are now a member of the team on Smart Marina Connect.\n\nM3 is still reviewing the company: we will e-mail you as soon as it is approved.`,
+        buttonText: "Open my company",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "Welcome aboard! If you have any questions, reply to this e-mail.",
+      };
+
+    case "account_under_review": {
+      const sla = d.sla || "within 2 working days";
+      const meanwhile = "Meanwhile, you can register for events and complete your profile.";
+      let body: string;
+      if (d.review_path === "join") {
+        body = `Your Smart Marina Connect account has been created. We have asked the owner of ${d.org_name || "your company"} to confirm that you are part of their team, and we will e-mail you as soon as they answer.\n\n${meanwhile}`;
+      } else if (d.review_path === "claim") {
+        body = `Your Smart Marina Connect account has been created. You asked to manage the page of ${d.org_name || "your company"}: M3 checks every request of this kind and will e-mail you its answer, usually ${sla}.\n\n${meanwhile}`;
+      } else {
+        body = `Your Smart Marina Connect account has been created. M3 reviews every new member to keep the network trusted, and we will e-mail you as soon as yours is approved, usually ${sla}.${d.org_name ? `\n\nWe will review your company, ${d.org_name}, at the same time.` : ""}\n\n${meanwhile}`;
+      }
+      return {
+        subject: "Your Smart Marina Connect account is under review",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Thank you for joining",
+        body,
+        buttonText: "Open my account",
+        buttonUrl: accountUrl,
+        footer: "Questions about your application? Reply to this e-mail.",
+      };
+    }
 
     // ── User account approved by admin ──
     case "user_account_approved":
@@ -770,10 +853,34 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 // Every caller: unknown types are refused, every data field is capped and
 // HTML-escaped before it reaches a template, the button always points at the site
 // origin, and the response no longer echoes the recipient address.
+//
+// Registration Phase 2 (11 Oct 2026, spec regspec-en.md §7):
+//   - team_join_request, team_join_approved, account_under_review: resolved from the
+//     database for every caller (authorizeResolvedSend, below).
+//   - team_invitation / team_invitation_reminder, while registration_flags
+//     .invite_links_v2 AND .account_signup_v2 are on: the button is the signed
+//     /join/<token> link of the accept-invite function (block "SMC invite token v1") on
+//     ACCOUNT_SITE_URL (SITE_URL by default), with the expiry day, for the pending
+//     invitation row of that recipient (member: the row found above, for a caller still in
+//     that company; staff / service: data.invitation_id or the /join/<id> of signup_url).
+//     invite_links_v2 is a switch of its own because these e-mails also leave from the
+//     OLD live site, whose /join page cannot open a token: switch it on at go-live only
+//     (testing account_signup_v2 on the preview never touches real invitations). Off:
+//     unchanged.
 
 const KNOWN_TYPES = new Set<string>(Object.keys(TYPE_TO_CATEGORY));
 const SITE_ORIGIN = (() => {
   try { return new URL(SITE_URL).origin; } catch { return "https://smartmarinaconnect.com"; }
+})();
+// Site of the signed /join/<token> invitation links (the redesign's page): SITE_URL by
+// default; ACCOUNT_SITE_URL points them at the redesign preview for a test before go-live.
+// One of our own sites only (else SITE_URL): the same list as accept-invite and account-signup.
+const ACCOUNT_ORIGIN = (() => {
+  try {
+    const o = new URL(Deno.env.get("ACCOUNT_SITE_URL") || "").origin;
+    if (/^https:\/\/((www\.)?smartmarinaconnect\.com|m3connect(v2)?\.netlify\.app|[a-z0-9-]+--m3connect(v2)?\.netlify\.app)$/.test(o)) return o;
+  } catch { /* SITE_ORIGIN */ }
+  return SITE_ORIGIN;
 })();
 const MAX_FIELD_CHARS = 2000;
 const MAX_FIELDS = 25;
@@ -846,14 +953,15 @@ function escapeData(d: Record<string, string>): Record<string, string> {
   return out;
 }
 
-/** Any button link is re-based onto the site origin (path + query kept). */
-function toSiteUrl(raw: string): string {
+/** Any button link is re-based onto the site origin (path + query kept); the signed team
+ *  invitation link onto ACCOUNT_ORIGIN (renderNotification). */
+function toSiteUrl(raw: string, origin = SITE_ORIGIN): string {
   try {
-    const u = new URL(raw, SITE_ORIGIN);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return `${SITE_ORIGIN}/`;
-    return `${SITE_ORIGIN}${u.pathname}${u.search}${u.hash}`;
+    const u = new URL(raw, origin);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return `${origin}/`;
+    return `${origin}${u.pathname}${u.search}${u.hash}`;
   } catch {
-    return `${SITE_ORIGIN}/`;
+    return `${origin}/`;
   }
 }
 
@@ -990,6 +1098,8 @@ const GENERIC_ORG_SUBJECT: Partial<Record<NotificationType, string>> = {
   team_invitation_reminder: "Reminder: your invitation to join a team on Smart Marina Connect",
   join_request_approved: "Your join request was approved on Smart Marina Connect",
   join_request_rejected: "Update on your join request on Smart Marina Connect",
+  team_join_request: "New request to join your company on Smart Marina Connect",
+  team_join_approved: "Your request to join a team was approved on Smart Marina Connect",
 };
 
 /**
@@ -1044,6 +1154,21 @@ interface MemberGrant extends Recipient {
   unverifiedOrgId?: string;
   /** Replaces the template subject (no organisation name for unverified orgs). */
   subject?: string;
+  /** team_invitation(_reminder): the pending invitation row the e-mail is about (only for
+   *  a caller still in that company: the signed /join/<token> link). */
+  invitation?: InvitationRow;
+  /** The caller may give that invitation more days (its company's owner, as RLS
+   *  owners_can_update_invitations). */
+  canExtend?: boolean;
+}
+
+/** The columns of organization_invitations read for a team invitation link. */
+interface InvitationRow {
+  id: string;
+  organization_id: string;
+  email: string;
+  first_name: string | null;
+  expires_at: string | null;
 }
 
 /** Extra fields of a grant for an e-mail that names organisation `orgId`. */
@@ -1273,17 +1398,20 @@ async function authorizeMemberSend(
       const owned = await ownedOrgIds(db, m.id);
       let q = db
         .from("organization_invitations")
-        .select("id, organization_id, email, first_name, created_at")
+        .select("id, organization_id, email, first_name, created_at, expires_at")
         .eq("status", "pending");
       q = owned.length
         ? q.or(`invited_by_user_id.eq.${m.id},organization_id.in.(${owned.join(",")})`)
         : q.eq("invited_by_user_id", m.id);
       if (type === "team_invitation") q = q.gte("created_at", since);
       const { data: rows } = await q.order("created_at", { ascending: false }).limit(500);
-      const inv = ((rows || []) as { id: string; organization_id: string; email: string; first_name: string | null }[])
+      const inv = ((rows || []) as InvitationRow[])
         .find((x) => sameEmail(x.email, email));
       if (!inv) return null;
       const org = await orgInfo(db, inv.organization_id);
+      // The signed link only for a caller still in that company (an inviter since removed
+      // keeps the old e-mail); more days only from its owner, who may update the row under RLS.
+      const owner = owned.includes(inv.organization_id);
       return {
         recipientEmail: inv.email,
         recipientUserId: null,
@@ -1291,6 +1419,8 @@ async function authorizeMemberSend(
         prefs: null,
         data: { ...data, org_name: org.name || "An organization" },
         ref: `${type}:${inv.id}`,
+        invitation: owner || m.orgIds.includes(inv.organization_id) ? inv : undefined,
+        canExtend: owner,
         ...orgFields(type, inv.organization_id, org),
       };
     }
@@ -1298,6 +1428,324 @@ async function authorizeMemberSend(
     default:
       return null;
   }
+}
+
+// ──────────────────────────────────────────────
+// Registration Phase 2 types (11 Oct 2026; spec regspec-en.md §4.6, §7)
+// ──────────────────────────────────────────────
+//
+// team_join_request, team_join_approved and account_under_review are resolved here for
+// EVERY caller (service, staff or member): the recipient and every word of the e-mail
+// come from the database row the call names, never from the caller's text.
+//   team_join_request    data.invitation_id: a join request (status join_requested, filed
+//                        by the requester themself, invited_by_user_id null) -> the
+//                        company's real owner (organizations.owner_user_id, also an owner
+//                        member). Member caller: the requester (row address = the caller's
+//                        sign-in address, filed < 15 min ago); without invitation_id, the
+//                        caller's latest such row.
+//   team_join_approved   data.invitation_id: that request, now 'accepted' -> the CONFIRMED
+//                        account with its address. Member caller: an owner of the company,
+//                        decided < 15 min ago; without invitation_id, the latest accepted
+//                        request for `email` in a company the caller owns.
+//   account_under_review user_id (service / staff). A member only for themself, while
+//                        their profile is pending and their address PROVEN (contract §2).
+//                        Path and company from the database (reviewPathOf): "join" only
+//                        when the person's own join_requested row is open (an owner was
+//                        asked), "claim" only with an open claim_requested row (M3 decides),
+//                        else "new" / "none" from profiles.signup_intent (its result, then
+//                        its action); data.path (service / staff) only when the database
+//                        says nothing, and never join or claim. The delay from
+//                        platform_settings.review_sla_text.
+// Members may trigger these types only while registration_flags.account_signup_v2 is on;
+// service and staff always. The same e-mail about the same row reaches its recipient at
+// most once per 10 minutes, whoever triggers it: email_rate_log kind "resolved:<ref>" with
+// the RECIPIENT as actor_id (outside the "send-notification:%" rows of the hourly cap). A
+// member caller also counts towards their own hourly cap (memberThrottle).
+// team_join_request from a member: only for their own request, from a PROVEN address
+// (contract §2; Confirm email is off, so a confirmed address proves nothing). From service
+// or staff with an unproven address, the owner is told so.
+
+const RESOLVED_TYPES = new Set<string>(["team_join_request", "team_join_approved", "account_under_review"]);
+/** Data keys that only this function sets: a caller's value is dropped. */
+const RESERVED_DATA_KEYS = ["join_url", "expires_on", "org_verified", "review_path", "sla", "requester_job", "requester_unproven"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface InvitationFull extends InvitationRow {
+  last_name: string | null;
+  status: string;
+  invited_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+const INVITATION_COLS = "id, organization_id, email, first_name, last_name, status, invited_by_user_id, created_at, updated_at, expires_at";
+
+async function loadInvitationRow(db: Db, id: string | undefined): Promise<InvitationFull | null> {
+  if (!id || !UUID_RE.test(id)) return null;
+  const { data } = await db.from("organization_invitations").select(INVITATION_COLS).eq("id", id).maybeSingle();
+  return (data as InvitationFull | null) || null;
+}
+
+const olderThanWindow = (ts: string | null | undefined) => {
+  const t = new Date(String(ts || "")).getTime();
+  return isNaN(t) || t < Date.now() - MEMBER_WINDOW_MS;
+};
+
+/** The real owner of an organisation: organizations.owner_user_id, also an owner member (see join_request_received). */
+async function realOwnerOf(db: Db, orgId: string): Promise<string | null> {
+  const { data: org } = await db.from("organizations").select("owner_user_id").eq("id", orgId).maybeSingle();
+  const ownerId = String(org?.owner_user_id || "");
+  if (!UUID_RE.test(ownerId)) return null;
+  return (await ownedOrgIds(db, ownerId)).includes(orgId) ? ownerId : null;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** profiles.signup_intent.result.path (registration core, complete_signup_for) -> the wording
+ *  of account_under_review when no open request decides it. join_requested / claim_requested
+ *  without their open row (already decided), invitation_pending, already_member,
+ *  org_not_found, join_declined_recently: "none". */
+const RESULT_REVIEW_PATH: Record<string, string> = { company_pending: "new", new_company: "new" };
+
+/**
+ * What M3 does next for a pending person (account_under_review), from the database:
+ *   "join"  the person's own join_requested row for the company is open: its owner was asked;
+ *   "claim" their claim_requested row is open: M3 decides (a verified company with no owner,
+ *           or a claim code);
+ *   "new"   M3 reviews the person with a company it has not verified, or with the new
+ *           company they declared;
+ *   "none"  no company to mention.
+ * A caller's path counts only when the database says nothing, and never as join or claim
+ * (spec §4.6: the server decides; 164 of 264 verified companies had no owner on 11 Oct 2026).
+ */
+async function reviewPathOf(db: Db, address: string, rawIntent: unknown, given: string): Promise<{ path: string; orgId: string; orgName: string }> {
+  const intent = isRecord(rawIntent) ? rawIntent : {};
+  const result = isRecord(intent.result) ? intent.result : {};
+  const orgId = [result.organization_id, intent.org_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
+  const declaredName = cleanName(String(intent.name || ""), UNVERIFIED_ORG_NAME_CHARS);
+  const none = { path: "none", orgId: "", orgName: "" };
+  if (orgId && address) {
+    const { data: rows } = await db
+      .from("organization_invitations")
+      .select("email, status, created_at")
+      .eq("organization_id", orgId)
+      .in("status", ["join_requested", "claim_requested"])
+      .is("invited_by_user_id", null)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    const row = ((rows || []) as { email: string; status: string }[]).find((x) => sameEmail(x.email, address));
+    if (row) return { path: row.status === "claim_requested" ? "claim" : "join", orgId, orgName: "" };
+  }
+  const resultPath = String(result.path || "");
+  if (resultPath) {
+    if (RESULT_REVIEW_PATH[resultPath] !== "new") return none;
+    return resultPath === "company_pending" && orgId ? { path: "new", orgId, orgName: "" } : { path: "new", orgId: "", orgName: declaredName };
+  }
+  const declared = String(intent.action || "");
+  if (declared === "join" && orgId) {
+    // Nobody was asked (no open request): a company M3 has not verified is reviewed with the person.
+    return (await orgInfo(db, orgId)).verified ? none : { path: "new", orgId, orgName: "" };
+  }
+  if (declared === "new") return { path: "new", orgId: "", orgName: declaredName };
+  if (!declared && (given === "new" || given === "none")) return { path: given, orgId: "", orgName: "" };
+  return none;
+}
+
+async function reviewSlaText(db: Db): Promise<string> {
+  try {
+    const { data } = await db.from("platform_settings").select("value").eq("key", "review_sla_text").maybeSingle();
+    const v = data?.value;
+    if (typeof v === "string" && v.trim()) return cleanName(v, 120);
+  } catch { /* default below */ }
+  return "within 2 working days";
+}
+
+async function authorizeResolvedSend(
+  db: Db,
+  m: Member | null,
+  type: string,
+  userId: string,
+  email: string,
+  data: Record<string, string>,
+): Promise<MemberGrant | null> {
+  switch (type) {
+    case "team_join_request": {
+      let inv: InvitationFull | null = null;
+      if (data.invitation_id) inv = await loadInvitationRow(db, data.invitation_id);
+      else if (m) {
+        const since = new Date(Date.now() - MEMBER_WINDOW_MS).toISOString();
+        const { data: rows } = await db
+          .from("organization_invitations")
+          .select(INVITATION_COLS)
+          .eq("status", "join_requested")
+          .is("invited_by_user_id", null)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(200);
+        inv = ((rows || []) as InvitationFull[]).find((x) => sameEmail(x.email, m.email)) || null;
+      }
+      if (!inv || inv.status !== "join_requested" || inv.invited_by_user_id) return null;
+      if (m && (!sameEmail(inv.email, m.email) || olderThanWindow(inv.created_at))) return null;
+      const ownerId = await realOwnerOf(db, inv.organization_id);
+      if (!ownerId) return null;
+      const r = await recipientForUser(db, ownerId);
+      if (!r) return null;
+      // The requester as their account shows them (the row's names otherwise), and whether
+      // that account PROVED the address (contract §2: email_proven_at set and profiles.email
+      // = the sign-in address).
+      let name = cleanName([inv.first_name, inv.last_name].filter(Boolean).join(" "), PERSON_NAME_CHARS);
+      let job = "";
+      let proven = false;
+      const requesterId = await confirmedUserByEmail(db, inv.email);
+      if (requesterId) {
+        const { data: p } = await db.from("profiles").select("first_name, last_name, job_title, email, email_proven_at").eq("user_id", requesterId).maybeSingle();
+        const n = cleanName([p?.first_name, p?.last_name].filter(Boolean).join(" "), PERSON_NAME_CHARS);
+        if (n) name = n;
+        job = cleanName(p?.job_title, 120);
+        proven = !!p?.email_proven_at && sameEmail(p?.email, inv.email);
+      }
+      // A member announces only their own request, from a proven address.
+      if (m && (requesterId !== m.id || !proven)) return null;
+      const org = await orgInfo(db, inv.organization_id);
+      const out: Record<string, string> = { org_name: org.name || "your company", requester_name: name || "Someone", requester_email: inv.email.trim(), requester_job: job };
+      if (!proven) out.requester_unproven = "yes";
+      return {
+        ...r,
+        data: out,
+        ref: `${type}:${inv.id}`,
+        ...orgFields(type, inv.organization_id, org),
+      };
+    }
+
+    case "team_join_approved": {
+      let inv: InvitationFull | null = null;
+      if (data.invitation_id) inv = await loadInvitationRow(db, data.invitation_id);
+      else if (m && email) {
+        const owned = await ownedOrgIds(db, m.id);
+        if (!owned.length) return null;
+        const since = new Date(Date.now() - MEMBER_WINDOW_MS).toISOString();
+        const { data: rows } = await db
+          .from("organization_invitations")
+          .select(INVITATION_COLS)
+          .in("organization_id", owned)
+          .eq("status", "accepted")
+          .is("invited_by_user_id", null)
+          .gte("updated_at", since)
+          .order("updated_at", { ascending: false })
+          .limit(200);
+        inv = ((rows || []) as InvitationFull[]).find((x) => sameEmail(x.email, email)) || null;
+      }
+      if (!inv || inv.status !== "accepted" || inv.invited_by_user_id) return null;
+      if (m) {
+        const owned = await ownedOrgIds(db, m.id);
+        if (!owned.includes(inv.organization_id) || olderThanWindow(inv.updated_at)) return null;
+      }
+      const requesterId = await confirmedUserByEmail(db, inv.email);
+      if (!requesterId) return null;
+      const r = await recipientForUser(db, requesterId);
+      if (!r) return null;
+      const org = await orgInfo(db, inv.organization_id);
+      return {
+        ...r,
+        data: { org_name: org.name || "The company", org_verified: org.verified ? "yes" : "" },
+        ref: `${type}:${inv.id}`,
+        ...orgFields(type, inv.organization_id, org),
+      };
+    }
+
+    case "account_under_review": {
+      if (m && userId && userId !== m.id) return null;
+      const uid = m ? m.id : userId;
+      if (!UUID_RE.test(uid)) return null;
+      const { data: p, error } = await db
+        .from("profiles")
+        .select("first_name, email, access_status, email_proven_at, signup_intent")
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (error || !p) return null;
+      // A member: only their own pending account, at their PROVEN sign-in address.
+      if (m && (p.access_status !== "pending" || !p.email_proven_at || !sameEmail(p.email, m.email))) return null;
+      const r = await recipientForUser(db, uid);
+      if (!r) return null;
+      const address = m ? m.email : r.recipientEmail;
+      const review = await reviewPathOf(db, address, p.signup_intent, m ? "" : (data.path || ""));
+      let orgName = "";
+      if (review.path !== "none") orgName = review.orgId ? (await orgInfo(db, review.orgId)).name : review.orgName;
+      if (!orgName && !m && review.path === "new") orgName = cleanName(data.org_name, UNVERIFIED_ORG_NAME_CHARS);
+      return {
+        ...r,
+        recipientEmail: address,
+        data: { review_path: review.path, org_name: orgName, sla: await reviewSlaText(db) },
+        ref: `${type}:${uid}`,
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/** platform_settings.registration_flags (a switch is on only as JSON true, contract §2). Empty when unreadable. */
+async function registrationFlags(db: Db): Promise<Record<string, unknown>> {
+  try {
+    const { data } = await db.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
+    return isRecord(data?.value) ? data.value : {};
+  } catch {
+    return {};
+  }
+}
+
+async function registrationFlag(db: Db, key: string): Promise<boolean> {
+  return (await registrationFlags(db))[key] === true;
+}
+
+/** "10 November 2026" (Monaco time). */
+function fmtDay(d: Date): string {
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Monaco" });
+}
+
+/**
+ * The pending invitation a staff or service caller's team invitation is about:
+ * data.invitation_id, or the id in the /join/<id> link it passed as signup_url
+ * (AdminOrganizationDetail). Only when the row is pending and goes to that recipient.
+ */
+async function invitationForTrustedSend(db: Db, data: Record<string, string>, recipientEmail: string): Promise<InvitationRow | null> {
+  const fromUrl = /\/join\/([0-9a-f-]{36})(?:[/?#]|$)/i.exec(data.signup_url || "")?.[1] || "";
+  const id = UUID_RE.test(data.invitation_id || "") ? data.invitation_id : UUID_RE.test(fromUrl) ? fromUrl : "";
+  const inv = await loadInvitationRow(db, id);
+  if (!inv || inv.status !== "pending" || !sameEmail(inv.email, recipientEmail)) return null;
+  return inv;
+}
+
+/**
+ * The signed /join/<token> link of a pending invitation (accept-invite, on ACCOUNT_ORIGIN)
+ * and its expiry day. An invitation that expires within 7 days, or already has, gets 30
+ * more days first when the sender may give them (canExtend: its company's owner, staff, the
+ * service); otherwise an expired one keeps the caller's link (null) and a valid one keeps its
+ * day. null when the row cannot be used (the e-mail then keeps the caller's link).
+ */
+async function teamInvitationLink(db: Db, inv: InvitationRow, canExtend: boolean): Promise<{ url: string; expiresOn: string } | null> {
+  const email = (inv.email || "").trim();
+  if (!SUPABASE_SERVICE_ROLE_KEY || !UUID_RE.test(inv.id) || !UUID_RE.test(inv.organization_id) || !isEmail(email)) return null;
+  let expires = new Date(String(inv.expires_at || ""));
+  const soon = isNaN(expires.getTime()) || expires.getTime() < Date.now() + 7 * DAY_MS;
+  if (soon && !canExtend) {
+    if (isNaN(expires.getTime()) || expires.getTime() <= Date.now()) return null;
+  } else if (soon) {
+    const { data: upd, error } = await db
+      .from("organization_invitations")
+      .update({ expires_at: new Date(Date.now() + 30 * DAY_MS).toISOString() })
+      .eq("id", inv.id)
+      .eq("status", "pending")
+      .select("expires_at")
+      .maybeSingle();
+    if (error || !upd) {
+      console.error("send-notification: could not extend the invitation", inv.id, error?.message || "not pending");
+      return null;
+    }
+    expires = new Date(String(upd.expires_at));
+  }
+  const token = await signInviteToken(SUPABASE_SERVICE_ROLE_KEY, inv.id, inv.organization_id, email);
+  return { url: `${ACCOUNT_ORIGIN}/join/${token}`, expiresOn: fmtDay(expires) };
 }
 
 /**
@@ -1335,6 +1783,33 @@ async function memberThrottle(db: Db, actorId: string, key: string): Promise<"ok
     console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
   }
   return "ok";
+}
+
+/** email_rate_log kind of the per-recipient dedupe of a resolved type (not "send-notification:%"). */
+const resolvedKind = (ref: string) => `resolved:${ref}`.slice(0, 300);
+
+/** A resolved e-mail about this row reached this recipient less than 10 minutes ago. Fails open, as memberThrottle. */
+async function resolvedSentRecently(db: Db, recipientId: string, ref: string): Promise<boolean> {
+  try {
+    const since = new Date(Date.now() - MEMBER_DUPLICATE_MS).toISOString();
+    const { data, error } = await db
+      .from("email_rate_log")
+      .select("id")
+      .eq("actor_id", recipientId)
+      .eq("kind", resolvedKind(ref))
+      .gte("created_at", since)
+      .limit(1);
+    if (error) throw error;
+    return !!(data && data.length);
+  } catch (e) {
+    console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
+    return false;
+  }
+}
+
+async function logResolvedSend(db: Db, recipientId: string, ref: string): Promise<void> {
+  const { error } = await db.from("email_rate_log").insert({ actor_id: recipientId, kind: resolvedKind(ref) });
+  if (error) console.error("send-notification: could not log a resolved e-mail:", error.message || String(error));
 }
 
 /**
@@ -1433,6 +1908,7 @@ Deno.serve(async (req: Request) => {
     const user_id = typeof body.user_id === "string" ? body.user_id.trim() : "";
     const directEmail = typeof body.email === "string" ? body.email.trim() : "";
     const notifData = sanitizeData(body.data);
+    for (const k of RESERVED_DATA_KEYS) delete notifData[k];
 
     // Resolve recipient email + notification preferences
     let recipientEmail = "";
@@ -1446,8 +1922,46 @@ Deno.serve(async (req: Request) => {
     let subjectOverride = "";
     let fanOut: Recipient[] = [];
     let fanOutRef = "";
+    let invitation: InvitationRow | null = null;
+    let invitationCanExtend = false;
 
-    if (member) {
+    if (RESOLVED_TYPES.has(type)) {
+      // Registration Phase 2 types: resolved from the database for every caller. Members
+      // only once the new sign-up is on; service and staff always.
+      if (member && !(await registrationFlag(supabase, "account_signup_v2"))) {
+        return reply({ error: "This notification is not allowed for this recipient" }, 403);
+      }
+      const grant = await authorizeResolvedSend(supabase, member, type, user_id, directEmail, notifData);
+      if (!grant) {
+        return member
+          ? reply({ error: "This notification is not allowed for this recipient" }, 403)
+          : reply({ error: "Could not resolve the row this notification is about" }, 400);
+      }
+      if (grant.unverifiedOrgId && (await unverifiedOrgCapReached(supabase, grant.unverifiedOrgId))) {
+        return reply({ error: "Too many e-mails for this organization today, try again tomorrow" }, 429);
+      }
+      // Once per 10 minutes per recipient and row, whoever triggers it (see the header).
+      const recipientId = grant.recipientUserId || "";
+      if (recipientId && (await resolvedSentRecently(supabase, recipientId, grant.ref))) {
+        return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+      }
+      if (member) {
+        const verdict = await memberThrottle(supabase, member.id, grant.ref);
+        if (verdict === "limited") return reply({ error: "Too many notifications, try again later" }, 429);
+        if (verdict === "duplicate") return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+      }
+      if (recipientId) await logResolvedSend(supabase, recipientId, grant.ref);
+      // email_rate_log.actor_id is an account: the member caller, else the recipient.
+      const capActor = member ? member.id : recipientId;
+      if (grant.unverifiedOrgId && capActor) await logUnverifiedOrgEmail(supabase, capActor, grant.unverifiedOrgId);
+      subjectOverride = grant.subject || "";
+      recipientEmail = grant.recipientEmail;
+      recipientUserId = grant.recipientUserId;
+      toAccountAddress = !!grant.recipientUserId;
+      firstName = grant.firstName;
+      userPrefs = grant.prefs;
+      data = { ...grant.data };
+    } else if (member) {
       const grant = await authorizeMemberSend(supabase, member, type, user_id, directEmail, notifData);
       if (!grant) return reply({ error: "This notification is not allowed for this recipient" }, 403);
       if (grant.unverifiedOrgId && (await unverifiedOrgCapReached(supabase, grant.unverifiedOrgId))) {
@@ -1467,6 +1981,8 @@ Deno.serve(async (req: Request) => {
       delete data.first_name;
       fanOut = grant.also || [];
       fanOutRef = grant.ref;
+      invitation = grant.invitation || null;
+      invitationCanExtend = !!grant.canExtend;
     } else {
       // service / staff: recipient as given (unchanged behaviour), first_name from
       // the caller's data or the recipient profile.
@@ -1487,6 +2003,20 @@ Deno.serve(async (req: Request) => {
 
     if (!recipientEmail || !isEmail(recipientEmail)) {
       return reply({ error: "Could not resolve recipient email" }, 400);
+    }
+
+    // Team invitations with the new sign-up (registration Phase 2): the button opens the
+    // signed /join/<token> page of accept-invite instead of the caller's link, only while
+    // registration_flags.invite_links_v2 AND account_signup_v2 are on (see the header: the
+    // old live site sends these e-mails too, and cannot open a token). Off, or no pending
+    // invitation row for this recipient: unchanged.
+    if (ntype === "team_invitation" || ntype === "team_invitation_reminder") {
+      const flags = await registrationFlags(supabase);
+      if (flags.invite_links_v2 === true && flags.account_signup_v2 === true) {
+        const inv = member ? invitation : await invitationForTrustedSend(supabase, notifData, recipientEmail);
+        const link = inv ? await teamInvitationLink(supabase, inv, !member || invitationCanExtend) : null;
+        if (link) data = { ...data, join_url: link.url, expires_on: link.expiresOn };
+      }
     }
 
     // Everyone who gets this e-mail: the recipient, plus, for partner_request_received,
@@ -1680,6 +2210,88 @@ async function verifyUnsubToken(secret: string, token: unknown): Promise<{ userI
   }
 }
 // ---- end SMC unsubscribe token ----
+
+// Team invitation links /join/<token> (registration Phase 2): signed here, checked by the
+// accept-invite function, which documents the page.
+// ---- SMC invite token v1 (keep identical in send-notification and accept-invite) ----
+// The secret of a team invitation link /join/<token>:
+//   token = base64url(16-byte invitation id + 4-byte issue time, unix seconds, big-endian)
+//           + "." + base64url(first 16 bytes of HMAC-SHA-256(key, message)),
+//   message = "<invitation id>|<organization id>|<invitee e-mail, lower case>|<issue time>",
+//   key = SHA-256("smc-invite-v1:" + service-role key): no extra secret to set.
+// The address is bound but not readable in the link: an invitation whose address or
+// company changed no longer opens. A new service-role key voids the links already sent
+// (the page then offers a fresh link by e-mail). Signed by send-notification, checked by
+// accept-invite; scripts/email-previews.mjs checks that both copies are identical.
+const INVITE_KEY_PREFIX = "smc-invite-v1:";
+let inviteKeyCache: { secret: string; key: Promise<CryptoKey> } | null = null;
+
+function inviteKey(secret: string): Promise<CryptoKey> {
+  if (!inviteKeyCache || inviteKeyCache.secret !== secret) {
+    const key = crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(INVITE_KEY_PREFIX + secret))
+      .then((raw) => crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]));
+    inviteKeyCache = { secret, key };
+  }
+  return inviteKeyCache.key;
+}
+
+function inviteB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function inviteUnB64(s: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return null;
+  try {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+async function inviteMac(secret: string, invitationId: string, organizationId: string, email: string, issuedAt: number): Promise<Uint8Array> {
+  const message = `${invitationId.toLowerCase()}|${organizationId.toLowerCase()}|${email.trim().toLowerCase()}|${issuedAt}`;
+  const sig = await crypto.subtle.sign("HMAC", await inviteKey(secret), new TextEncoder().encode(message));
+  return new Uint8Array(sig).slice(0, 16);
+}
+
+/** The link token of one invitation row (its id, its company and the address it is sent to). */
+async function signInviteToken(secret: string, invitationId: string, organizationId: string, email: string, issuedAt = Math.floor(Date.now() / 1000)): Promise<string> {
+  const hex = invitationId.replace(/-/g, "").toLowerCase();
+  if (!secret || !/^[0-9a-f]{32}$/.test(hex)) throw new Error("invite token: missing key or bad invitation id");
+  const head = new Uint8Array(20);
+  for (let i = 0; i < 16; i++) head[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  new DataView(head.buffer).setUint32(16, issuedAt >>> 0);
+  return `${inviteB64(head)}.${inviteB64(await inviteMac(secret, invitationId, organizationId, email, issuedAt))}`;
+}
+
+/** The invitation id and issue time a token names, or null when it is malformed. NOT checked yet: see inviteTokenValid. */
+function readInviteToken(token: unknown): { invitationId: string; issuedAt: number; mac: Uint8Array } | null {
+  if (typeof token !== "string" || token.length > 120) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const head = inviteUnB64(parts[0]);
+  const mac = inviteUnB64(parts[1]);
+  if (!head || head.length !== 20 || !mac || mac.length !== 16) return null;
+  const hex = Array.from(head.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+  const invitationId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return { invitationId, issuedAt: new DataView(head.buffer, head.byteOffset).getUint32(16), mac };
+}
+
+/** true when the token was signed with the current key for this invitation row as it is now. */
+async function inviteTokenValid(secret: string, t: { invitationId: string; issuedAt: number; mac: Uint8Array }, organizationId: string, email: string): Promise<boolean> {
+  if (!secret || !t || !(t.mac instanceof Uint8Array)) return false;
+  const want = await inviteMac(secret, t.invitationId, organizationId, email, t.issuedAt);
+  let diff = want.length ^ t.mac.length;
+  for (let i = 0; i < want.length && i < t.mac.length; i++) diff |= want[i] ^ t.mac[i];
+  return diff === 0;
+}
+// ---- end SMC invite token ----
 
 // ── E-mail rendering ──
 //
@@ -2057,7 +2669,10 @@ function renderNotification(
 ): { subject: string; html: string; text: string } {
   const textContent = getEmailContent(ntype, rawData);
   const htmlContent = getEmailContent(ntype, escapeData(rawData));
-  const buttonUrl = toSiteUrl(textContent.buttonUrl);
+  // The signed team invitation link (join_url, set only by this function) opens on the
+  // account site; every other button on the site origin.
+  const joinLink = (ntype === "team_invitation" || ntype === "team_invitation_reminder") && !!rawData.join_url;
+  const buttonUrl = toSiteUrl(textContent.buttonUrl, joinLink ? ACCOUNT_ORIGIN : SITE_ORIGIN);
   textContent.buttonUrl = buttonUrl;
   htmlContent.buttonUrl = escapeHtml(buttonUrl);
   if (subjectOverride) textContent.subject = subjectOverride;

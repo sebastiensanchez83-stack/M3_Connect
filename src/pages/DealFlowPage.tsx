@@ -15,6 +15,7 @@ import {
   TrendingUp, MapPin, Building2, Anchor, HardHat, ChevronRight,
   Filter, Loader2, MessageSquare, Search, RefreshCw,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
@@ -28,6 +29,7 @@ import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { formatCapitalRange, formatCapitalAmount } from '@/components/capital/InvestmentThesisSection';
 import { CAPITAL_TYPES, CAPITAL_STAGES } from '@/types/database';
 import { routeToExistingConversation } from '@/components/messages/messagesApi';
+import { memberHomeHref } from '@/lib/accountNav';
 
 interface DealFlowOrg {
   id: string;
@@ -65,7 +67,11 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 };
 
 export function DealFlowPage() {
-  const { user, profile, organization, isVerified, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
+  const {
+    user, profile, organization, isVerified, loading: authLoading,
+    can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable, retryCapabilities,
+  } = useAuth();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -87,10 +93,17 @@ export function DealFlowPage() {
 
   // Access guard — unified investor accreditation: a verified platform investor
   // (persona) OR someone with a confirmed SM26 investor role can see the deal-flow.
+  // Once the rights switch is on (src/lib/capabilities.ts) the board follows
+  // see_dealflow, as the database does (oci_select_dealflow): members of a
+  // validated investor company, M3 staff, and a verified SM26-confirmed investor
+  // whatever their company (Victor, 11 Oct 2026: they keep Deal flow, with its
+  // data). The database decides who that is (the frozen list in
+  // capability_person_grant, copied from the SM26 registrations by the shadow
+  // migration), so the page asks can() and no longer reads sm_registration itself.
   const personaInvestor = !!user && profile?.persona === 'investor' && isVerified;
   const [smInvestor, setSmInvestor] = useState<boolean | null>(null); // null = still checking
   useEffect(() => {
-    if (!user || personaInvestor) { setSmInvestor(false); return; }
+    if (!user || personaInvestor || capabilitiesEnforced) { setSmInvestor(false); return; }
     let cancelled = false;
     (async () => {
       const { data } = await supabase
@@ -102,9 +115,15 @@ export function DealFlowPage() {
       if (!cancelled) setSmInvestor(has);
     })();
     return () => { cancelled = true; };
-  }, [user, personaInvestor]);
-  const accessOK = personaInvestor || smInvestor === true;
-  const checkingAccess = !!user && !personaInvestor && smInvestor === null;
+  }, [user, personaInvestor, capabilitiesEnforced]);
+  const accessOK = capabilitiesReady && (capabilitiesEnforced
+    ? isVerified && can('see_dealflow')
+    : personaInvestor || smInvestor === true);
+  const checkingAccess = !!user && (!capabilitiesReady || (!capabilitiesEnforced && !personaInvestor && smInvestor === null));
+  // Writing to a company (Express interest) needs message_companies once the switch is
+  // on: an SM26 investor without a validated company reads the board but does not write
+  // from it (the database would refuse the request).
+  const canContact = !capabilitiesEnforced || can('message_companies');
 
   const loadData = async (showSpinner = true) => {
     if (!user || !accessOK) return;
@@ -356,10 +375,16 @@ export function DealFlowPage() {
               titleAs="h1"
               icon={TrendingUp}
               title="Investor access required"
-              body={profile?.persona !== 'investor'
-                ? 'The deal-flow board is reserved for verified investor accounts.'
-                : 'Your investor account is pending verification.'}
-              action={<Button variant="ctaNavy" size="sm" onClick={() => navigate('/dashboard')}>Back to my account</Button>}
+              body={capabilitiesEnforced
+                ? capabilitiesUnavailable
+                  ? t('rights.unavailable', 'We could not load your rights on the platform. Check your connection and try again.')
+                  : t('rights.dealflow.companyType', 'The deal-flow board is open to members of investor companies the M3 team has validated, and to investors confirmed at Smart Marina 2026.')
+                : profile?.persona !== 'investor'
+                  ? 'The deal-flow board is reserved for verified investor accounts.'
+                  : 'Your investor account is pending verification.'}
+              action={capabilitiesUnavailable
+                ? <Button variant="ctaNavy" size="sm" onClick={retryCapabilities}>{t('rights.retry', 'Try again')}</Button>
+                : <Button variant="ctaNavy" size="sm" onClick={() => navigate('/dashboard')}>Back to my account</Button>}
             />
           </CardShell>
         </div>
@@ -385,7 +410,9 @@ export function DealFlowPage() {
         title="Deal flow"
       >
         <p className="max-w-2xl text-[16px] leading-7">
-          Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, open a profile to read the full thesis, or send an introduction from here.
+          {canContact
+            ? t('dealflow.lead', 'Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, open a profile to read the full thesis, or send an introduction from here.')
+            : t('dealflow.leadReadOnly', 'Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, and open a profile to read the full thesis.')}
         </p>
       </MemberHeader>
 
@@ -460,7 +487,18 @@ export function DealFlowPage() {
                 </label>
               </div>
             )}
-            {!hasFocusSectors && (
+            {!canContact && (
+              <p className="mt-3 text-[13px] leading-5 text-meta">
+                {t('rights.dealflow.noContact', 'You see Deal flow as an investor confirmed at Smart Marina 2026. Writing to these companies needs a company the M3 team has validated.')}
+                {!organization && (
+                  <>
+                    {' '}
+                    <UnderlineLink to={memberHomeHref('company')} arrow={false} className="!text-[13px] !font-medium">{t('dash.addCompany', 'Add my company')}</UnderlineLink>
+                  </>
+                )}
+              </p>
+            )}
+            {!hasFocusSectors && !!organization && (
               <p className="mt-3 text-[13px] leading-5 text-meta">
                 Tip: configure your focus sectors in your{' '}
                 <UnderlineLink to="/account?tab=organization" arrow={false} className="!text-[13px] !font-medium">organization profile</UnderlineLink>{' '}
@@ -575,9 +613,11 @@ export function DealFlowPage() {
 
                         {/* Actions */}
                         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
-                          <Button size="sm" variant="ctaNavy" onClick={() => openInterest(o)}>
-                            Express interest
-                          </Button>
+                          {canContact && (
+                            <Button size="sm" variant="ctaNavy" onClick={() => openInterest(o)}>
+                              Express interest
+                            </Button>
+                          )}
                           <UnderlineLink to={`/organizations/${o.slug}`} className="!text-[14px] !leading-5">
                             View profile
                           </UnderlineLink>

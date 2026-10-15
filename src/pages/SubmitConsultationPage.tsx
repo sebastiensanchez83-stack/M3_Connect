@@ -21,7 +21,7 @@ export function SubmitConsultationPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
-  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -33,14 +33,23 @@ export function SubmitConsultationPage() {
     sector_id: '',
   });
 
+  // Who may publish. Today: a verified marina or developer profile whose active
+  // company is verified. Once the rights switch is on (src/lib/capabilities.ts): the
+  // active company, which the request is filed under, must be a validated marina or
+  // developer of theirs (the database checks the same).
+  const canSubmitHere = profile?.persona === 'marina' || profile?.persona === 'developer';
+  const mayPublish = capabilitiesEnforced
+    ? isVerified && can('publish_needs', organization?.id)
+    : canSubmitHere && isVerified && organization?.access_status === 'verified';
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    if ((profile?.persona === 'marina' || profile?.persona === 'developer') && isVerified && organization?.access_status === 'verified') {
+    if (mayPublish) {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
-  }, [user, profile, isVerified, organization, authLoading, navigate]);
+  }, [user, mayPublish, authLoading, navigate]);
 
   // Load existing consultation for edit mode
   useEffect(() => {
@@ -134,13 +143,15 @@ export function SubmitConsultationPage() {
     }
   };
 
-  if (authLoading || loadingExisting) {
+  if (authLoading || loadingExisting || (!!user && !capabilitiesReady)) {
     return <PageLoader />;
   }
 
-  // Access guard: only verified marina (or developer) users with verified org
-  const canSubmitHere = profile?.persona === 'marina' || profile?.persona === 'developer';
-  if (!user || !canSubmitHere || !isVerified || organization?.access_status !== 'verified') {
+  // Access guard: see mayPublish above.
+  if (!user || !mayPublish) {
+    // With the rights switch on: another company of theirs may publish, not the active one.
+    const otherCompanyCan = capabilitiesEnforced && isVerified && can('publish_needs');
+    const typeAllows = capabilitiesEnforced ? otherCompanyCan : canSubmitHere;
     return (
       <SubmitGuard
         icon={Lock}
@@ -151,10 +162,10 @@ export function SubmitConsultationPage() {
               <Button variant="ctaOnDark" onClick={() => navigate('/')}>{t('common.goHome')}</Button>
             )}
             {/* A signed-in member always gets a way forward: the dashboard says where the review of the account or the organization stands. */}
-            {user && canSubmitHere && (
+            {user && typeAllows && (
               <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('common.viewAccountStatus')}</Button>
             )}
-            {user && !canSubmitHere && (
+            {user && !typeAllows && (
               <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('common.backToAccount')}</Button>
             )}
           </>
@@ -163,9 +174,15 @@ export function SubmitConsultationPage() {
         <p>
           {!user
             ? t('submitConsultation.restrictedNoUser')
-            : !canSubmitHere
-              ? t('submitConsultation.restrictedNotMarina')
-              : t('submitConsultation.restrictedNotVerified')}
+            : capabilitiesEnforced
+              ? otherCompanyCan
+                ? t('rights.publish.switchCompany', 'Your active company cannot publish needs. Switch to your marina or developer company in the account menu, then come back.')
+                : !isVerified
+                  ? t('submitConsultation.restrictedNotVerified')
+                  : t('rights.publish.companyType', 'Needs are published by marinas and developers whose company the M3 team has validated.')
+              : !canSubmitHere
+                ? t('submitConsultation.restrictedNotMarina')
+                : t('submitConsultation.restrictedNotVerified')}
         </p>
       </SubmitGuard>
     );

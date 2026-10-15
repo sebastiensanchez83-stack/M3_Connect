@@ -77,6 +77,8 @@ const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/Admin
 const AdminGuestList = lazyWithRetry(() => import('@/components/admin/AdminGuestList').then(m => ({ default: m.AdminGuestList })));
 const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGuestCheckin').then(m => ({ default: m.AdminGuestCheckin })));
 const AdminReviewQueue = lazyWithRetry(() => import('@/components/admin/AdminReviewQueue').then(m => ({ default: m.AdminReviewQueue })));
+// Rights per company type: the table and what the switch would change (read-only).
+const AdminRights = lazyWithRetry(() => import('@/components/admin/AdminRights').then(m => ({ default: m.AdminRights })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -222,6 +224,7 @@ export function AdminPage() {
             <Route path="/sectors" element={<AdminOnlyGuard><AdminSectors /></AdminOnlyGuard>} />
             <Route path="/pulse" element={<AdminOnlyGuard><AdminPulse /></AdminOnlyGuard>} />
             <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
+            <Route path="/rights" element={<AdminOnlyGuard><AdminRights /></AdminOnlyGuard>} />
           </Routes>
         </Suspense>
         </div>

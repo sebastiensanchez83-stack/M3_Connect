@@ -6,6 +6,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { useMediaQuery } from '@/components/motion/useReducedMotion';
 import { cn } from '@/lib/utils';
 import { buildHelpSections, helpHref } from './helpContent';
+import { useAuth } from '@/contexts/AuthContext';
 import { buildHelpIndex, helpQueryWords, searchHelp, type HelpIndexEntry } from './helpSearch';
 import type { HelpPlace } from './helpPlaces';
 
@@ -27,7 +28,9 @@ const MAX_RESULTS = 5;
 export function HelpLauncherPanel({ place, panelRef, member }: { place: HelpPlace; panelRef: RefObject<HTMLDivElement>; member: boolean }) {
   const { t } = useTranslation();
   const wide = useMediaQuery('(min-width: 640px)');
-  const sections = useMemo(() => buildHelpSections(t), [t]);
+  // The answers the rights switch changes follow it (src/lib/capabilities.ts).
+  const { capabilitiesEnforced } = useAuth();
+  const sections = useMemo(() => buildHelpSections(t, { rightsEnforced: capabilitiesEnforced }), [t, capabilitiesEnforced]);
   const index = useMemo(() => buildHelpIndex(sections), [sections]);
   const byId = useMemo(() => new Map(index.map((entry) => [entry.item.id, entry])), [index]);
   const [query, setQuery] = useState('');

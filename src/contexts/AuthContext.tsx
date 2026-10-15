@@ -1,11 +1,18 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
 import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
-import { loadRegistrationFlags } from '@/lib/flags'
+import {
+  type Capability,
+  type CapabilitySnapshot,
+  capabilityAllows,
+  fetchMyCapabilities,
+  setCapabilityGate,
+} from '@/lib/capabilities'
+import { loadRegistrationFlags, onRegistrationFlagsChange, readRegistrationFlags } from '@/lib/flags'
 import { completeMySignupOnce, stripClaimCodeFromMetadata } from '@/lib/accountSignup'
 
 /**
@@ -51,6 +58,22 @@ interface AuthContextType {
   isModerator: boolean
   isPending: boolean
   isSponsor: boolean
+  /**
+   * Rights per company type (src/lib/capabilities.ts). While
+   * `capabilitiesEnforced` is false (registration_flags.capabilities_enforced off),
+   * screens keep today's checks and can() is not consulted. `orgId`: through that
+   * one company of the person's (the company a need is published for, the company
+   * a message is sent from). Verified staff: always true.
+   */
+  can: (cap: Capability, orgId?: string | null) => boolean
+  capabilitiesEnforced: boolean
+  /** The switch is known and, when it is on, so are the person's rights. */
+  capabilitiesReady: boolean
+  capabilities: CapabilitySnapshot | null
+  /** The switch is on but the person's rights could not be read (can() is false meanwhile). */
+  capabilitiesUnavailable: boolean
+  /** Reads the switch and the rights again (also done on its own when the tab regains focus). */
+  retryCapabilities: () => void
   // needsConfirmation: account created but no session until the e-mailed link is
   // opened ("Confirm email" ON). emailRedirectTo: where that link lands — reuse it
   // for supabase.auth.resend so a re-sent link goes to the same place.
@@ -418,6 +441,114 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUserData])
 
+  // ─── Rights per company type (src/lib/capabilities.ts) ──────────────
+  // The switch (registration_flags.capabilities_enforced) is read for everyone;
+  // my_capabilities() only once it is on. Keyed on ids and statuses, never on the
+  // user/profile objects: auth-js hands over a new user object on every tab
+  // refocus. Re-read when the person's status or companies change (refreshProfile
+  // after M3 validates or types a company).
+  // Both reads give up after a few seconds (src/lib/flags.ts, src/lib/capabilities.ts), so a page
+  // waiting on capabilitiesReady never stays on its loader. A failed read is tried
+  // again when the person comes back to the tab (focus), without blanking the page:
+  // capabilitiesReady stays true and the rights already known are kept meanwhile.
+  const [capSnapshot, setCapSnapshot] = useState<CapabilitySnapshot | null>(null)
+  const [capsEnforced, setCapsEnforced] = useState(false)
+  const [capsReady, setCapsReady] = useState(false)
+  const [capsFailed, setCapsFailed] = useState(false)
+  const [capsRetry, setCapsRetry] = useState(0)
+  const capsUidRef = useRef<string | null | undefined>(undefined)
+  const capsEnforcedRef = useRef(false)
+  // A run of the effect below is under way (it applies the flag value it reads).
+  const capsLoadingRef = useRef(false)
+  // The switch as the last successful read of the row said it (null: none yet).
+  const capsLatestFlagRef = useRef<boolean | null>(null)
+  const capsUid = user?.id ?? null
+  const capsPersonKey = profile ? `${profile.access_status}:${profile.persona}` : ''
+  const capsCompaniesKey = organizations
+    .map(m => `${m.organization.id}:${m.organization.access_status}:${m.organization.organization_type ?? ''}`)
+    .sort()
+    .join('|')
+
+  useEffect(() => {
+    let alive = true
+    // Another person (or signed out): nothing of the previous one's rights survives.
+    if (capsUidRef.current !== capsUid) {
+      capsUidRef.current = capsUid
+      setCapsReady(false)
+      setCapSnapshot(null)
+      setCapsFailed(false)
+    }
+    capsLoadingRef.current = true
+    ;(async () => {
+      // The one reader of registration_flags (src/lib/flags.ts): null = could not be read.
+      const flags = await readRegistrationFlags()
+      const flag = flags ? flags.capabilities_enforced : null
+      // A failed read of the switch keeps what was known (off, at first).
+      const enforced = flag ?? capsEnforcedRef.current
+      const snapshot = enforced && capsUid ? await fetchMyCapabilities() : null
+      if (!alive) return
+      capsLoadingRef.current = false
+      capsEnforcedRef.current = enforced
+      setCapsEnforced(enforced)
+      const snapshotFailed = enforced && !!capsUid && !snapshot
+      // A failed read of the rights keeps the ones already known for this person.
+      if (!snapshotFailed) setCapSnapshot(snapshot)
+      setCapsFailed(flag === null || snapshotFailed)
+      setCapsReady(true)
+      // The switch moved while this run was reading the rights: once more.
+      if (capsLatestFlagRef.current !== null && capsLatestFlagRef.current !== enforced) setCapsRetry(n => n + 1)
+    })()
+    return () => { alive = false }
+  }, [capsUid, capsPersonKey, capsCompaniesKey, capsRetry])
+
+  useEffect(() => {
+    if (!capsFailed) return
+    const retry = () => setCapsRetry(n => n + 1)
+    window.addEventListener('focus', retry)
+    return () => window.removeEventListener('focus', retry)
+  }, [capsFailed])
+
+  // An open tab follows the switch without a reload. Every successful read of the
+  // row, whoever made it, says whether it is on; when that differs from what this
+  // tab applies, the rights are read again. The row is read again whenever the
+  // person comes back to the tab (focus, or the tab shown again): at most one
+  // request per five minutes (the cache of src/lib/flags.ts). So a tab follows the
+  // switch, or its rollback, the first time it is used again five minutes or more
+  // after the last read; a reload follows at once.
+  useEffect(() => {
+    const off = onRegistrationFlagsChange((flags) => {
+      capsLatestFlagRef.current = flags.capabilities_enforced
+      if (!capsLoadingRef.current && flags.capabilities_enforced !== capsEnforcedRef.current) {
+        setCapsRetry(n => n + 1)
+      }
+    })
+    const reread = () => { void readRegistrationFlags() }
+    const onVisible = () => { if (document.visibilityState === 'visible') reread() }
+    window.addEventListener('focus', reread)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      off()
+      window.removeEventListener('focus', reread)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+  const retryCapabilities = useCallback(() => setCapsRetry(n => n + 1), [])
+
+  const can = useCallback(
+    (cap: Capability, orgId?: string | null) => isModerator || capabilityAllows(capSnapshot, cap, orgId),
+    [isModerator, capSnapshot],
+  )
+  // The switch is on but this person's rights could not be read: can() says no to
+  // everything, so screens say "could not load" rather than "you may not".
+  const capabilitiesUnavailable = capsReady && capsEnforced && !!capsUid && !capSnapshot && !isModerator
+  const capabilityGateValue = useMemo(
+    () => ({ enforced: capsEnforced, ready: capsReady, can }),
+    [capsEnforced, capsReady, can],
+  )
+  // Set while rendering, before the children render: canCreate (src/lib/nav.ts) reads
+  // it in the same pass as the useAuth() values its callers already re-render on.
+  setCapabilityGate(capabilityGateValue)
+
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
     // The activation link lands on /welcome first (forced password step), then goes
@@ -507,7 +638,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, loading, profileTimedOut, profile, organization, orgRole, organizations, setActiveOrganization, hasOrganization,
-      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
+      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile,
+      can, capabilitiesEnforced: capsEnforced, capabilitiesReady: capsReady, capabilities: capSnapshot,
+      capabilitiesUnavailable, retryCapabilities
     }}>
       {children}
     </AuthContext.Provider>

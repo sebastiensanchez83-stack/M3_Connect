@@ -52,8 +52,8 @@ export function HelpPage() {
   const { hash, key: locationKey } = useLocation();
   const navigate = useNavigate();
   const { reduced } = useMotion();
-  const { user, profile, hasOrganization } = useAuth();
-  const sections = useMemo(() => buildHelpSections(t), [t]);
+  const { user, profile, hasOrganization, capabilitiesEnforced } = useAuth();
+  const sections = useMemo(() => buildHelpSections(t, { rightsEnforced: capabilitiesEnforced }), [t, capabilitiesEnforced]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string[]>([]);
   const [flash, setFlash] = useState<string | null>(null);

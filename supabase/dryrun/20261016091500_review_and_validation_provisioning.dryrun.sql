@@ -28,7 +28,7 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
   union all select 'review_log', (select count(*)::text from public.review_log)
   union all select 'policies', (select md5(string_agg(format('%s|%s|%s|%s|%s', pl.tablename, pl.policyname, pl.roles, pl.qual, pl.with_check), ';' order by pl.tablename, pl.policyname))
                                   from pg_policies pl where pl.schemaname = 'public')
-  union all select 'cron', (select string_agg(j.jobname || '=' || j.schedule, ',' order by j.jobname) from cron.job j where j.jobname <> 'registration-cron-provision')
+  union all select 'cron', (select string_agg(j.jobname || '=' || j.schedule, ',' order by j.jobname) from cron.job j where j.jobname not like 'registration-cron-provision%')
 $f$;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 
@@ -57,9 +57,13 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 --     its next run). A QR e-mail that failed is re-sent from the guest list (Resend pass), and
 --     the account e-mail follows.
 --  3. invoke_registration_cron('provision') does not wake registration-cron for an e-mail that
---     must still wait (2).
---  4. registration-cron-provision runs every minute (was every 5): about one to two minutes
---     after the QR e-mail. Dormant while the flag is off or nothing is due (one SELECT).
+--     must still wait (2), and (flag on only) pushes such an e-mail's due time back (1 minute,
+--     15 once its job is an hour old) so it never holds a place among the 50 oldest due
+--     e-mails provision-person takes per run (no starvation of other events' e-mails).
+--  4. registration-cron-provision runs every minute (was every 5; cron.alter_job): about one
+--     to two minutes after the QR e-mail. Dormant while the flag is off or nothing is due (one
+--     SELECT). A daily job (registration-cron-provision-purge) keeps its last 7 days of
+--     cron.job_run_details (about 1,440 rows a day otherwise kept forever).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -76,7 +80,7 @@ begin
   for v_row in
     select * from (values
       ('public.gl_guest_queue_provisioning()', 'fdeb96f5561037534043d8fcce68f6d5', '4af8136d541de900fba5d540d3ac76c7'),
-      ('public.invoke_registration_cron(text)', 'bb4625d8f5d547fcf471b22c4d8b41f5', 'f1c15edbc5eaafb06c7e9e59147000b7')
+      ('public.invoke_registration_cron(text)', 'bb4625d8f5d547fcf471b22c4d8b41f5', '1e9775a6d7337edc64c0bed75dcc367a')
     ) as x(sig, prod, mine)
   loop
     select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure(v_row.sig);
@@ -218,6 +222,18 @@ begin
   -- could fail on a mistyped value).
   select ps.value into v_flags from public.platform_settings ps where ps.key = 'registration_flags';
   v_flags := coalesce(v_flags, '{}'::jsonb);
+  -- A WYS guest's account e-mail that must still wait for the QR e-mail goes to the back of
+  -- the line: provision-person takes the 50 oldest due e-mails, so blocked ones would starve
+  -- every other event's. Due again in 1 minute (every 15 once its job is an hour old); a QR
+  -- e-mail re-sent from the guest list is then followed within that time (20261016091500).
+  if p_job = 'provision' and coalesce((v_flags -> 'provisioning') = 'true'::jsonb, false) then
+    update public.account_provision_job j
+       set email_due_at = now() + case when coalesce(j.done_at, j.created_at) > now() - interval '1 hour' then interval '1 minute'
+                                       else interval '15 minutes' end
+     where j.status = 'done' and j.email_sent_at is null and j.email_due_at <= now()
+       and j.source_kind = 'gl_guest'
+       and public.account_email_waits_for(j.source_kind, j.source_id) is not null;
+  end if;
   v_go := case p_job
     when 'provision' then
       coalesce((v_flags -> 'provisioning') = 'true'::jsonb, false)
@@ -274,9 +290,13 @@ revoke all on function public.account_provision_job_email_gate() from public, an
 
 comment on function public.account_email_waits_for(text, uuid) is 'Phase 3: null when the account e-mail of a provisioning job may go; ''pass'' while the guest-list QR e-mail of a guest_list_v1 (WYS) guest is not logged for this confirmation (Victor, 15 Oct 2026). Service role (provision-person may ask before claiming).';
 
--- ---- 4. Every minute (cron.schedule with an existing name updates that job; pg_cron 1.6.4) ----
-select cron.schedule('registration-cron-provision', '* * * * *',
-  $cmd$select public.invoke_registration_cron('provision');$cmd$);
+-- ---- 4. Every minute (alter_job: the existing job, whoever applies this file) -----------
+select cron.alter_job((select j.jobid from cron.job j where j.jobname = 'registration-cron-provision'),
+                      schedule := '* * * * *');
+-- About 1,440 run rows a day in cron.job_run_details, which nothing purges: keep this job's
+-- last 7 days only (other jobs' history is not touched).
+select cron.schedule('registration-cron-provision-purge', '17 3 * * *',
+  $cmd$delete from cron.job_run_details d where d.jobid in (select j.jobid from cron.job j where j.jobname = 'registration-cron-provision') and d.end_time < now() - interval '7 days';$cmd$);
 
 -- ─── C. Test helpers (temporary, gone with the rollback) ───────────────────────
 -- An account: the auth.users row (handle_new_user makes the profile), then status, persona, proof.
@@ -330,9 +350,9 @@ insert into public.gl_guest (id, event_id, source, status, first_name, last_name
   tests := jsonb_build_array(
     jsonb_build_object('id', 'S01', 'who', 'postgres', 'bare', true, 'expect', 'ret:0', 'label', 'no row changed (SM26, WYS, jobs, people, policies, other crons)',
       'q', $q$select count(*)::text from ((select * from _dr_before except select * from pg_temp.dr_snap()) union all (select * from pg_temp.dr_snap() except select * from _dr_before)) d$q$),
-    jsonb_build_object('id', 'S02', 'who', 'postgres', 'bare', true, 'expect', 'ret:* * * * *', 'label', 'registration-cron-provision runs every minute',
-      'q', $q$select schedule from cron.job where jobname = 'registration-cron-provision'$q$),
-    jsonb_build_object('id', 'S03', 'who', 'postgres', 'bare', true, 'expect', 'ret:4af8136d541de900fba5d540d3ac76c7,f1c15edbc5eaafb06c7e9e59147000b7', 'label', 'stored bodies = this file (md5 of gl_guest_queue_provisioning, invoke_registration_cron)',
+    jsonb_build_object('id', 'S02', 'who', 'postgres', 'bare', true, 'expect', 'ret:registration-cron-provision=* * * * *,registration-cron-provision-purge=17 3 * * *', 'label', 'registration-cron-provision runs every minute (the same job); its run history is purged daily',
+      'q', $q$select string_agg(jobname || '=' || schedule, ',' order by jobname) from cron.job where jobname like 'registration-cron-provision%'$q$),
+    jsonb_build_object('id', 'S03', 'who', 'postgres', 'bare', true, 'expect', 'ret:4af8136d541de900fba5d540d3ac76c7,1e9775a6d7337edc64c0bed75dcc367a', 'label', 'stored bodies = this file (md5 of gl_guest_queue_provisioning, invoke_registration_cron)',
       'q', $q$select string_agg(md5(replace(p.prosrc, chr(13), '')), ',' order by p.proname) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('gl_guest_queue_provisioning', 'invoke_registration_cron')$q$),
     jsonb_build_object('id', 'P01', 'who', 'postgres', 'expect', 'allow', 'label', 'confirmation (with_confirmation): the account e-mail is due one minute later',
       'q', $q$update public.gl_guest set status = 'confirmed', decided_at = now() where id = {g}$q$,
@@ -365,12 +385,13 @@ update public.account_provision_job j set status = 'done' from public.gl_guest g
     jsonb_build_object('id', 'P08', 'who', 'service', 'expect', 'ret:pass', 'label', 'account_email_waits_for tells provision-person why it waits',
       'setup', $s$update public.gl_guest set status = 'confirmed' where id = {g}$s$,
       'q', $q$select public.account_email_waits_for('gl_guest', {g})$q$),
-    jsonb_build_object('id', 'P09', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'flag on, the only work an e-mail that must wait: the cron calls nothing',
+    jsonb_build_object('id', 'P09', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'flag on, the only work an e-mail that must wait: the cron calls nothing and pushes it back one minute (no starvation)',
       'setup', $s$update public.platform_settings set value = value || '{"provisioning": true}'::jsonb where key = 'registration_flags';
 update public.gl_guest set status = 'confirmed' where id = {g};
 update public.account_provision_job set status = 'done', email_due_at = now() - interval '1 minute' where source_id = {g};
 update public.account_provision_job set status = 'skipped', email_due_at = null where source_id is distinct from {g}::uuid$s$,
-      'q', $q$select public.invoke_registration_cron('provision')$q$),
+      'q', $q$select public.invoke_registration_cron('provision')$q$,
+      'chk', $c$select email_due_at = now() + interval '1 minute' from public.account_provision_job where source_id = {g}$c$),
     jsonb_build_object('id', 'P10', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'flag off: nothing, as today',
       'setup', $s$update public.platform_settings set value = value || '{"provisioning": false}'::jsonb where key = 'registration_flags';
 update public.gl_guest set status = 'confirmed' where id = {g}$s$,

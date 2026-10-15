@@ -4,12 +4,20 @@
 -- the two-kind CHECK of notification_outbox (NOT VALID while decision e-mails exist), anon's
 -- EXECUTE on get_public_profiles, and drops the new functions and the two listing columns
 -- (the archived / duplicate marks set by M3 in between are lost; review_log keeps them).
+-- Before this down, also revert the redesign's reads of the new columns (contract §11.6:
+-- .is('archived_at', null) / .is('duplicate_of', null) answer 400 once the columns are gone)
+-- and of org_public_member_counts; refused while held/directory_signed_in_only.sql is applied
+-- (signed-out member counts then depend on org_public_member_counts).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
 do $pre$
 begin
+  if not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organization_members'
+                  and p.policyname = 'org_members_select_public') then
+    raise exception 'down orgs: held/directory_signed_in_only.sql is applied; run supabase/migrations/down/directory_signed_in_only.down.sql first';
+  end if;
   if to_regprocedure('public.admin_validate_person(uuid,jsonb)') is not null then
     raise exception 'down orgs: run supabase/migrations/down/20261016090500_review_and_validation_people.down.sql first';
   end if;

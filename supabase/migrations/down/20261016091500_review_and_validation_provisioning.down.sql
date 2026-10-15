@@ -1,8 +1,9 @@
 -- DOWN for supabase/migrations/20261016091500_review_and_validation_provisioning.sql
 -- Puts back the production bodies of gl_guest_queue_provisioning (md5 fdeb96f5...) and
 -- invoke_registration_cron (md5 bb4625d8...), verbatim from 20261009210000_registration_core.sql,
--- drops the e-mail gate, and runs registration-cron-provision every 5 minutes again. Jobs
--- queued in between keep their email_due_at (confirmation + 1 minute).
+-- drops the e-mail gate, runs registration-cron-provision every 5 minutes again and drops
+-- the daily purge job (the run history it already deleted stays deleted). Jobs queued in
+-- between keep their email_due_at (confirmation + 1 minute, or pushed back while waiting).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -139,5 +140,6 @@ $function$;
 
 drop function if exists public.account_email_waits_for(text, uuid);
 
-select cron.schedule('registration-cron-provision', '*/5 * * * *',
-  $cmd$select public.invoke_registration_cron('provision');$cmd$);
+select cron.alter_job((select j.jobid from cron.job j where j.jobname = 'registration-cron-provision'),
+                      schedule := '*/5 * * * *');
+select cron.unschedule(j.jobid) from cron.job j where j.jobname = 'registration-cron-provision-purge';

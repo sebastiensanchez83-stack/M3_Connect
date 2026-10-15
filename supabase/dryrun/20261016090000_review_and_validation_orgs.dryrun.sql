@@ -2,7 +2,7 @@
 -- ONE query text, ONE execute_sql call, BEFORE that file is applied (Phases 1 and 2 applied).
 -- A snapshot, the migration verbatim, then cases run as anon / a member / an owner / a verified
 -- admin / the service role, each rolled back. Ends with RAISE EXCEPTION 'DRYRUN ...':
--- everything rolls back. Expected: "37 PASS, 0 FAIL".
+-- everything rolls back. Expected: "38 PASS, 0 FAIL".
 -- Locks: ACCESS EXCLUSIVE on organizations (new columns) and notification_outbox (CHECK)
 -- until the final rollback (seconds): run it off-peak.
 
@@ -69,6 +69,7 @@ set local statement_timeout = '120s';
 do $pre$
 declare
   v_md5 text;
+  v_def text;
   v_row record;
 begin
   if to_regclass('public.notification_outbox') is null or to_regclass('public.review_log') is null
@@ -82,6 +83,14 @@ begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.complete_signup_for(uuid)');
   if v_md5 is distinct from '67a850075f0e06e93b1ab02a377408ae' then
     raise exception 'review_and_validation_orgs: complete_signup_for is not the Phase 2 version (md5 %)', v_md5;
+  end if;
+  -- The outbox kinds are replaced by a fixed list below: refuse if another file added kinds
+  -- since Phase 2 (they would be lost silently; merge the lists first). Re-running is fine.
+  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+   where c.conname = 'notification_outbox_kind_check' and c.conrelid = 'public.notification_outbox'::regclass;
+  if v_def is distinct from 'CHECK ((kind = ANY (ARRAY[''account_under_review''::text, ''team_join_request''::text])))'
+     and v_def is distinct from 'CHECK ((kind = ANY (ARRAY[''account_under_review''::text, ''team_join_request''::text, ''user_account_approved''::text, ''user_account_rejected''::text, ''account_info_requested''::text, ''company_validated''::text, ''claim_approved''::text, ''claim_declined''::text])))' then
+    raise exception 'review_and_validation_orgs: notification_outbox kinds changed (%); merge the lists in this file', v_def;
   end if;
   for v_row in
     select * from (values
@@ -541,6 +550,8 @@ select pg_temp.dr_org({org_p}, {name_p}, 'pending', 'partner', {p1}, null)$s$;
       'q', $q$insert into public.notification_outbox (kind, user_id, dedupe_key) values ('claim_approved', {p1}, 'dryrun:' || {fn})$q$),
     jsonb_build_object('id', 'O02', 'who', 'postgres', 'expect', 'err:notification_outbox_kind_check', 'label', 'and still refuses an unknown kind',
       'q', $q$insert into public.notification_outbox (kind, user_id, dedupe_key) values ('dryrun_kind', {p1}, 'dryrun2:' || {fn})$q$),
+    jsonb_build_object('id', 'O03', 'who', 'postgres', 'bare', true, 'expect', 'ret:true', 'label', 'the new kind list is the one the precondition accepts on a re-run',
+      'q', $q$select (pg_get_constraintdef(c.oid) = 'CHECK ((kind = ANY (ARRAY[''account_under_review''::text, ''team_join_request''::text, ''user_account_approved''::text, ''user_account_rejected''::text, ''account_info_requested''::text, ''company_validated''::text, ''claim_approved''::text, ''claim_declined''::text])))')::text from pg_constraint c where c.conname = 'notification_outbox_kind_check' and c.conrelid = 'public.notification_outbox'::regclass$q$),
     -- ── helpers ──
     jsonb_build_object('id', 'H01', 'who', 'postgres', 'bare', true, 'expect', 'ret:dryrun.example|dryrun.example|dryrun.example|null', 'label', 'review_url_host: scheme, www, port, path, backslashes, empty',
       'q', $q$select public.review_url_host('HTTPS://www.Dryrun.example:8080/x') || '|' || public.review_url_host('dryrun.example/path?q') || '|' || public.review_url_host('https:\\www.dryrun.example') || '|' || coalesce(public.review_url_host(' '), 'null')$q$),

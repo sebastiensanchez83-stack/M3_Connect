@@ -36,14 +36,27 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- decisions: M3 validates every person and decides every claim (Q3, 11 Oct 2026). Contract §11.
 -- NOT APPLIED. Apply after 20261016090000_review_and_validation_orgs (checked below).
 -- Down: supabase/migrations/down/20261016090500_review_and_validation_people.down.sql.
--- Dry runs: supabase/dryrun/20261016090500_review_and_validation_people.dryrun.sql, .dryrun2.sql.
+-- Dry runs: supabase/dryrun/20261016090500_review_and_validation_people.dryrun.sql, .dryrun2.sql,
+-- .dryrun3.sql, .dryrun4.sql.
 --
 -- New functions only (verified admins; SECURITY DEFINER, search_path ''). Nothing existing
 -- changes and nothing runs by itself: the old main site and the redesign with every flag off
 -- behave as today. Each decision writes ONE review_log row and queues at most ONE e-mail in
--- notification_outbox (dedupe_key = kind:subject:review_log id, so a decision is e-mailed
--- once, ever; a repeated "validate" that changes nothing queues none). The e-mails are sent
--- by the registration-cron drain (EDGE lane), never here.
+-- notification_outbox (dedupe_key = kind:subject:review_log id; a repeated decision that
+-- changes nothing for the person queues none: validate of someone already verified with no
+-- company change, the same "not accepted" reason again, the same open question again). The
+-- e-mails are sent by the registration-cron drain (EDGE lane), never here.
+-- Flags (fixer, 15 Oct 2026):
+--  * review_queue OFF (production until go-live): a person decision queues NO e-mail unless
+--    the call says notify: true; the result says notify_by_client: true and the page sends
+--    the status e-mail itself, as today (send-status-notification / sendNotification). So
+--    an approval from the redesign is never silent, and nothing piles up for the drain.
+--    review_queue ON: queued for the drain. Questions (ask) and claim decisions are always
+--    queued (no other sender exists for them; they come from the v2 queue only).
+--  * capabilities_enforced OFF (until the rights switch): the persona still gives rights on
+--    the live site, so a decision never moves it on its own. validate with no company step
+--    keeps the persona; a company step (create, link, claim) or "participant" sets the
+--    display persona, except that nothing but "participant" demotes to individual.
 --   admin_validate_person(user_id, decision)  validate | participant | reject | ask
 --   admin_approve_person(user_id, notify)     the old "Approve" button through the RPC
 --   admin_decide_claim(invitation_id, approve, note)
@@ -86,6 +99,18 @@ as $function$
                     limit 1), 'individual')
 $function$;
 
+-- A registration flag: on only as JSON true (as everywhere else; never a cast).
+create or replace function public.review_flag(p_key text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select coalesce((select (ps.value -> p_key) = 'true'::jsonb
+                     from public.platform_settings ps where ps.key = 'registration_flags'), false)
+$function$;
+
 -- An "account under review" e-mail still unsent when M3 decides is never sent afterwards.
 create or replace function public.review_skip_under_review_mail(p_user_id uuid)
 returns void
@@ -109,7 +134,10 @@ as $function$
 declare
   v_action text;
   v_reason text;
+  v_reason_old text;
   v_notify boolean;
+  v_client boolean := false;
+  v_enforced boolean;
   v_spec jsonb;
   v_mode text;
   v_type text;
@@ -143,6 +171,8 @@ declare
   v_slug text;
   v_n integer := 1;
   v_persona text;
+  v_display text;
+  v_persona_kept boolean := false;
   v_mail_org_id uuid;
   v_mail_org text;
   v_rejected_orgs integer := 0;
@@ -166,7 +196,13 @@ begin
   if v_action in ('reject', 'ask') and v_reason is null then
     raise exception using errcode = '22023', message = 'reason_required';
   end if;
-  v_notify := (p_decision -> 'notify') is distinct from 'false'::jsonb;
+  -- notify: false = no e-mail; true = queued; absent = queued when review_queue is on (the
+  -- drain's time), else left to the page (notify_by_client); a question is always queued.
+  v_notify := case when (p_decision -> 'notify') = 'false'::jsonb then false
+                   when (p_decision -> 'notify') = 'true'::jsonb or v_action = 'ask' then true
+                   else public.review_flag('review_queue') end;
+  v_client := not v_notify and (p_decision -> 'notify') is distinct from 'false'::jsonb;
+  v_enforced := public.review_flag('capabilities_enforced');
   v_spec := coalesce(p_decision -> 'org', '{}'::jsonb);
   if jsonb_typeof(v_spec) <> 'object' then
     raise exception using errcode = '22023', message = 'bad_org';
@@ -184,8 +220,8 @@ begin
   end if;
   v_as_owner := coalesce((v_spec -> 'as_owner') = 'true'::jsonb, false);
 
-  select pr.access_status::text, pr.first_name, pr.persona::text, pr.email_proven_at, lower(btrim(pr.email))
-    into v_status, v_first, v_persona_old, v_proven_at, v_pemail
+  select pr.access_status::text, pr.first_name, pr.persona::text, pr.email_proven_at, lower(btrim(pr.email)), pr.rejection_reason
+    into v_status, v_first, v_persona_old, v_proven_at, v_pemail, v_reason_old
     from public.profiles pr where pr.user_id = p_user_id
      for update;
   if not found then
@@ -223,9 +259,14 @@ begin
     v_has_owner := v_oowner is not null
                    or exists (select 1 from public.organization_members m where m.organization_id = v_org_id and m.role = 'owner');
     if v_ostatus = 'pending' then
-      -- Only the person's own company (old wizard) is validated with them, as "Approve" did.
-      if v_role is null then
+      -- Only the person's OWN company (old wizard: they are its owner, or become it here as
+      -- a member of an ownerless one) is validated with them, as "Approve" did; never a
+      -- company someone else owns. A verified company always has a type (it is then locked).
+      if v_role is distinct from 'owner' and not (v_role is not null and v_as_owner and not v_has_owner) then
         raise exception using errcode = '22023', message = 'org_not_verified';
+      end if;
+      if coalesce(v_type, v_otype) is null then
+        raise exception using errcode = '22023', message = 'type_required';
       end if;
       v_verified_org := true;
     elsif v_ostatus <> 'verified' then
@@ -308,23 +349,31 @@ begin
 
   -- ---- The person ----
   if v_action in ('validate', 'participant') then
-    v_persona := public.review_display_persona(p_user_id, v_org_id);
-    if v_mail_org_id is null and v_persona <> 'individual' then
+    v_display := public.review_display_persona(p_user_id, v_org_id);
+    v_persona := v_display;
+    -- Before the rights switch the persona still gives rights on the live site: a validation
+    -- without a company step keeps it (as the old Approve), and only "participant" demotes.
+    if not v_enforced and v_action = 'validate' and (v_mode = 'none' or v_display = 'individual') then
+      v_persona := v_persona_old;
+      v_persona_kept := v_display is distinct from v_persona_old;
+    end if;
+    if v_mail_org_id is null and v_display <> 'individual' then
       select o.id, o.name into v_mail_org_id, v_mail_org
         from public.organization_members m join public.organizations o on o.id = m.organization_id
-       where m.user_id = p_user_id and o.access_status = 'verified' and o.organization_type = v_persona
+       where m.user_id = p_user_id and o.access_status = 'verified' and o.organization_type = v_display
          and o.archived_at is null and o.duplicate_of is null
        order by (m.role = 'owner') desc, m.joined_at asc nulls last, o.id limit 1;
     end if;
-    -- Nothing new for the person (already verified, same company and persona): no e-mail.
-    v_unchanged := v_status = 'verified' and v_persona = v_persona_old
-                   and not (v_created or v_verified_org or v_member_changed);
+    -- Already verified and no company change: nothing to tell the person (no e-mail).
+    v_unchanged := v_status = 'verified' and not (v_created or v_verified_org or v_member_changed);
     update public.profiles
        set access_status = 'verified', onboarding_status = 'completed', rejection_reason = null,
            persona = v_persona::public.persona_enum
      where user_id = p_user_id;
     perform public.review_skip_under_review_mail(p_user_id);
   elsif v_action = 'reject' then
+    -- Refused again for the same reason (a double click, two admins): no second e-mail.
+    v_unchanged := v_status = 'rejected' and v_reason_old is not distinct from v_reason;
     update public.profiles
        set access_status = 'rejected', onboarding_status = 'draft', rejection_reason = v_reason
      where user_id = p_user_id;
@@ -336,7 +385,14 @@ begin
                     where m.organization_id = o.id and m.user_id = p_user_id and m.role = 'owner');
     get diagnostics v_rejected_orgs = row_count;
     perform public.review_skip_under_review_mail(p_user_id);
+  else
+    -- The same question still waiting to be sent, or asked in the last 10 minutes: not again.
+    v_unchanged := exists (select 1 from public.notification_outbox n
+                            where n.kind = 'account_info_requested' and n.user_id = p_user_id
+                              and n.data ->> 'question' = v_reason
+                              and (n.sent_at is null or n.created_at > now() - interval '10 minutes'));
   end if;
+  v_client := v_client and not v_unchanged;
 
   insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
   values ('person', p_user_id,
@@ -345,8 +401,10 @@ begin
           v_reason,
           jsonb_strip_nulls(jsonb_build_object('previous_status', v_status, 'org_mode', v_mode, 'organization_id', v_org_id,
             'role', v_role, 'company_created', v_created, 'company_verified', v_verified_org, 'persona', v_persona,
+            'persona_before', v_persona_old, 'display_persona', v_display, 'persona_kept', nullif(v_persona_kept, false),
             'primary_domain', v_pdomain, 'owner_ignored', v_owner_ignored, 'type_ignored', v_type_ignored,
-            'companies_rejected', nullif(v_rejected_orgs, 0), 'unchanged', v_unchanged, 'notify', v_notify)),
+            'companies_rejected', nullif(v_rejected_orgs, 0), 'unchanged', v_unchanged, 'notify', v_notify,
+            'notify_by_client', v_client)),
           auth.uid())
   returning id into v_log;
 
@@ -359,7 +417,7 @@ begin
               'first_name', nullif(btrim(coalesce(v_first, '')), ''),
               'org_name', v_mail_org,
               'organization_id', v_mail_org_id,
-              'participant', case when v_action in ('validate', 'participant') then v_persona = 'individual' end,
+              'participant', case when v_action in ('validate', 'participant') then v_display = 'individual' end,
               'company_created', case when v_created then true end,
               'company_verified', case when v_verified_org then true end,
               'reason', case when v_action = 'reject' then v_reason end,
@@ -372,16 +430,20 @@ begin
   return jsonb_strip_nulls(jsonb_build_object(
     'ok', true, 'action', v_action, 'user_id', p_user_id,
     'access_status', case v_action when 'reject' then 'rejected' when 'ask' then v_status else 'verified' end,
-    'persona', v_persona, 'organization_id', v_org_id, 'organization_name', coalesce(v_mail_org, v_oname), 'role', v_role,
+    'persona', v_persona, 'persona_before', v_persona_old, 'display_persona', v_display, 'persona_kept', v_persona_kept,
+    'organization_id', v_org_id, 'organization_name', coalesce(v_mail_org, v_oname), 'role', v_role,
     'company_created', v_created, 'company_verified', v_verified_org, 'primary_domain', v_pdomain,
     'owner_ignored', v_owner_ignored, 'type_ignored', v_type_ignored, 'companies_rejected', v_rejected_orgs,
-    'unchanged', v_unchanged, 'review_log_id', v_log, 'outbox_id', v_outbox));
+    'unchanged', v_unchanged, 'notify_by_client', v_client, 'review_log_id', v_log, 'outbox_id', v_outbox));
 end
 $function$;
 
 -- The old "Approve" (AdminUsers / AdminUserDetail) through the RPC: the person, and the
--- company they OWN that is still pending (as the button did); no company otherwise.
-create or replace function public.admin_approve_person(p_user_id uuid, p_notify boolean default true)
+-- company they OWN that is still pending (as the button did); no company otherwise. A
+-- company with no type takes the person's persona when it is a company type (what they
+-- declared in the old wizard); else type_required: the page opens the Validate dialog.
+-- p_notify null = the default of admin_validate_person (notify_by_client while review_queue is off).
+create or replace function public.admin_approve_person(p_user_id uuid, p_notify boolean default null)
 returns jsonb
 language plpgsql
 volatile
@@ -390,25 +452,41 @@ set search_path = ''
 as $function$
 declare
   v_org uuid;
+  v_otype text;
+  v_persona text;
+  v_link jsonb;
 begin
   if not coalesce(public.is_admin(), false) then
     raise exception using errcode = '42501', message = 'forbidden';
   end if;
-  select m.organization_id into v_org
+  select m.organization_id, o.organization_type into v_org, v_otype
     from public.organization_members m join public.organizations o on o.id = m.organization_id
    where m.user_id = p_user_id and m.role = 'owner' and o.access_status = 'pending'
      and o.archived_at is null and o.duplicate_of is null
    order by m.joined_at asc nulls last, o.id limit 1;
-  return public.admin_validate_person(p_user_id, jsonb_build_object(
-    'action', 'validate', 'notify', coalesce(p_notify, true),
-    'org', case when v_org is null then jsonb_build_object('mode', 'none')
-                else jsonb_build_object('mode', 'link', 'org_id', v_org) end));
+  if v_org is null then
+    v_link := jsonb_build_object('mode', 'none');
+  else
+    v_link := jsonb_build_object('mode', 'link', 'org_id', v_org);
+    if v_otype is null then
+      select pr.persona::text into v_persona from public.profiles pr where pr.user_id = p_user_id;
+      if v_persona in ('marina', 'partner', 'media_partner', 'developer', 'investor') then
+        v_link := v_link || jsonb_build_object('type', v_persona);
+      end if;
+    end if;
+  end if;
+  return public.admin_validate_person(p_user_id,
+    jsonb_build_object('action', 'validate', 'org', v_link)
+    || case when p_notify is null then '{}'::jsonb else jsonb_build_object('notify', p_notify) end);
 end
 $function$;
 
 -- A claim (organization_invitations.status 'claim_requested', filed by complete_signup_for).
 -- Approve: a verified, listed company with no owner gets the person as owner; the person is
 -- verified (Q3). Decline: the request is refused, the person stays as they are.
+-- The claimant is the account whose LOGIN address is the claim's, that still PROVES it and
+-- already existed when the claim was filed (complete_signup_for files claims for proven
+-- addresses only; with Confirm email off, a later account on that address proves nothing).
 create or replace function public.admin_decide_claim(p_invitation_id uuid, p_approve boolean, p_note text default null)
 returns jsonb
 language plpgsql
@@ -422,10 +500,15 @@ declare
   v_email text;
   v_istatus text;
   v_code boolean;
+  v_icreated timestamptz;
   v_user uuid;
+  v_ucreated timestamptz;
+  v_proven boolean;
+  v_claimant boolean := false;
   v_first text;
   v_pstatus text;
   v_ppersona text;
+  v_display text;
   v_oname text;
   v_ostatus text;
   v_oowner uuid;
@@ -442,8 +525,8 @@ begin
   if p_invitation_id is null or p_approve is null then
     raise exception using errcode = '22023', message = 'bad_input';
   end if;
-  select i.organization_id, lower(btrim(i.email)), i.status, i.code_matched
-    into v_org, v_email, v_istatus, v_code
+  select i.organization_id, lower(btrim(i.email)), i.status, i.code_matched, i.created_at
+    into v_org, v_email, v_istatus, v_code, v_icreated
     from public.organization_invitations i where i.id = p_invitation_id
      for update;
   if not found then
@@ -453,11 +536,14 @@ begin
     raise exception using errcode = '22023', message = 'not_an_open_claim', detail = v_istatus;
   end if;
   -- The account is the one whose LOGIN address is the claim's address (never profiles.email).
-  select u.id into v_user from auth.users u where lower(btrim(u.email)) = v_email order by u.created_at limit 1;
+  select u.id, u.created_at into v_user, v_ucreated from auth.users u where lower(btrim(u.email)) = v_email order by u.created_at limit 1;
   if v_user is not null then
-    select pr.first_name, pr.access_status::text, pr.persona::text into v_first, v_pstatus, v_ppersona
+    select pr.first_name, pr.access_status::text, pr.persona::text,
+           (pr.email_proven_at is not null and lower(btrim(pr.email)) = v_email)
+      into v_first, v_pstatus, v_ppersona, v_proven
       from public.profiles pr where pr.user_id = v_user
        for update;
+    v_claimant := v_pstatus is not null and coalesce(v_proven, false) and coalesce(v_ucreated <= v_icreated, false);
   end if;
   select o.name, o.access_status, o.owner_user_id, (o.archived_at is not null or o.duplicate_of is not null)
     into v_oname, v_ostatus, v_oowner, v_hidden
@@ -467,6 +553,12 @@ begin
   if p_approve then
     if v_user is null or v_pstatus is null then
       raise exception using errcode = '22023', message = 'no_account';
+    end if;
+    if not coalesce(v_proven, false) then
+      raise exception using errcode = '22023', message = 'not_proven';
+    end if;
+    if v_ucreated > v_icreated then
+      raise exception using errcode = '22023', message = 'claimant_changed';
     end if;
     if v_pstatus = 'suspended' then
       raise exception using errcode = '22023', message = 'account_suspended';
@@ -489,7 +581,10 @@ begin
     update public.organizations o set owner_user_id = v_user where o.id = v_org;
     update public.organization_invitations i set status = 'accepted' where i.id = p_invitation_id;
     if v_ppersona not in ('admin', 'moderator') then
-      v_persona := public.review_display_persona(v_user, v_org);
+      v_display := public.review_display_persona(v_user, v_org);
+      -- Before the rights switch, never a demotion to individual (an untyped company).
+      v_persona := case when v_display = 'individual' and not public.review_flag('capabilities_enforced')
+                        then v_ppersona else v_display end;
       update public.profiles
          set access_status = 'verified', onboarding_status = 'completed', rejection_reason = null,
              persona = v_persona::public.persona_enum
@@ -508,10 +603,12 @@ begin
   insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
   values ('claim', p_invitation_id, v_kind, v_note,
           jsonb_strip_nulls(jsonb_build_object('organization_id', v_org, 'user_id', v_user, 'code_matched', v_code,
-                                               'persona', v_persona, 'other_open_claims', v_others)),
+                                               'claimant', v_claimant, 'persona', v_persona, 'persona_before', v_ppersona,
+                                               'other_open_claims', v_others)),
           auth.uid())
   returning id into v_log;
-  if v_user is not null then
+  -- Only the claimant hears of it (never a later account that took over the address).
+  if v_claimant then
     insert into public.notification_outbox (kind, user_id, actor_id, subject_id, dedupe_key, data)
     values (v_kind, v_user, auth.uid(), p_invitation_id, v_kind || ':' || p_invitation_id,
             jsonb_strip_nulls(jsonb_build_object('first_name', nullif(btrim(coalesce(v_first, '')), ''),
@@ -520,14 +617,17 @@ begin
     returning id into v_outbox;
   end if;
   return jsonb_strip_nulls(jsonb_build_object('ok', true, 'decision', case when p_approve then 'approved' else 'declined' end,
-    'invitation_id', p_invitation_id, 'organization_id', v_org, 'user_id', v_user, 'persona', v_persona,
-    'other_open_claims', v_others, 'review_log_id', v_log, 'outbox_id', v_outbox));
+    'invitation_id', p_invitation_id, 'organization_id', v_org, 'user_id', v_user, 'claimant', v_claimant,
+    'persona', v_persona, 'other_open_claims', v_others, 'review_log_id', v_log, 'outbox_id', v_outbox));
 end
 $function$;
 
 -- Team joins tab: remove someone who joined a company through an invitation or a join
 -- request (FYI rows). An owner is never removed here. reset_person: a verified person goes
--- back to M3's review (pending, submitted), when the join was what verified them.
+-- back to M3's review (pending, submitted), when the join was what verified them. A persona
+-- that came from that company follows the person's other validated company (or, once the
+-- rights switch is on, becomes individual): never a company type with no company behind it,
+-- and never a demotion before the switch (same rule as admin_validate_person).
 create or replace function public.admin_revoke_team_join(p_member_id uuid, p_reset_person boolean default false,
                                                          p_note text default null)
 returns jsonb
@@ -540,6 +640,10 @@ declare
   v_org uuid;
   v_user uuid;
   v_role text;
+  v_otype text;
+  v_persona_old text;
+  v_display text;
+  v_persona text;
   v_reset integer := 0;
   v_log bigint;
 begin
@@ -555,7 +659,16 @@ begin
   if v_role = 'owner' then
     raise exception using errcode = '22023', message = 'owner_not_removable';
   end if;
+  select o.organization_type into v_otype from public.organizations o where o.id = v_org;
+  select pr.persona::text into v_persona_old from public.profiles pr where pr.user_id = v_user for update;
   delete from public.organization_members m where m.id = p_member_id;
+  if v_otype is not null and v_persona_old = v_otype then
+    v_display := public.review_display_persona(v_user, null);
+    if v_display <> v_persona_old and (v_display <> 'individual' or public.review_flag('capabilities_enforced')) then
+      update public.profiles pr set persona = v_display::public.persona_enum where pr.user_id = v_user;
+      v_persona := v_display;
+    end if;
+  end if;
   if coalesce(p_reset_person, false) then
     update public.profiles pr set access_status = 'pending', onboarding_status = 'submitted'
      where pr.user_id = v_user and pr.access_status = 'verified' and pr.persona not in ('admin', 'moderator');
@@ -563,10 +676,13 @@ begin
   end if;
   insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
   values ('join', p_member_id, 'join_revoked', nullif(left(btrim(coalesce(p_note, '')), 4000), ''),
-          jsonb_build_object('organization_id', v_org, 'user_id', v_user, 'person_reset', v_reset > 0), auth.uid())
+          jsonb_strip_nulls(jsonb_build_object('organization_id', v_org, 'user_id', v_user, 'person_reset', v_reset > 0,
+                                               'persona_before', case when v_persona is not null then v_persona_old end,
+                                               'persona', v_persona)), auth.uid())
   returning id into v_log;
-  return jsonb_build_object('ok', true, 'organization_id', v_org, 'user_id', v_user, 'person_reset', v_reset > 0,
-                            'review_log_id', v_log);
+  return jsonb_strip_nulls(jsonb_build_object('ok', true, 'organization_id', v_org, 'user_id', v_user, 'person_reset', v_reset > 0,
+                                              'persona', coalesce(v_persona, v_persona_old), 'persona_changed', v_persona is not null,
+                                              'review_log_id', v_log));
 end
 $function$;
 
@@ -613,6 +729,7 @@ begin
 end
 $function$;
 
+revoke all on function public.review_flag(text) from public, anon, authenticated, service_role;
 revoke all on function public.review_display_persona(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.review_skip_under_review_mail(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.admin_validate_person(uuid, jsonb) from public, anon;
@@ -626,10 +743,10 @@ grant execute on function public.admin_revoke_team_join(uuid, boolean, text) to 
 revoke all on function public.admin_review_dismiss(text, uuid, uuid, text) from public, anon;
 grant execute on function public.admin_review_dismiss(text, uuid, uuid, text) to authenticated;
 
-comment on function public.admin_validate_person(uuid, jsonb) is 'Phase 3 (spec §4.6): {action: validate|participant|reject|ask, reason, notify (default true), org: {mode: none|link|create, org_id, type, name, website, country, as_owner, force_new}}. Verified admins only. One review_log row, at most one notification_outbox e-mail. See contract §11.2.';
-comment on function public.admin_approve_person(uuid, boolean) is 'Phase 3: the old Approve button through admin_validate_person (the person, plus the company they own that is still pending).';
-comment on function public.admin_decide_claim(uuid, boolean, text) is 'Phase 3 (Q3): approve or decline a claim_requested row. Approve needs a verified, listed company with no owner: the person becomes its owner and is verified. Verified admins only.';
-comment on function public.admin_revoke_team_join(uuid, boolean, text) is 'Phase 3: remove a collaborator who joined through an invitation or a join request (Team joins tab); optionally send a verified person back to review. Verified admins only.';
+comment on function public.admin_validate_person(uuid, jsonb) is 'Phase 3 (spec §4.6): {action: validate|participant|reject|ask, reason, notify (absent: queued when review_queue is on, else notify_by_client; ask always queued), org: {mode: none|link|create, org_id, type, name, website, country, as_owner, force_new}}. Verified admins only. One review_log row, at most one notification_outbox e-mail. See contract §11.2.';
+comment on function public.admin_approve_person(uuid, boolean) is 'Phase 3: the old Approve button through admin_validate_person (the person, plus the company they own that is still pending; an untyped one takes their company-type persona, else type_required). p_notify null = the default (notify_by_client while review_queue is off).';
+comment on function public.admin_decide_claim(uuid, boolean, text) is 'Phase 3 (Q3): approve or decline a claim_requested row. Approve needs a verified, listed company with no owner and the claimant (the account with that login address, proven, older than the claim): the person becomes its owner and is verified. Verified admins only.';
+comment on function public.admin_revoke_team_join(uuid, boolean, text) is 'Phase 3: remove a collaborator who joined through an invitation or a join request (Team joins tab); optionally send a verified person back to review; a persona that came from that company follows their other validated company (individual only once capabilities_enforced is on). Verified admins only.';
 comment on function public.admin_review_dismiss(text, uuid, uuid, text) is 'Phase 3: mark a queue card seen without change: team_join or join_request (fyi_seen), retro (retro_kept), duplicate_org / duplicate_person (not_duplicate). Verified admins only.';
 
 -- ─── B2. The down, verbatim ─────────────────────────────────────────────────────
@@ -660,6 +777,7 @@ drop function if exists public.admin_approve_person(uuid, boolean);
 drop function if exists public.admin_validate_person(uuid, jsonb);
 drop function if exists public.review_skip_under_review_mail(uuid);
 drop function if exists public.review_display_persona(uuid, uuid);
+drop function if exists public.review_flag(text);
 
 -- ─── C. Test helpers (temporary, gone with the rollback) ───────────────────────
 -- An account: the auth.users row (handle_new_user makes the profile), then status, persona, proof.
@@ -710,7 +828,7 @@ begin
     jsonb_build_object('id', 'D01', 'who', 'postgres', 'bare', true, 'expect', 'ret:0', 'label', 'after the migration and its down: no row, policy or cron differs from before',
       'q', $q$select count(*)::text from ((select * from _dr_before except select * from pg_temp.dr_snap()) union all (select * from pg_temp.dr_snap() except select * from _dr_before)) d$q$),
     jsonb_build_object('id', 'D02', 'who', 'postgres', 'bare', true, 'expect', 'ret:0', 'label', 'the decision functions are gone',
-      'q', $q$select count(*)::text from pg_proc where pronamespace = 'public'::regnamespace and proname in ('review_display_persona', 'review_skip_under_review_mail', 'admin_validate_person', 'admin_approve_person', 'admin_decide_claim', 'admin_revoke_team_join', 'admin_review_dismiss')$q$)
+      'q', $q$select count(*)::text from pg_proc where pronamespace = 'public'::regnamespace and proname in ('review_flag', 'review_display_persona', 'review_skip_under_review_mail', 'admin_validate_person', 'admin_approve_person', 'admin_decide_claim', 'admin_revoke_team_join', 'admin_review_dismiss')$q$)
   );
 
   -- Runner: setup s0 + setup (postgres), q as the caller (an expected error is caught around q

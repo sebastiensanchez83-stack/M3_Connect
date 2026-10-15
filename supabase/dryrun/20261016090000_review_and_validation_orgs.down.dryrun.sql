@@ -66,6 +66,7 @@ set local statement_timeout = '120s';
 do $pre$
 declare
   v_md5 text;
+  v_def text;
   v_row record;
 begin
   if to_regclass('public.notification_outbox') is null or to_regclass('public.review_log') is null
@@ -79,6 +80,14 @@ begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.complete_signup_for(uuid)');
   if v_md5 is distinct from '67a850075f0e06e93b1ab02a377408ae' then
     raise exception 'review_and_validation_orgs: complete_signup_for is not the Phase 2 version (md5 %)', v_md5;
+  end if;
+  -- The outbox kinds are replaced by a fixed list below: refuse if another file added kinds
+  -- since Phase 2 (they would be lost silently; merge the lists first). Re-running is fine.
+  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+   where c.conname = 'notification_outbox_kind_check' and c.conrelid = 'public.notification_outbox'::regclass;
+  if v_def is distinct from 'CHECK ((kind = ANY (ARRAY[''account_under_review''::text, ''team_join_request''::text])))'
+     and v_def is distinct from 'CHECK ((kind = ANY (ARRAY[''account_under_review''::text, ''team_join_request''::text, ''user_account_approved''::text, ''user_account_rejected''::text, ''account_info_requested''::text, ''company_validated''::text, ''claim_approved''::text, ''claim_declined''::text])))' then
+    raise exception 'review_and_validation_orgs: notification_outbox kinds changed (%); merge the lists in this file', v_def;
   end if;
   for v_row in
     select * from (values
@@ -458,12 +467,20 @@ comment on function public.org_public_member_counts(uuid[]) is 'Phase 3: member 
 -- the two-kind CHECK of notification_outbox (NOT VALID while decision e-mails exist), anon's
 -- EXECUTE on get_public_profiles, and drops the new functions and the two listing columns
 -- (the archived / duplicate marks set by M3 in between are lost; review_log keeps them).
+-- Before this down, also revert the redesign's reads of the new columns (contract §11.6:
+-- .is('archived_at', null) / .is('duplicate_of', null) answer 400 once the columns are gone)
+-- and of org_public_member_counts; refused while held/directory_signed_in_only.sql is applied
+-- (signed-out member counts then depend on org_public_member_counts).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
 do $pre$
 begin
+  if not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organization_members'
+                  and p.policyname = 'org_members_select_public') then
+    raise exception 'down orgs: held/directory_signed_in_only.sql is applied; run supabase/migrations/down/directory_signed_in_only.down.sql first';
+  end if;
   if to_regprocedure('public.admin_validate_person(uuid,jsonb)') is not null then
     raise exception 'down orgs: run supabase/migrations/down/20261016090500_review_and_validation_people.down.sql first';
   end if;

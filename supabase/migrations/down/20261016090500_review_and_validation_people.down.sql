@@ -25,3 +25,4 @@ drop function if exists public.admin_approve_person(uuid, boolean);
 drop function if exists public.admin_validate_person(uuid, jsonb);
 drop function if exists public.review_skip_under_review_mail(uuid);
 drop function if exists public.review_display_persona(uuid, uuid);
+drop function if exists public.review_flag(text);

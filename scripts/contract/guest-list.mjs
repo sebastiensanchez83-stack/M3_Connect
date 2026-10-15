@@ -7,6 +7,8 @@
 // plus-one, staff decide / invite / resend / cancel, the door check-in RPC.
 // With --parity it also runs the registration function's wys26-parity
 // "register" and compares the row it writes with a guest-list "request" row.
+// The full parity proof (every column, every refusal, the e-mails, the
+// personal-page actions of wys_status_edit) is scripts/contract/wys-parity.mjs.
 //
 // It WRITES rows on the canary event (production database) and SENDS REAL
 // E-MAILS to the CONTRACT_EMAIL inbox. It never touches another event: it

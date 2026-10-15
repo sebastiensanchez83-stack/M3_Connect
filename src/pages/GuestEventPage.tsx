@@ -17,7 +17,8 @@ import { Reveal } from '@/components/motion/Reveal';
 import { prefersReducedMotion } from '@/components/motion/useReducedMotion';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
-import { guestList, type PublicGuestEvent } from '@/lib/guestList';
+import { guestList, requestInvitation, type PublicGuestEvent } from '@/lib/guestList';
+import { useRegistrationFlags } from '@/lib/flags';
 import { useAuth } from '@/contexts/AuthContext';
 import { registerWysRefonteStrings } from '@/i18n/refonte-wys';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,17 @@ registerWysRefonteStrings();
 // registers here — they ask to be invited, with no account. M3 reviews each
 // request in /admin/guest-list/<slug>; accepted guests get their entry QR by
 // email. The server never says whether an email is already on the list.
+//
+// Switch wys_form_v2 (registration_flags, off by default): the same form, same
+// fields and same words, is the parity form of the unified registration. It
+// posts to the `registration` function's parity action instead of guest-list's
+// `request` (same rules and the same gl_guest row; the acknowledgement adds a
+// "View my request" link), and a signed-in member's e-mail is the account's,
+// locked, so a member who proved that address finds the request in My events.
+// Switch off: guest-list's `request`, exactly as before.
+// The parity form is this page's own form, not the three-step RegistrationForm
+// of /register/:slug: the spec asks for the same layout, words and fields as
+// today, which that form's steps would change. Proof: scripts/contract/wys-parity.mjs.
 
 const ERRORS: Record<string, string> = {
   missing_fields: 'Please fill in every required field with a valid email address.',
@@ -205,11 +217,16 @@ export function GuestEventPage({ slug }: { slug: string }) {
   // A signed-in member does not type what the platform knows (design audit,
   // 8 Oct 2026): name, e-mail and job title from the profile, company and
   // country from the active organisation. Only empty fields are filled, so
-  // nothing typed is ever overwritten; every field stays editable. The request
-  // itself is unchanged (same guest-list call, no account needed).
+  // nothing typed is ever overwritten; every field stays editable (except the
+  // e-mail on the parity form, below). No account is needed to send a request.
   const { user, profile, organization } = useAuth();
   const userId = user?.id;
   const userEmail = user?.email;
+  // wys_form_v2: the parity form. Signed in, the e-mail is the account's and cannot be changed
+  // (the request is linked to the account only when that address is the account's, proven).
+  const { flags } = useRegistrationFlags();
+  const parity = flags.wys_form_v2;
+  const lockedEmail = parity && userId && userEmail ? userEmail.trim().toLowerCase() : null;
   useEffect(() => {
     if (!userId || !profile) return;
     const known: Partial<typeof EMPTY> = {
@@ -234,6 +251,10 @@ export function GuestEventPage({ slug }: { slug: string }) {
     // Keyed on ids and values, never on the user object (auth-js replaces it on every tab refocus).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, userEmail, profile?.first_name, profile?.last_name, profile?.email, profile?.job_title, organization?.name, organization?.country]);
+  // The locked e-mail always wins over what was typed before signing in or before the switch was read.
+  useEffect(() => {
+    if (lockedEmail) setForm((f) => (f.email === lockedEmail ? f : { ...f, email: lockedEmail }));
+  }, [lockedEmail]);
 
   useEffect(() => {
     guestList<{ event: PublicGuestEvent }>({ action: 'event', slug }).then(r => {
@@ -250,10 +271,12 @@ export function GuestEventPage({ slug }: { slug: string }) {
     setError(null);
     if (!wantsConference && !wantsGala) { setError(ERRORS.no_part); return; }
     setSending(true);
-    const r = await guestList({
-      action: 'request', slug, ...form, wants_conference: wantsConference, wants_gala: wantsGala,
+    // Switch off: guest-list's `request`, as always. On: the registration parity action (it
+    // falls back to guest-list by itself when the switch went off meanwhile).
+    const r = await requestInvitation({
+      slug, ...form, ...(lockedEmail ? { email: lockedEmail } : {}), wants_conference: wantsConference, wants_gala: wantsGala,
       ...(captcha.token ? { captcha: captcha.token } : {}),
-    });
+    }, parity);
     setSending(false);
     captcha.reset(); // a token works once, whatever the answer
     if (r.error) { setError(ERRORS[r.error] || 'Something went wrong. Please try again.'); return; }
@@ -429,7 +452,22 @@ export function GuestEventPage({ slug }: { slug: string }) {
                   <div className="space-y-2"><Label htmlFor="fn">{t('wysPage.form.firstName', 'First name')} {star}</Label><Input id="fn" required value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></div>
                   <div className="space-y-2"><Label htmlFor="ln">{t('wysPage.form.lastName', 'Last name')} {star}</Label><Input id="ln" required value={form.last_name} onChange={set('last_name')} autoComplete="family-name" /></div>
                 </div>
-                <div className="space-y-2"><Label htmlFor="em">{t('wysPage.form.email', 'E-mail')} {star}</Label><Input id="em" type="email" required value={form.email} onChange={set('email')} autoComplete="email" /></div>
+                {lockedEmail ? (
+                  // Parity form, signed in: the account's address, read-only. Shown as text that
+                  // wraps (a long address stays whole at 375 px); kept in the tab order as a
+                  // read-only textbox, so it is read out. The request is sent with lockedEmail.
+                  <div className="space-y-2">
+                    <Label id="em-label">{t('wysPage.form.email', 'E-mail')} {star}</Label>
+                    <div id="em" role="textbox" aria-readonly="true" tabIndex={0} aria-labelledby="em-label" aria-describedby="em-hint"
+                      className="flex min-h-12 items-center gap-3 rounded-field border border-checkbox bg-page px-4 py-[11px] text-base leading-6 text-ink focus-visible:shadow-focus focus-visible:outline-none">
+                      <span className="min-w-0 flex-1 break-all">{lockedEmail}</span>
+                      <Lock className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
+                    </div>
+                    <p id="em-hint" className="text-[13px] leading-5 text-meta">{t('wysPage.form.emailLocked', 'You’re signed in, so we’ll use your account e-mail. To use another address, sign out first.')}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2"><Label htmlFor="em">{t('wysPage.form.email', 'E-mail')} {star}</Label><Input id="em" type="email" required value={form.email} onChange={set('email')} autoComplete="email" /></div>
+                )}
                 <div className="space-y-2"><Label htmlFor="ph">{t('wysPage.form.phone', 'Phone')}</Label><Input id="ph" type="tel" value={form.phone} onChange={set('phone')} autoComplete="tel" /></div>
                 <div className="space-y-2"><Label htmlFor="co">{t('wysPage.form.company', 'Company')} {star}</Label><Input id="co" required value={form.company} onChange={set('company')} autoComplete="organization" /></div>
                 <div className="space-y-2"><Label htmlFor="jt">{t('wysPage.form.jobTitle', 'Job title')} {star}</Label><Input id="jt" required value={form.job_title} onChange={set('job_title')} autoComplete="organization-title" /></div>

@@ -36,6 +36,7 @@ export function BasicsTab({
   kindOpensOldEditor,
   onsiteEditor = false,
   staff,
+  hiddenTest,
 }: {
   value: BasicsForm;
   onChange: (next: BasicsForm) => void;
@@ -48,6 +49,12 @@ export function BasicsTab({
   onsiteEditor?: boolean;
   /** On-site editor: the M3 team fields (stored with the e-mails), shown in Basics (spec §8.2). */
   staff?: { value: EmailsForm; onChange: (next: EmailsForm) => void; mode: RegistrationMode };
+  /**
+   * On-site editor: a hidden test takes registrations from anyone with its link until it
+   * closes (contract §9). `closed`: the closing date (form value) is past; `onCloseNow`
+   * sets it to now (saved with the next Save).
+   */
+  hiddenTest?: { closed: boolean; onCloseNow: () => void };
   /** Published once, or someone registered: the web address cannot change any more. */
   slugLocked: boolean;
   /** Locked because people registered (the event is not published). */
@@ -396,6 +403,20 @@ export function BasicsTab({
           onChange={(vis) => set('visibility', vis)}
           options={visibilityOptions}
         />
+        {hiddenTest && v.visibility === 'hidden' && (
+          <Note tone="warning">
+            <span className="block">
+              {hiddenTest.closed
+                ? t('adminEvents.basics.hiddenClosed2', 'The closing date of this test is past (How to register > Registration closes): once saved, nobody can register. Change it there for your next test.')
+                : t('adminEvents.basics.hiddenOpen', 'Close it after your test: registrations stay open to anyone with the link, and confirming someone creates a real account.')}
+            </span>
+            {!hiddenTest.closed && (
+              <Button type="button" variant="outline" size="sm" className={cn(EDITOR_BTN, 'mt-3')} onClick={hiddenTest.onCloseNow}>
+                {t('adminEvents.basics.closeNow', 'Close registration now')}
+              </Button>
+            )}
+          </Note>
+        )}
         {!canPublish && v.visibility !== 'published' && (
           <Note>
             {webinar

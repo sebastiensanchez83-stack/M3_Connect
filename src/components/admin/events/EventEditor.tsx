@@ -22,8 +22,9 @@ import { ModulesTab } from './ModulesTab';
 import { EventRegistrationsPanel } from './EventRegistrationsPanel';
 import { EDITOR_BTN, EDITOR_BTN_PRIMARY, Field, INPUT, Note } from './editorUi';
 import {
-  EditorError, RESERVED_SLUGS, SLUG_RE, cloneEvent, editorErrorText, findGlEvent, formatInZone, loadAnswerKeys,
-  loadEvent, loadTicketUsage, readEventStamp, saveEvent, saveSectors, slugify, wallToIso, type EventKind, type LoadedEvent,
+  EditorError, RESERVED_SLUGS, SLUG_RE, cloneEvent, editorErrorText, findGlEvent, formatInZone, isoToWall, loadAnswerKeys,
+  loadEvent, loadTicketUsage, readEventStamp, saveEvent, saveSectors, slugify, useRegistrationCaps, wallToIso,
+  type EventKind, type LoadedEvent,
 } from './eventAdmin';
 import {
   buildPayload, checkForm, defaultAlertMode, dirtySections, dirtyTabs, formFromLoaded, newForm,
@@ -43,7 +44,9 @@ const HEADER_TOP = 'top-28 md:top-16';
  * flag onsite_v2 on, or a hidden test event (the registration function serves hidden
  * events whatever the flags), or ?editor=new (staff tests, as for a new event). Without
  * it an on-site event keeps today's editor: Basics and the list of people registered,
- * no decisions. Tabs of the on-site editor: Basics (venue, M3 team), How to register
+ * no decisions. Decisions, invitations and every e-mail to registrants need more: onsite_v2
+ * on, or the event SAVED as a hidden test (?editor=new alone opens only the settings).
+ * Tabs of the on-site editor: Basics (venue, M3 team), How to register
  * (account e-mail timing), Participation types, Questions, E-mails (intros, preview,
  * test), People registered (decisions, invitations, accounts), Modules (After WYS).
  *
@@ -67,6 +70,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const [showIssues, setShowIssues] = useState(false);
   const [notInstalled, setNotInstalled] = useState(false);
   const [regCount, setRegCount] = useState(0);
+  const [confirmedCount, setConfirmedCount] = useState(0);
   const [dup, setDup] = useState<{ title: string; slug: string; start: string; error: string | null; busy: boolean } | null>(null);
 
   const kind = form.basics.kind;
@@ -76,6 +80,12 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const isCanary = !isNew && !!loaded && !loaded.gl.legacy_event_id;
   // The on-site editor (see the header). A failed read of the flags counts as off (today's editor).
   const onsiteEditor = kind === 'onsite' && (flags.onsite_v2 || forced || loaded?.gl.hidden === true);
+  // Decisions, invitations and e-mails to people: only where the registration function
+  // serves the new pages (onsite_v2 on, or a SAVED hidden test). ?editor=new alone opens
+  // the settings, never e-mails real people links to a page the live site lacks.
+  const onsiteLive = kind === 'onsite' && (flags.onsite_v2 || loaded?.gl.hidden === true);
+  // What the deployed registration function can do (invitations, test e-mails, intros).
+  const caps = useRegistrationCaps(onsiteEditor);
   const fullEditor = kind === 'webinar' || onsiteEditor;
   const tabParam = params.get('tab') as EditorTab | null;
   const tabs = useMemo<EditorTab[]>(() => {
@@ -116,8 +126,17 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
           const l = await loadEvent(gl);
           if (!alive) return;
           applyLoaded(l);
-          const { count } = await supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', gl.id);
-          if (alive) setRegCount(count ?? 0);
+          const [{ count }, { count: confirmed }] = await Promise.all([
+            supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', gl.id),
+            // On-site (Modules tab, door check-in hint): how many are confirmed.
+            gl.kind === 'onsite'
+              ? supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', gl.id).eq('status', 'confirmed')
+              : Promise.resolve({ count: 0 }),
+          ]);
+          if (alive) {
+            setRegCount(count ?? 0);
+            setConfirmedCount(confirmed ?? 0);
+          }
         }
       } catch (e) {
         if (alive) setLoadError(editorErrorText(e, t));
@@ -165,7 +184,13 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const dirtyTabList = useMemo(() => dirtyTabs(form, initial), [form, initial]);
   const hasChanges = isNew || dirty.length > 0;
   const unsaved = isNew ? !!form.basics.title.trim() : dirty.length > 0;
-  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, t, fullEditor) : []), [showIssues, form, t, fullEditor]);
+  // Saving "Invitation only" with requests off needs invitations on the server (until then
+  // nobody could register); an event already saved that way keeps saving.
+  const checkOpts = useMemo(() => ({
+    invitesReady: caps.invite,
+    savedInviteOnly: initial.registration.mode === 'invitation' && !initial.registration.publicRequests,
+  }), [caps.invite, initial.registration.mode, initial.registration.publicRequests]);
+  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, t, fullEditor, checkOpts) : []), [showIssues, form, t, fullEditor, checkOpts]);
 
   // Leaving the page with unsaved changes: the browser asks first.
   useEffect(() => {
@@ -239,7 +264,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
 
   const save = async () => {
     if (isCanary) return;
-    const found = checkForm(form, t, fullEditor);
+    const found = checkForm(form, t, fullEditor, checkOpts);
     if (found.length) {
       setShowIssues(true);
       const first = found[0].tab;
@@ -558,6 +583,11 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             kindOpensOldEditor={isNew && !forced ? { webinar: !flags.webinar_v2, onsite: !flags.onsite_v2 } : null}
             onsiteEditor={onsiteEditor}
             staff={onsiteEditor ? { value: form.emails, onChange: (v) => setSection('emails', v), mode: form.registration.mode } : undefined}
+            hiddenTest={onsiteEditor ? {
+              closed: !!form.registration.closesAt && (wallToIso(form.registration.closesAt, b.timezone) ?? '') <= new Date().toISOString(),
+              // A hidden test takes registrations by its link until it closes (contract §9).
+              onCloseNow: () => setSection('registration', { ...form.registration, closesAt: isoToWall(new Date().toISOString(), b.timezone) }),
+            } : undefined}
           />
         )}
         {tab === 'registration' && (
@@ -570,6 +600,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             invitationAllowed={kind === 'onsite' || initial.registration.mode === 'invitation'}
             kind={kind}
             ticketCount={form.tickets.list.filter((x) => x.active).length}
+            invitesReady={caps.invite}
           />
         )}
         {tab === 'tickets' && (
@@ -579,6 +610,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             issues={issues}
             usage={ticketUsage}
             savedKeys={loaded ? loaded.tickets.map((x) => x.key) : []}
+            invitesReady={caps.invite}
           />
         )}
         {tab === 'questions' && (
@@ -605,6 +637,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             attendanceRecorded={attendanceSetting === true}
             onOpenRegistrations={isNew ? undefined : () => setTab('registrations')}
             glEventId={glId}
+            caps={caps}
             preview={kind === 'onsite' ? {
               title: b.title,
               startIso,
@@ -618,7 +651,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
           />
         )}
         {tab === 'modules' && (
-          <ModulesTab slug={isNew ? null : loaded?.gl.slug ?? null} hasConfirmed={regCount > 0} />
+          <ModulesTab slug={isNew ? null : loaded?.gl.slug ?? null} hasConfirmed={confirmedCount > 0} />
         )}
         {tab === 'registrations' && glId && loaded && (
           <EventRegistrationsPanel
@@ -635,7 +668,11 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             hasReplay={!!(loaded.gl.replay_url || loaded.catalogue?.replay_url)}
             mode={loaded.gl.registration_mode ?? (kind === 'webinar' ? 'instant' : 'review')}
             waitlist={!!loaded.gl.waitlist}
-            onsiteEditor={onsiteEditor}
+            onsiteEditor={onsiteLive}
+            onsiteNotLive={onsiteEditor && !onsiteLive}
+            hiddenTest={loaded.gl.hidden === true}
+            caps={caps}
+            onConfirmedCount={setConfirmedCount}
             tickets={loaded.tickets}
             accountTiming={loaded.gl.account_email_timing === 'after_event' ? 'after_event' : 'with_confirmation'}
             publicRequests={loaded.gl.public_requests !== false}

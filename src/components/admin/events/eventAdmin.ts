@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 
@@ -141,6 +142,8 @@ export interface GuestRow {
   checked_in_at: string | null;
   created_at: string;
   decided_at: string | null;
+  /** When they answered an invitation (accepted or declined). */
+  responded_at: string | null;
   account_action: string | null;
   payment_status: string | null;
 }
@@ -148,7 +151,7 @@ export interface GuestRow {
 export const GUEST_COLUMNS =
   'id, status, source, first_name, last_name, email, phone, company, job_title, country, ticket_key, answers, consents, '
   + 'source_detail, user_id, info_request, info_requested_at, link_opened_at, checked_in_at, created_at, decided_at, '
-  + 'account_action, payment_status';
+  + 'responded_at, account_action, payment_status';
 
 /**
  * The account set-up of a confirmed on-site registration (account_provision_job, staff
@@ -403,6 +406,130 @@ export async function loadProvisionJobs(guestIds: string[]): Promise<Map<string,
   return out;
 }
 
+/**
+ * The confirmation e-mail with the QR code (gl_email_log kind 'reg_confirmed', logged by
+ * the registration function once Resend accepted it; staff SELECT): the latest one per
+ * registration. The account e-mail never goes before it (Victor, 15 Oct 2026).
+ */
+export async function loadConfirmationMails(guestIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const CHUNK = 100;
+  for (let i = 0; i < guestIds.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from('gl_email_log')
+      .select('guest_id, sent_at')
+      .eq('kind', 'reg_confirmed')
+      .in('guest_id', guestIds.slice(i, i + CHUNK));
+    if (error) throw fromPg(error);
+    for (const r of (data || []) as { guest_id: string | null; sent_at: string }[]) {
+      if (!r.guest_id) continue;
+      const prev = out.get(r.guest_id);
+      if (!prev || Date.parse(r.sent_at) > Date.parse(prev)) out.set(r.guest_id, r.sent_at);
+    }
+  }
+  return out;
+}
+
+/** Clock slack between the decision and the e-mail log (the same 5 minutes as provision-person). */
+const CONFIRMATION_SLACK_MS = 5 * 60_000;
+
+/**
+ * A confirmed registration whose confirmation e-mail with the QR code is logged for its
+ * latest confirmation (staff approval or invitation accepted). False: not sent (failed,
+ * or a bulk confirmation cut short) or still sending.
+ */
+export function confirmationMailSent(g: Pick<GuestRow, 'decided_at' | 'responded_at'>, sentAt: string | undefined): boolean {
+  if (!sentAt) return false;
+  const times = [g.decided_at, g.responded_at].map((x) => (x ? Date.parse(x) : Number.NaN)).filter((x) => Number.isFinite(x));
+  if (!times.length) return true;
+  return Date.parse(sentAt) >= Math.max(...times) - CONFIRMATION_SLACK_MS;
+}
+
+/* ------------------------------------------------------------ server actions */
+
+/**
+ * What the deployed `registration` function can do beyond Phase 2, from its
+ * {action: 'capabilities'} answer: {ok: true, actions: ['invite', 'status_link',
+ * 'send_test'], email_intros: true, decide_from_invited: true}. The function in
+ * production today answers "unknown_action" (before any sign-in check): everything off,
+ * and the screens hide what has no server behind it. Asked once per page load.
+ */
+export interface RegistrationCaps {
+  /** The answer came back (from either version): the screens can say "comes later". */
+  checked: boolean;
+  invite: boolean;
+  statusLink: boolean;
+  sendTest: boolean;
+  /** The e-mails print settings.email_intros (registration and registration-cron). */
+  intros: boolean;
+  /** gl_decide_v2 takes 'invited' rows: confirm for them, or withdraw the invitation. */
+  decideInvited: boolean;
+}
+
+export const NO_CAPS: RegistrationCaps = { checked: false, invite: false, statusLink: false, sendTest: false, intros: false, decideInvited: false };
+
+let capsPromise: Promise<RegistrationCaps> | null = null;
+
+export function loadRegistrationCaps(): Promise<RegistrationCaps> {
+  if (!capsPromise) {
+    capsPromise = registrationStaff<{ ok?: boolean; actions?: unknown; email_intros?: unknown; decide_from_invited?: unknown }>({ action: 'capabilities' })
+      .then((res) => {
+        if (res.error || res.ok !== true) {
+          // An older function says so for good; anything else (offline) is asked again next time.
+          if (res.error !== 'unknown_action') capsPromise = null;
+          return { ...NO_CAPS, checked: res.error === 'unknown_action' };
+        }
+        const actions = Array.isArray(res.actions) ? res.actions.filter((x): x is string => typeof x === 'string') : [];
+        return {
+          checked: true,
+          invite: actions.includes('invite'),
+          statusLink: actions.includes('status_link'),
+          sendTest: actions.includes('send_test'),
+          intros: res.email_intros === true,
+          decideInvited: res.decide_from_invited === true,
+        };
+      })
+      .catch(() => {
+        capsPromise = null;
+        return NO_CAPS;
+      });
+  }
+  return capsPromise;
+}
+
+/** The capabilities of the registration function (NO_CAPS until known, or when `enabled` is false). */
+export function useRegistrationCaps(enabled: boolean): RegistrationCaps {
+  const [caps, setCaps] = useState<RegistrationCaps>(NO_CAPS);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    void loadRegistrationCaps().then((c) => { if (alive) setCaps(c); });
+    return () => { alive = false; };
+  }, [enabled]);
+  return enabled ? caps : NO_CAPS;
+}
+
+/**
+ * Invitations from a hidden test event go only to M3's own addresses (and the signed-in
+ * staff member's, with or without a +tag): a test never e-mails real people.
+ */
+export const TEST_INVITE_DOMAINS = ['m3monaco.com', 'smartmarinaconnect.com'];
+export const MAX_TEST_INVITES = 10;
+
+export function isTestAddress(email: string, ownEmail: string | null | undefined): boolean {
+  const e = email.trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return false;
+  const domain = e.slice(at + 1);
+  if (TEST_INVITE_DOMAINS.includes(domain)) return true;
+  const own = (ownEmail || '').trim().toLowerCase();
+  const ownAt = own.lastIndexOf('@');
+  if (ownAt < 1) return false;
+  // jane+test1@example.com is jane@example.com's own address.
+  const local = e.slice(0, at).replace(/\+.*$/, '');
+  return domain === own.slice(ownAt + 1) && local === own.slice(0, ownAt).replace(/\+.*$/, '');
+}
+
 /** One line of a registration's history (review_log, staff RLS): decisions and the person's answers. */
 export interface HistoryRow {
   action: string;
@@ -546,6 +673,14 @@ export function staffErrorText(code: string | undefined, t: TFunction): string {
       return t('adminEvents.staffErr.noJobs', 'Nobody in the selection has an account to set up.');
     case 'too_many':
       return t('adminEvents.staffErr.tooMany', 'Too many people at once: 500 at most.');
+    case 'too_large':
+      return t('adminEvents.staffErr.tooLarge', 'Too much at once. Send a shorter list (100 people at a time).');
+    case 'test_addresses_only':
+      return t('adminEvents.staffErr.testOnly', 'A hidden test event invites only M3 addresses (@m3monaco.com, @smartmarinaconnect.com) or your own, 10 at most.');
+    case 'nothing_to_resend':
+      return t('adminEvents.staffErr.nothingToResend', 'There is no e-mail to send again at this stage. Send their personal link instead.');
+    case 'use_guest_list':
+      return t('adminEvents.staffErr.engine', 'This event runs on the guest list. Use its guest-list page.');
     case 'capacity':
     case 'ticket_capacity':
       return t('adminEvents.staffErr.full', 'There are not enough places left for all of them.');
@@ -589,6 +724,8 @@ export function historyWord(action: string, t: TFunction): string {
     case 'invited': return t('adminEvents.hist.invited', 'Invited by M3');
     case 'invitation_accepted': return t('adminEvents.hist.accepted', 'Accepted the invitation');
     case 'invitation_declined': return t('adminEvents.hist.declined', 'Declined the invitation');
+    case 'invitation_withdrawn': return t('adminEvents.hist.withdrawn', 'Invitation withdrawn by M3');
+    case 'accepted_for_them': return t('adminEvents.hist.acceptedForThem', 'Marked as accepted by M3');
     case 'status_link': return t('adminEvents.hist.statusLink', 'Personal link copied by M3');
     case 'cancelled_by_guest': return t('adminEvents.hist.cancelledByGuest', 'Cancelled by them');
     default: return action;
@@ -678,7 +815,11 @@ export function accountState(g: Pick<GuestRow, 'account_action'>, job: Provision
   return 'created';
 }
 
-/** An account e-mail that has not left yet: "Send account e-mails now" applies (provision-person send_emails). */
+/**
+ * An account e-mail that has not left yet: "Send account e-mails now" applies (provision-person
+ * send_emails). Callers also need the confirmation e-mail with the QR code to be sent
+ * (confirmationMailSent): the account e-mail never goes first.
+ */
 export const accountSendable = (s: AccountState) => s === 'email_due' || s === 'gave_up';
 /** A job waiting for its run: "Set up the accounts now" applies (provision-person run). */
 export const accountRunnable = (s: AccountState) => s === 'waiting' || s === 'failed';

@@ -554,7 +554,7 @@ function QuestionFields({
         checked={draft.editable_after_submit}
         onChange={(on) => set('editable_after_submit', on)}
         title={t('adminEvents.q.editable', 'They can change their answer later')}
-        body={t('adminEvents.q.editableBody', 'From their personal registration page, until the event starts.')}
+        body={t('adminEvents.q.editableBody2', 'From their personal registration page, until the date set in How to register (by default, the start of the event).')}
       />
       {profileChoices.length > 0 && (
         <ToggleRow

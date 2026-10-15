@@ -28,7 +28,9 @@ import {
  *                       refer to their keys
  *   email_intros        {template: text}: M3's own opening paragraph per e-mail. NOT read by
  *                       the registration function yet (gap for the integrator, see the
- *                       EVENT lane report); saved so the texts are ready when it is.
+ *                       EVENT lane report); saved so the texts are ready when it is. The
+ *                       E-mails tab says so until the function answers email_intros: true
+ *                       to {action: 'capabilities'} (eventAdmin RegistrationCaps).
  */
 
 export type EditorTab = 'basics' | 'registration' | 'tickets' | 'questions' | 'emails' | 'registrations' | 'modules';
@@ -363,7 +365,14 @@ const wholeNumber = (v: string) => /^\d+$/.test(v.trim());
  * it cannot open. `full` = the editor shows every tab of this kind (webinars always;
  * on-site events with onsite_v2 on, a hidden test, or ?editor=new).
  */
-export function checkForm(form: EditorForm, t: TFunction, full = form.basics.kind === 'webinar'): FormIssue[] {
+export interface CheckOptions {
+  /** The registration function sends invitations (RegistrationCaps.invite). */
+  invitesReady?: boolean;
+  /** The event is SAVED as invitation only with requests off: it keeps saving as it is. */
+  savedInviteOnly?: boolean;
+}
+
+export function checkForm(form: EditorForm, t: TFunction, full = form.basics.kind === 'webinar', opts: CheckOptions = {}): FormIssue[] {
   const out: FormIssue[] = [];
   const b = form.basics;
   const r = form.registration;
@@ -420,6 +429,10 @@ export function checkForm(form: EditorForm, t: TFunction, full = form.basics.kin
     if (r.mode === 'instant') {
       out.push({ tab: 'registration', field: 'mode', message: t('adminEvents.err.instant', 'Open registration works for webinars only. On-site events are checked by M3.') });
     }
+    // Invitation only, requests off, and no invitations yet: nobody could register at all.
+    if (r.mode === 'invitation' && !r.publicRequests && !opts.invitesReady && !opts.savedInviteOnly) {
+      out.push({ tab: 'registration', field: 'mode', message: t('adminEvents.check.inviteNotYet', 'Sending invitations comes in a later update: with requests off, nobody could register. Turn "People can ask for an invitation" on.') });
+    }
     if (r.accountEmailTiming === 'after_event' && r.accountEmailSendAt) {
       const sendAt = at(r.accountEmailSendAt);
       const startIso = at(b.start);
@@ -445,9 +458,8 @@ export function checkForm(form: EditorForm, t: TFunction, full = form.basics.kin
     tk.parts.forEach((p, i) => {
       if (!p.label.trim()) out.push({ tab: 'tickets', field: `p${i}`, message: t('adminEvents.check.pLabel', 'Part {{n}} of the event needs a name.', { n: i + 1 }) });
     });
-    if (tk.list.length > 0 && !tk.list.some((x) => x.active)) {
-      out.push({ tab: 'tickets', field: 'list', message: t('adminEvents.check.tNoneActive', 'Keep at least one participation type switched on, or nobody can register.') });
-    }
+    // Every type switched off is allowed: people then register without a type (contract
+    // §2, gl_ticket). The Participation types tab says so, without blocking the save.
   }
 
   const ticketKeys = new Set(form.tickets.list.map((x) => x.key));

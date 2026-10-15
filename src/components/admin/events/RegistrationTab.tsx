@@ -21,6 +21,7 @@ export function RegistrationTab({
   invitationAllowed,
   kind = 'webinar',
   ticketCount = 0,
+  invitesReady = false,
 }: {
   value: RegistrationForm;
   onChange: (next: RegistrationForm) => void;
@@ -33,6 +34,8 @@ export function RegistrationTab({
   kind?: EventKind;
   /** On-site: active participation types (each may have its own limit). */
   ticketCount?: number;
+  /** On-site: the registration function sends invitations (RegistrationCaps.invite). */
+  invitesReady?: boolean;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -59,7 +62,13 @@ export function RegistrationTab({
   const modeOptions: { value: RegistrationMode; title: string; body: string; disabled?: boolean }[] = onsite
     ? [
       { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBodyOnsite', 'Anyone can register. M3 checks each person in People registered and confirms them by e-mail, with their entry QR code.') },
-      { value: 'invitation', title: t('adminEvents.reg.invitationOnly', 'Invitation only'), body: t('adminEvents.reg.invitationBodyOnsite', 'M3 invites people from People registered. You can also let others ask for an invitation.') },
+      {
+        value: 'invitation',
+        title: t('adminEvents.reg.invitationOnly', 'Invitation only'),
+        body: invitesReady
+          ? t('adminEvents.reg.invitationBodyOnsite', 'M3 invites people from People registered. You can also let others ask for an invitation.')
+          : t('adminEvents.reg.invitationBodyOnsiteLater', 'People ask for an invitation and M3 accepts them. Sending invitations from this page comes in a later update.'),
+      },
     ]
     : [
       { value: 'instant', title: t('adminEvents.reg.instant', 'Open'), body: t('adminEvents.reg.instantBody', 'Registration is confirmed at once. They get the e-mail with the calendar file straight away.') },
@@ -98,11 +107,17 @@ export function RegistrationTab({
               title={t('adminEvents.reg.publicRequests', 'People can ask for an invitation')}
               body={t('adminEvents.reg.publicRequestsBody', 'The event page shows "Request an invitation". You accept each request in People registered.')}
             />
-            {onsite ? (
+            {onsite && invitesReady ? (
               <Note>
                 {v.publicRequests
                   ? t('adminEvents.reg.inviteHowOnsite', 'Invite people from People registered > Invite people (paste up to 500 addresses). They reply from their e-mail.')
                   : t('adminEvents.reg.inviteOnlyOnsite', 'Only the people you invite can register: invite them from People registered > Invite people.')}
+              </Note>
+            ) : onsite ? (
+              <Note tone="warning">
+                {v.publicRequests
+                  ? t('adminEvents.reg.inviteLaterOnsite', 'Sending invitations from this page comes in a later update. Until then, keep "People can ask for an invitation" on: people ask, and you accept them in People registered.')
+                  : t('adminEvents.reg.inviteNobody', 'Sending invitations from this page comes in a later update. With requests off, nobody can register for now: turn requests on above.')}
               </Note>
             ) : (
               <Note tone="warning">

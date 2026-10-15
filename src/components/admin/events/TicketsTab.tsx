@@ -39,6 +39,7 @@ export function TicketsTab({
   issues,
   usage,
   savedKeys,
+  invitesReady = false,
 }: {
   value: TicketsForm;
   onChange: (next: TicketsForm) => void;
@@ -47,6 +48,8 @@ export function TicketsTab({
   usage: Record<string, number> | null;
   /** Keys of the types as saved: a new type never takes one of them. */
   savedKeys: string[];
+  /** The registration function sends invitations: an invite-only type can be given. */
+  invitesReady?: boolean;
 }) {
   const { t } = useTranslation();
   const list = value.list;
@@ -151,6 +154,20 @@ export function TicketsTab({
         description={t('adminEvents.tk.body', 'How people take part: attendee, exhibitor, press… With one type or none, nobody is asked to choose. Prices and notes are shown on the form only: nothing is paid on the platform before December.')}
       >
         {err('list') && <Note tone="danger"><span role="alert">{err('list')}</span></Note>}
+        {/* What the form will do with these types (saving is never blocked for it). */}
+        {list.length > 0 && !list.some((x) => x.active) && (
+          <Note tone="warning">{t('adminEvents.tk.allOff', 'Every type is switched off: people register without choosing a type.')}</Note>
+        )}
+        {list.some((x) => x.active) && list.filter((x) => x.active).every((x) => x.inviteOnly) && (
+          <Note tone="warning">
+            {invitesReady
+              ? t('adminEvents.tk.allInviteOnly', 'Every type switched on is by invitation only: nobody can register on their own, only the people you invite.')
+              : t('adminEvents.tk.allInviteOnlyLater', 'Every type switched on is by invitation only, and sending invitations comes in a later update: for now nobody could register. Switch on a type open to everyone.')}
+          </Note>
+        )}
+        {!invitesReady && list.some((x) => x.active && x.inviteOnly) && list.some((x) => x.active && !x.inviteOnly) && (
+          <Note>{t('adminEvents.tk.inviteOnlyLater', 'Types by invitation only are shown on the form, but nobody can have them until sending invitations arrives, in a later update.')}</Note>
+        )}
         {list.length === 0 ? (
           <p className="text-[14px] text-meta">{t('adminEvents.tk.none', 'No participation type: everyone registers the same way.')}</p>
         ) : (
@@ -303,6 +320,7 @@ export function TicketsTab({
             draft={editing.draft}
             parts={parts}
             used={editing.index !== null && used(list[editing.index]?.key)}
+            invitesReady={invitesReady}
             onDraft={(draft) => setEditing({ ...editing, draft })}
           />
         )}
@@ -345,7 +363,7 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   );
 }
 
-function TicketFields({ draft, parts, used, onDraft }: { draft: TicketDraft; parts: EventPart[]; used: boolean; onDraft: (d: TicketDraft) => void }) {
+function TicketFields({ draft, parts, used, invitesReady, onDraft }: { draft: TicketDraft; parts: EventPart[]; used: boolean; invitesReady: boolean; onDraft: (d: TicketDraft) => void }) {
   const { t } = useTranslation();
   const set = <K extends keyof TicketDraft>(k: K, v: TicketDraft[K]) => onDraft({ ...draft, [k]: v });
   const toggle = (k: 'allowedTypes' | 'parts', v: string) => set(k, draft[k].includes(v) ? draft[k].filter((x) => x !== v) : [...draft[k], v]);
@@ -372,7 +390,9 @@ function TicketFields({ draft, parts, used, onDraft }: { draft: TicketDraft; par
         checked={draft.inviteOnly}
         onChange={(on) => set('inviteOnly', on)}
         title={t('adminEvents.tk.inviteOnlyTitle', 'By invitation only')}
-        body={t('adminEvents.tk.inviteOnlyBody', 'Shown on the form but nobody can pick it: M3 gives it with an invitation.')}
+        body={invitesReady
+          ? t('adminEvents.tk.inviteOnlyBody', 'Shown on the form but nobody can pick it: M3 gives it with an invitation.')
+          : t('adminEvents.tk.inviteOnlyBodyLater', 'Shown on the form but nobody can pick it: M3 gives it with an invitation, once sending invitations arrives (a later update).')}
       />
       <Field
         label={t('adminEvents.tk.keptForTitle', 'Only for these company types')}

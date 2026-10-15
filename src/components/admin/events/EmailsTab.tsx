@@ -10,7 +10,7 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Block, ChoiceCards, EDITOR_BTN, Field, INPUT, Note, TEXTAREA, ToggleRow } from './editorUi';
 import { EmailPreview, type PreviewEvent } from './EmailPreview';
-import { registrationStaff, staffErrorText, type EventKind, type RegistrationMode } from './eventAdmin';
+import { NO_CAPS, registrationStaff, staffErrorText, type EventKind, type RegistrationCaps, type RegistrationMode } from './eventAdmin';
 import { INTRO_MAX, INTRO_TEMPLATES, type EditorTab, type EmailsForm, type FormIssue, type IntroTemplate } from './editorModel';
 
 /**
@@ -41,6 +41,7 @@ export function EmailsTab({
   onOpenRegistrations,
   preview,
   glEventId = null,
+  caps = NO_CAPS,
 }: {
   value: EmailsForm;
   onChange: (next: EmailsForm) => void;
@@ -56,6 +57,8 @@ export function EmailsTab({
   preview?: PreviewEvent;
   /** Saved event (gl_event id): "Send a test to me" needs it. */
   glEventId?: string | null;
+  /** What the deployed registration function can do: test e-mails, intros printed. */
+  caps?: RegistrationCaps;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -148,6 +151,8 @@ export function EmailsTab({
           onChange={(intros) => set('intros', intros)}
           preview={{ ...preview, practicalInfo: v.practicalInfo }}
           glEventId={glEventId}
+          testReady={caps.sendTest}
+          introsLive={caps.intros}
         />
       )}
 
@@ -300,17 +305,24 @@ export function StaffAlertBlock({
  * M3's own opening paragraph, one per e-mail (settings.email_intros), with the e-mail
  * drawn next to it and "Send a test to me": the registration function sends that test
  * to the signed-in staff member's own address only (the address is never typed here).
+ * Until the deployed functions print the paragraph (RegistrationCaps.intros), it is saved
+ * and the preview shows the e-mail as it goes today, without it; "Send a test to me"
+ * appears with the function that sends tests.
  */
 function IntrosBlock({
   value,
   onChange,
   preview,
   glEventId,
+  testReady,
+  introsLive,
 }: {
   value: Partial<Record<IntroTemplate, string>>;
   onChange: (next: Partial<Record<IntroTemplate, string>>) => void;
   preview: PreviewEvent;
   glEventId: string | null;
+  testReady: boolean;
+  introsLive: boolean;
 }) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -351,6 +363,11 @@ function IntrosBlock({
       title={t('adminEvents.mail.introsTitle', 'Your words in the e-mails')}
       description={t('adminEvents.mail.introsBody', 'Each e-mail keeps M3\'s standard text. Add a short paragraph of your own at the top: a welcome, a dress code, what to bring.')}
     >
+      {!introsLive && (
+        <Note tone="warning">
+          {t('adminEvents.mail.introsLater', 'Your paragraphs are saved now and appear in the e-mails once the next e-mail update is installed. Until then the e-mails go without them, as the preview shows.')}
+        </Note>
+      )}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           <Field label={t('adminEvents.mail.which', 'E-mail')}>
@@ -381,19 +398,21 @@ function IntrosBlock({
               maxLength={INTRO_MAX}
             />
           </Field>
-          <div className="space-y-1.5">
-            <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={() => void sendTest()} disabled={!glEventId || sending}>
-              {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="mr-1.5 h-4 w-4" aria-hidden="true" />}
-              {t('adminEvents.mail.sendTest', 'Send a test to me')}
-            </Button>
-            <p className="text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
-              {glEventId
-                ? t('adminEvents.mail.sendTestHint', 'Goes to your own address ({{email}}) only, with sample details. Your paragraph is sent as written here, saved or not.', { email: user?.email || '…' })
-                : t('adminEvents.mail.sendTestNew', 'Create the event first: tests are sent for a saved event.')}
-            </p>
-          </div>
+          {testReady && (
+            <div className="space-y-1.5">
+              <Button type="button" variant="outline" size="sm" className={EDITOR_BTN} onClick={() => void sendTest()} disabled={!glEventId || sending}>
+                {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="mr-1.5 h-4 w-4" aria-hidden="true" />}
+                {t('adminEvents.mail.sendTest', 'Send a test to me')}
+              </Button>
+              <p className="text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
+                {glEventId
+                  ? t('adminEvents.mail.sendTestHint', 'Goes to your own address ({{email}}) only, with sample details. Your paragraph is sent as written here, saved or not.', { email: user?.email || '…' })
+                  : t('adminEvents.mail.sendTestNew', 'Create the event first: tests are sent for a saved event.')}
+              </p>
+            </div>
+          )}
         </div>
-        <EmailPreview template={template} event={preview} intro={text} />
+        <EmailPreview template={template} event={preview} intro={introsLive ? text : ''} />
       </div>
     </Block>
   );

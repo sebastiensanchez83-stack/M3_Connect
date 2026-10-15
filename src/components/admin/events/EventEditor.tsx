@@ -15,16 +15,18 @@ import {
 } from '../AdminUI';
 import { BasicsTab } from './BasicsTab';
 import { RegistrationTab } from './RegistrationTab';
+import { TicketsTab } from './TicketsTab';
 import { QuestionsTab } from './QuestionsTab';
 import { EmailsTab } from './EmailsTab';
+import { ModulesTab } from './ModulesTab';
 import { EventRegistrationsPanel } from './EventRegistrationsPanel';
 import { EDITOR_BTN, EDITOR_BTN_PRIMARY, Field, INPUT, Note } from './editorUi';
 import {
   EditorError, RESERVED_SLUGS, SLUG_RE, cloneEvent, editorErrorText, findGlEvent, formatInZone, loadAnswerKeys,
-  loadEvent, readEventStamp, saveEvent, saveSectors, slugify, wallToIso, type EventKind, type LoadedEvent,
+  loadEvent, loadTicketUsage, readEventStamp, saveEvent, saveSectors, slugify, wallToIso, type EventKind, type LoadedEvent,
 } from './eventAdmin';
 import {
-  buildPayload, checkForm, defaultAlertMode, dirtySections, formFromLoaded, newForm,
+  buildPayload, checkForm, defaultAlertMode, dirtySections, dirtyTabs, formFromLoaded, newForm,
   type EditorForm, type EditorTab, type FormIssue, type FormSection,
 } from './editorModel';
 
@@ -37,8 +39,13 @@ const HEADER_TOP = 'top-28 md:top-16';
 /**
  * The event editor of the registration core (spec §8.2): /admin/events/new and
  * /admin/events/:id for events that register through gl_* (engine core_v2).
- * Webinars in full; on-site events get Basics and the list of people registered
- * (no decisions) until Phase 3.
+ * Webinars in full. On-site events (Phase 3) in full only in the ON-SITE EDITOR:
+ * flag onsite_v2 on, or a hidden test event (the registration function serves hidden
+ * events whatever the flags), or ?editor=new (staff tests, as for a new event). Without
+ * it an on-site event keeps today's editor: Basics and the list of people registered,
+ * no decisions. Tabs of the on-site editor: Basics (venue, M3 team), How to register
+ * (account e-mail timing), Participation types, Questions, E-mails (intros, preview,
+ * test), People registered (decisions, invitations, accounts), Modules (After WYS).
  *
  * One Save button sends ONE admin_save_event call with the tabs that changed. Sectors
  * stay in event_sectors (written after the call, as in the old editor).
@@ -67,13 +74,19 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   // create one (and its date would then override the runbook's settings.starts_at), so
   // this page only lists its registrations.
   const isCanary = !isNew && !!loaded && !loaded.gl.legacy_event_id;
+  // The on-site editor (see the header). A failed read of the flags counts as off (today's editor).
+  const onsiteEditor = kind === 'onsite' && (flags.onsite_v2 || forced || loaded?.gl.hidden === true);
+  const fullEditor = kind === 'webinar' || onsiteEditor;
   const tabParam = params.get('tab') as EditorTab | null;
   const tabs = useMemo<EditorTab[]>(() => {
     if (isCanary) return ['registrations'];
-    const list: EditorTab[] = kind === 'webinar' ? ['basics', 'registration', 'questions', 'emails'] : ['basics'];
+    const list: EditorTab[] = kind === 'webinar'
+      ? ['basics', 'registration', 'questions', 'emails']
+      : onsiteEditor ? ['basics', 'registration', 'tickets', 'questions', 'emails'] : ['basics'];
     if (!isNew) list.push('registrations');
+    if (onsiteEditor) list.push('modules');
     return list;
-  }, [kind, isNew, isCanary]);
+  }, [kind, isNew, isCanary, onsiteEditor]);
   const tab: EditorTab = tabParam && tabs.includes(tabParam) ? tabParam : tabs[0];
   const setTab = (next: EditorTab) => {
     const p = new URLSearchParams(params);
@@ -136,10 +149,23 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     return () => { alive = false; };
   }, [tab, glIdForKeys, regCount, answerKeys]);
 
+  // Participation types tab: how many registrations use each type (a used type is only
+  // switched off when removed). Read once, only when people have registered.
+  const [ticketUsage, setTicketUsage] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (tab !== 'tickets' || !glIdForKeys || regCount === 0 || ticketUsage) return;
+    let alive = true;
+    loadTicketUsage(glIdForKeys)
+      .then((u) => { if (alive) setTicketUsage(u); })
+      .catch(() => { /* the saved keys still protect the usual case; the database deactivates a used type */ });
+    return () => { alive = false; };
+  }, [tab, glIdForKeys, regCount, ticketUsage]);
+
   const dirty = useMemo(() => dirtySections(form, initial), [form, initial]);
+  const dirtyTabList = useMemo(() => dirtyTabs(form, initial), [form, initial]);
   const hasChanges = isNew || dirty.length > 0;
   const unsaved = isNew ? !!form.basics.title.trim() : dirty.length > 0;
-  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, t) : []), [showIssues, form, t]);
+  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, t, fullEditor) : []), [showIssues, form, t, fullEditor]);
 
   // Leaving the page with unsaved changes: the browser asks first.
   useEffect(() => {
@@ -186,8 +212,10 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
       if (s === 'basics' && isNew && (value as EditorForm['basics']).kind !== f.basics.kind) {
         const nextBasics = { ...(value as EditorForm['basics']) };
         const fresh = newForm(nextBasics.kind);
-        // No hidden on-site test before the on-site editor (nobody could decide on it).
-        if (nextBasics.kind === 'onsite' && nextBasics.visibility === 'hidden') nextBasics.visibility = 'draft';
+        // A new event reaches this editor with its switch on or with ?editor=new, so the
+        // on-site editor is there: a hidden on-site test can be decided on. (Kept as a
+        // guard should that ever change.)
+        if (nextBasics.kind === 'onsite' && nextBasics.visibility === 'hidden' && !(forced || flags.onsite_v2)) nextBasics.visibility = 'draft';
         return { ...fresh, basics: nextBasics };
       }
       // A new event: the staff alert follows the registration mode (one summary a day for
@@ -206,10 +234,12 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const eventId = loaded?.gl.legacy_event_id ?? null;
   const wasPublished = initial.basics.visibility === 'published';
   const canPublish = kindOn(kind) || wasPublished;
+  /** ?editor=new to keep on the next page (on-site editor opened that way while onsite_v2 is off). */
+  const keepOnsiteEditor = kind === 'onsite' && forced && !flags.onsite_v2 ? '?editor=new' : '';
 
   const save = async () => {
     if (isCanary) return;
-    const found = checkForm(form, t);
+    const found = checkForm(form, t, fullEditor);
     if (found.length) {
       setShowIssues(true);
       const first = found[0].tab;
@@ -250,6 +280,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     } catch (e) {
       setSaveError(editorErrorText(e, t));
       if (e instanceof EditorError && /^slug_|^title_|publish_needs_flag/.test(e.code)) setTab('basics');
+      if (e instanceof EditorError && /ticket/.test(e.code) && tabs.includes('tickets')) setTab('tickets');
       if (e instanceof EditorError && e.code === 'not_installed') setNotInstalled(true);
       setSaving(false);
       return;
@@ -267,7 +298,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
         title: t('adminEvents.created', 'Event created'),
         description: form.basics.visibility === 'published' ? undefined : t('adminEvents.createdDraft', 'It stays invisible to the public until you publish it.'),
       });
-      navigate(`/admin/events/${res.event_id}${kind === 'webinar' ? '?tab=registration' : ''}`, { replace: true });
+      // An on-site event made with ?editor=new (switch off) stays in the on-site editor.
+      navigate(`/admin/events/${res.event_id}${kind === 'webinar' ? '?tab=registration' : keepOnsiteEditor}`, { replace: true });
       return;
     }
     // Saved. Re-read what the database now holds (it normalises some values).
@@ -352,7 +384,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     } else {
       toast({ title: t('adminEvents.dup.done', 'Copy created as a draft'), description: t('adminEvents.dup.doneBody', 'Check the dates and the online link before publishing it.') });
     }
-    navigate(`/admin/events/${res.event_id}`);
+    navigate(`/admin/events/${res.event_id}${keepOnsiteEditor}`);
   };
 
   /* ---------------------------------------------------------- render */
@@ -374,11 +406,13 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const tabWords: Record<EditorTab, string> = {
     basics: t('adminEvents.tab.basics', 'Basics'),
     registration: t('adminEvents.tab.howToRegister', 'How to register'),
+    tickets: t('adminEvents.tab.tickets', 'Participation types'),
     questions: t('adminEvents.tab.questions', 'Questions'),
     emails: t('adminEvents.tab.emails', 'E-mails'),
     registrations: regCount
       ? t('adminEvents.tab.peopleN', 'People registered ({{n}})', { n: regCount })
       : t('adminEvents.tab.people', 'People registered'),
+    modules: t('adminEvents.tab.modules', 'Modules'),
   };
   const tabHasIssue = (x: EditorTab) => issues.some((i) => i.tab === x);
   const startIso = b.start ? wallToIso(b.start, b.timezone) : null;
@@ -388,7 +422,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     : b.visibility === 'hidden'
       ? <AdminStatusPill>{t('adminEvents.basics.hidden', 'Hidden test')}</AdminStatusPill>
       : <AdminStatusPill tone="warning">{t('adminEvents.basics.draft', 'Draft')}</AdminStatusPill>;
-  const showSave = !isCanary && tab !== 'registrations';
+  const showSave = !isCanary && tab !== 'registrations' && tab !== 'modules';
   // gl_event.settings.attendance_recorded as stored: true, false, or absent (see editorModel).
   const attendanceSetting = (loaded?.gl.settings || {}).attendance_recorded;
   const savedQuestionKeys = loaded ? loaded.questions.map((q) => q.key) : [];
@@ -479,7 +513,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
                 label: (
                   <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                     {tabWords[x]}
-                    {(tabHasIssue(x) || (x !== 'registrations' && dirty.includes(x as FormSection) && !isNew)) && (
+                    {(tabHasIssue(x) || (dirtyTabList.includes(x) && !isNew)) && (
                       <span
                         className={cn('h-1.5 w-1.5 rounded-full', tabHasIssue(x) ? 'bg-red-600' : 'bg-gold')}
                         aria-label={tabHasIssue(x) ? t('adminEvents.tabIssue', 'needs a look') : t('adminEvents.tabDirty', 'changed')}
@@ -497,9 +531,16 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             {t('adminEvents.canary', 'This is a test event of the set-up scripts, without an event page. Change it with the runbook, not here: saving from this page would create an event page for it. Its registrations are listed below.')}
           </Note>
         )}
-        {kind === 'onsite' && tab === 'basics' && (
+        {kind === 'onsite' && tab === 'basics' && !onsiteEditor && (
           <Note>
             {t('adminEvents.onsiteLater', 'For on-site events, this page sets the basics. Registration settings, participation types, questions and decisions arrive with the on-site editor, in a later update. Meanwhile people register with their name, e-mail and the usual fields, and you can see them in People registered.')}
+          </Note>
+        )}
+        {kind === 'onsite' && onsiteEditor && !flags.onsite_v2 && !isCanary && (
+          <Note tone="warning">
+            {b.visibility === 'hidden' || initial.basics.visibility === 'hidden'
+              ? t('adminEvents.onsiteTest', 'On-site registration is not live on the site yet. This is a hidden test event: registrations and decisions work by its direct link only, with test addresses.')
+              : t('adminEvents.onsitePreview', 'On-site registration is not live on the site yet. You can prepare this event as a draft; to try registrations and decisions, save it as a hidden test.')}
           </Note>
         )}
 
@@ -515,6 +556,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             eventId={eventId}
             savedVisibility={isNew ? null : initial.basics.visibility}
             kindOpensOldEditor={isNew && !forced ? { webinar: !flags.webinar_v2, onsite: !flags.onsite_v2 } : null}
+            onsiteEditor={onsiteEditor}
+            staff={onsiteEditor ? { value: form.emails, onChange: (v) => setSection('emails', v), mode: form.registration.mode } : undefined}
           />
         )}
         {tab === 'registration' && (
@@ -524,7 +567,18 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             issues={issues}
             timezone={b.timezone}
             eventStart={b.start}
-            invitationAllowed={initial.registration.mode === 'invitation'}
+            invitationAllowed={kind === 'onsite' || initial.registration.mode === 'invitation'}
+            kind={kind}
+            ticketCount={form.tickets.list.filter((x) => x.active).length}
+          />
+        )}
+        {tab === 'tickets' && (
+          <TicketsTab
+            value={form.tickets}
+            onChange={(v) => setSection('tickets', v)}
+            issues={issues}
+            usage={ticketUsage}
+            savedKeys={loaded ? loaded.tickets.map((x) => x.key) : []}
           />
         )}
         {tab === 'questions' && (
@@ -537,6 +591,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             savedKeys={savedQuestionKeys}
             reservedKeys={[...savedQuestionKeys, ...(answerKeys ?? [])]}
             fields={form.registration.fields}
+            tickets={kind === 'onsite' ? form.tickets.list : []}
+            parts={kind === 'onsite' ? form.tickets.parts : []}
           />
         )}
         {tab === 'emails' && (
@@ -548,7 +604,21 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             mode={form.registration.mode}
             attendanceRecorded={attendanceSetting === true}
             onOpenRegistrations={isNew ? undefined : () => setTab('registrations')}
+            glEventId={glId}
+            preview={kind === 'onsite' ? {
+              title: b.title,
+              startIso,
+              timezone: b.timezone,
+              isFullDay: b.isFullDay,
+              location: b.location,
+              mode: form.registration.mode,
+              practicalInfo: form.emails.practicalInfo,
+              ticketLabel: form.tickets.list.find((x) => x.active)?.label || null,
+            } : undefined}
           />
+        )}
+        {tab === 'modules' && (
+          <ModulesTab slug={isNew ? null : loaded?.gl.slug ?? null} hasConfirmed={regCount > 0} />
         )}
         {tab === 'registrations' && glId && loaded && (
           <EventRegistrationsPanel
@@ -565,6 +635,10 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             hasReplay={!!(loaded.gl.replay_url || loaded.catalogue?.replay_url)}
             mode={loaded.gl.registration_mode ?? (kind === 'webinar' ? 'instant' : 'review')}
             waitlist={!!loaded.gl.waitlist}
+            onsiteEditor={onsiteEditor}
+            tickets={loaded.tickets}
+            accountTiming={loaded.gl.account_email_timing === 'after_event' ? 'after_event' : 'with_confirmation'}
+            publicRequests={loaded.gl.public_requests !== false}
           />
         )}
 
@@ -592,7 +666,9 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
         title={t('adminEvents.dup.title', 'Duplicate this event')}
         description={dirty.length
           ? t('adminEvents.dup.bodyDirty', 'The copy takes the saved version: changes not saved yet are not copied. Registrations are never copied.')
-          : t('adminEvents.dup.body', 'The copy keeps the settings, questions and e-mails, as a draft. Registrations, the online link and the replay are not copied.')}
+          : kind === 'onsite'
+            ? t('adminEvents.dup.bodyOnsite', 'The copy keeps the settings, participation types, questions and e-mails, as a draft. Registrations are not copied.')
+            : t('adminEvents.dup.body', 'The copy keeps the settings, questions and e-mails, as a draft. Registrations, the online link and the replay are not copied.')}
         onSave={runDuplicate}
         saveLabel={t('adminEvents.dup.go', 'Create the copy')}
         saving={!!dup?.busy}

@@ -1,12 +1,16 @@
 import { useTranslation } from 'react-i18next';
+import { QrCode, UserPlus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { AdminStatusPill } from '../AdminUI';
 import { Block, ChoiceCards, Field, INPUT, Note, PillChoice, ToggleRow } from './editorUi';
-import { STANDARD_FIELDS, formatInZone, wallToIso, type FieldRule, type StandardField } from './eventAdmin';
+import { STANDARD_FIELDS, formatInZone, wallToIso, type EventKind, type FieldRule, type RegistrationMode, type StandardField } from './eventAdmin';
 import type { FormIssue, RegistrationForm } from './editorModel';
 
 /**
- * Registration: how people sign up for a webinar, who may, how many, and what the form
- * asks besides name and e-mail (always asked). On-site events get this tab in Phase 3.
+ * Registration: how people sign up, who may, how many, and what the form asks besides
+ * name and e-mail (always asked). Webinars since Phase 1; on-site events in the on-site
+ * editor (Phase 3): On request or Invitation only (M3 checks everyone, never "Open"),
+ * the timing of the account e-mail, and the door pass (always each person's own code).
  */
 export function RegistrationTab({
   value,
@@ -15,6 +19,8 @@ export function RegistrationTab({
   timezone,
   eventStart,
   invitationAllowed,
+  kind = 'webinar',
+  ticketCount = 0,
 }: {
   value: RegistrationForm;
   onChange: (next: RegistrationForm) => void;
@@ -22,11 +28,15 @@ export function RegistrationTab({
   timezone: string;
   /** The event's start (wall clock), to explain the default closing time. */
   eventStart: string;
-  /** "By invitation" stays selectable only for an event already saved that way (sending invitations comes later). */
+  /** "By invitation" stays selectable only for an event already saved that way (webinars: sending invitations comes later). */
   invitationAllowed: boolean;
+  kind?: EventKind;
+  /** On-site: active participation types (each may have its own limit). */
+  ticketCount?: number;
 }) {
   const { t } = useTranslation();
   const v = value;
+  const onsite = kind === 'onsite';
   const set = <K extends keyof RegistrationForm>(k: K, val: RegistrationForm[K]) => onChange({ ...v, [k]: val });
   const err = (field: string) => issues.find((i) => i.tab === 'registration' && i.field === field)?.message;
 
@@ -46,29 +56,40 @@ export function RegistrationTab({
     return iso ? formatInZone(iso, timezone) : '';
   };
 
+  const modeOptions: { value: RegistrationMode; title: string; body: string; disabled?: boolean }[] = onsite
+    ? [
+      { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBodyOnsite', 'Anyone can register. M3 checks each person in People registered and confirms them by e-mail, with their entry QR code.') },
+      { value: 'invitation', title: t('adminEvents.reg.invitationOnly', 'Invitation only'), body: t('adminEvents.reg.invitationBodyOnsite', 'M3 invites people from People registered. You can also let others ask for an invitation.') },
+    ]
+    : [
+      { value: 'instant', title: t('adminEvents.reg.instant', 'Open'), body: t('adminEvents.reg.instantBody', 'Registration is confirmed at once. They get the e-mail with the calendar file straight away.') },
+      { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBody', 'M3 accepts each person in People registered. They are told by e-mail.') },
+      {
+        value: 'invitation',
+        title: t('adminEvents.reg.invitation', 'By invitation'),
+        body: invitationAllowed
+          ? t('adminEvents.reg.invitationBody', 'Only for people M3 invites, or who ask for an invitation.')
+          : t('adminEvents.reg.invitationLater', 'Comes with invitations, in a later update.'),
+        disabled: !invitationAllowed,
+      },
+    ];
+
   return (
     <div className="space-y-6">
       <Block
         title={t('adminEvents.reg.modeTitle', 'How people register')}
-        description={t('adminEvents.reg.modeBody', 'Signed-in members register in one click. Others fill in a short form, without creating an account.')}
+        description={onsite
+          ? t('adminEvents.reg.modeBodyOnsite', 'M3 checks every person who registers for an on-site event. Signed-in members never retype what their profile already says.')
+          : t('adminEvents.reg.modeBody', 'Signed-in members register in one click. Others fill in a short form, without creating an account.')}
       >
         <ChoiceCards
           label={t('adminEvents.reg.modeTitle', 'How people register')}
+          columns={onsite ? 2 : 3}
           value={v.mode}
           onChange={(mode) => set('mode', mode)}
-          options={[
-            { value: 'instant', title: t('adminEvents.reg.instant', 'Open'), body: t('adminEvents.reg.instantBody', 'Registration is confirmed at once. They get the e-mail with the calendar file straight away.') },
-            { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBody', 'M3 accepts each person in People registered. They are told by e-mail.') },
-            {
-              value: 'invitation',
-              title: t('adminEvents.reg.invitation', 'By invitation'),
-              body: invitationAllowed
-                ? t('adminEvents.reg.invitationBody', 'Only for people M3 invites, or who ask for an invitation.')
-                : t('adminEvents.reg.invitationLater', 'Comes with invitations, in a later update.'),
-              disabled: !invitationAllowed,
-            },
-          ]}
+          options={modeOptions}
         />
+        {err('mode') && <p role="alert" className="text-[13px] font-medium text-red-700">{err('mode')}</p>}
         {v.mode === 'invitation' && (
           <>
             <ToggleRow
@@ -77,11 +98,19 @@ export function RegistrationTab({
               title={t('adminEvents.reg.publicRequests', 'People can ask for an invitation')}
               body={t('adminEvents.reg.publicRequestsBody', 'The event page shows "Request an invitation". You accept each request in People registered.')}
             />
-            <Note tone="warning">
-              {v.publicRequests
-                ? t('adminEvents.reg.inviteLater', 'Sending invitations from this page comes in a later update. Until then, people ask for an invitation and you accept them.')
-                : t('adminEvents.reg.inviteNobody', 'Sending invitations from this page comes in a later update. With requests off, nobody can register for now: turn requests on above.')}
-            </Note>
+            {onsite ? (
+              <Note>
+                {v.publicRequests
+                  ? t('adminEvents.reg.inviteHowOnsite', 'Invite people from People registered > Invite people (paste up to 500 addresses). They reply from their e-mail.')
+                  : t('adminEvents.reg.inviteOnlyOnsite', 'Only the people you invite can register: invite them from People registered > Invite people.')}
+              </Note>
+            ) : (
+              <Note tone="warning">
+                {v.publicRequests
+                  ? t('adminEvents.reg.inviteLater', 'Sending invitations from this page comes in a later update. Until then, people ask for an invitation and you accept them.')
+                  : t('adminEvents.reg.inviteNobody', 'Sending invitations from this page comes in a later update. With requests off, nobody can register for now: turn requests on above.')}
+              </Note>
+            )}
           </>
         )}
       </Block>
@@ -104,7 +133,9 @@ export function RegistrationTab({
           label={t('adminEvents.reg.capacity', 'Number of places')}
           htmlFor="reg-capacity"
           error={err('capacity')}
-          hint={t('adminEvents.reg.capacityHint', 'Leave empty for no limit.')}
+          hint={onsite
+            ? t('adminEvents.reg.capacityHintOnsite', 'For the whole event. Leave empty for no limit. Each participation type can also have its own limit.')
+            : t('adminEvents.reg.capacityHint', 'Leave empty for no limit.')}
         >
           <Input
             id="reg-capacity"
@@ -119,8 +150,29 @@ export function RegistrationTab({
           checked={v.waitlist}
           onChange={(on) => set('waitlist', on)}
           title={t('adminEvents.reg.waitlist', 'Waiting list when full')}
-          body={t('adminEvents.reg.waitlistBody2', 'Once all places are taken, new people join a waiting list. Nobody is moved up automatically: when a place frees up, press Confirm next to them in People registered.')}
+          body={onsite
+            ? t('adminEvents.reg.waitlistBodyOnsite', 'When places run out, M3 can put people on a waiting list and confirm them later, from People registered. Nobody is moved up automatically.')
+            : t('adminEvents.reg.waitlistBody2', 'Once all places are taken, new people join a waiting list. Nobody is moved up automatically: when a place frees up, press Confirm next to them in People registered.')}
         />
+        {onsite && (
+          <div className="flex flex-col gap-2 rounded-card border border-dashed border-rule bg-page p-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <UserPlus className="mt-0.5 h-5 w-5 shrink-0 text-meta" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold leading-5 text-meta">{t('adminEvents.reg.plusOnes', 'Bringing a guest (plus-one)')}</p>
+                <p className="mt-1 text-[13px] leading-[18px] text-meta">
+                  {v.plusOnes > 0
+                    ? t('adminEvents.reg.plusOnesOn', 'Allowed for this event (set outside this editor). Plus-ones are handled in the new system from December.')
+                    : t('adminEvents.reg.plusOnesLater', 'Not offered. Plus-ones come to the new system in December; WYS keeps its own.')}
+                </p>
+              </div>
+            </div>
+            <AdminStatusPill className="self-start">{t('adminEvents.reg.december', 'December')}</AdminStatusPill>
+          </div>
+        )}
+        {onsite && ticketCount > 1 && (
+          <p className="text-[13px] leading-[18px] text-meta">{t('adminEvents.reg.ticketLimits', 'Limits per participation type: in the Participation types tab.')}</p>
+        )}
       </Block>
 
       <Block
@@ -178,6 +230,57 @@ export function RegistrationTab({
           {t('adminEvents.reg.moreQuestions', 'Need more? Add your own questions in the Questions tab.')}
         </p>
       </Block>
+
+      {onsite && (
+        <Block
+          title={t('adminEvents.reg.accountTitle', 'Their Smart Marina Connect account')}
+          description={t('adminEvents.reg.accountBody', 'Everyone M3 confirms gets an account (or the event is added to the account they already have). A second e-mail, after the confirmation with the QR code, lets them choose their password.')}
+        >
+          <ChoiceCards
+            label={t('adminEvents.reg.accountWhen', 'When the "choose your password" e-mail goes')}
+            columns={2}
+            value={v.accountEmailTiming}
+            onChange={(timing) => set('accountEmailTiming', timing)}
+            options={[
+              { value: 'with_confirmation', title: t('adminEvents.reg.accountWith', 'With the confirmation'), body: t('adminEvents.reg.accountWithBody', 'A few minutes after the e-mail with their QR code.') },
+              { value: 'after_event', title: t('adminEvents.reg.accountAfter', 'After the event'), body: t('adminEvents.reg.accountAfterBody', 'One e-mail to everyone confirmed, on the date you choose, so nothing distracts from the event itself.') },
+            ]}
+          />
+          {v.accountEmailTiming === 'after_event' && (
+            <Field
+              label={t('adminEvents.reg.accountDate', 'Send it on')}
+              htmlFor="reg-account-at"
+              error={err('accountEmailSendAt')}
+              hint={zoneNote(v.accountEmailSendAt) || t('adminEvents.reg.accountDateHint', 'Empty: the day after the event ends.')}
+            >
+              <Input
+                id="reg-account-at"
+                type="datetime-local"
+                value={v.accountEmailSendAt}
+                onChange={(e) => set('accountEmailSendAt', e.target.value)}
+                className={`${INPUT} max-w-xs`}
+              />
+            </Field>
+          )}
+          <p className="text-[13px] leading-[18px] text-meta">
+            {t('adminEvents.reg.accountLater', 'A change applies to people confirmed from now on. You can always send waiting account e-mails at once from People registered.')}
+          </p>
+        </Block>
+      )}
+
+      {onsite && (
+        <Block title={t('adminEvents.reg.doorTitle', 'Entry pass')}>
+          <div className="flex items-start gap-3">
+            <QrCode className="mt-0.5 h-5 w-5 shrink-0 text-navy" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-[15px] font-semibold leading-5 text-navy">{t('adminEvents.reg.doorSeparate', 'Each person gets their own QR code')}</p>
+              <p className="mt-1 text-[13px] leading-[18px] text-meta">
+                {t('adminEvents.reg.doorBody', 'Made when M3 confirms them, separate from their personal link: forwarding the link never hands over the pass. Scanned at the door with the check-in page (People registered > Door check-in).')}
+              </p>
+            </div>
+          </div>
+        </Block>
+      )}
     </div>
   );
 }

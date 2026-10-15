@@ -10,9 +10,11 @@ import { supabase } from '@/lib/supabase';
 import { fileMeta, resizeImage } from '@/lib/image';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { COUNTRIES } from '@/lib/countries';
 import { Block, ChoiceCards, EDITOR_BTN, Field, INPUT, Note, TEXTAREA } from './editorUi';
-import { TIMEZONE_VALUES, addMinutesToWall, formatInZone, slugify, timezoneLabel, wallToIso } from './eventAdmin';
-import type { BasicsForm, FormIssue, Visibility } from './editorModel';
+import { StaffAlertBlock } from './EmailsTab';
+import { TIMEZONE_VALUES, addMinutesToWall, formatInZone, slugify, timezoneLabel, wallToIso, type RegistrationMode } from './eventAdmin';
+import { placeLine, type BasicsForm, type EmailsForm, type FormIssue, type Visibility } from './editorModel';
 
 interface SectorRow { id: string; label: string }
 
@@ -32,11 +34,20 @@ export function BasicsTab({
   eventId,
   savedVisibility,
   kindOpensOldEditor,
+  onsiteEditor = false,
+  staff,
 }: {
   value: BasicsForm;
   onChange: (next: BasicsForm) => void;
   issues: FormIssue[];
   isNew: boolean;
+  /**
+   * On-site event in the on-site editor (onsite_v2 on, a hidden test, or ?editor=new):
+   * venue, address, city and country, hidden tests, and the M3 team block here.
+   */
+  onsiteEditor?: boolean;
+  /** On-site editor: the M3 team fields (stored with the e-mails), shown in Basics (spec §8.2). */
+  staff?: { value: EmailsForm; onChange: (next: EmailsForm) => void; mode: RegistrationMode };
   /** Published once, or someone registered: the web address cannot change any more. */
   slugLocked: boolean;
   /** Locked because people registered (the event is not published). */
@@ -76,6 +87,13 @@ export function BasicsTab({
     onChange({ ...v, start, end });
   };
 
+  // On-site editor: the one-line place (e-mails, cards) follows the venue and the city.
+  const setPlace = (k: 'venue' | 'address' | 'city' | 'country', val: string) => {
+    const next = { ...v, [k]: val };
+    onChange(k === 'venue' || k === 'city' ? { ...next, location: placeLine(next.venue, next.city) } : next);
+  };
+  const testsAllowed = webinar || onsiteEditor;
+
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const regLink = v.slug ? `${origin}/register/${v.slug}` : '';
   const startIso = v.start ? wallToIso(v.start, v.timezone) : null;
@@ -93,18 +111,20 @@ export function BasicsTab({
         ? t('adminEvents.basics.publishedBody', 'Listed on the site. People can register.')
         : webinar
           ? t('adminEvents.basics.publishedLater', 'Opens once the new event pages are live.')
-          : t('adminEvents.basics.publishedLaterOnsite', 'On-site events can be published from a later update.'),
+          : onsiteEditor
+            ? t('adminEvents.basics.publishedLaterOnsiteLive', 'Opens once on-site registration is live on the site. Test it as a hidden event meanwhile.')
+            : t('adminEvents.basics.publishedLaterOnsite', 'On-site events can be published from a later update.'),
       disabled: !canPublish && v.visibility !== 'published',
     },
     {
       value: 'hidden',
       title: t('adminEvents.basics.hidden', 'Hidden test'),
-      // On-site registrations cannot be decided here before the on-site editor: test
+      // On-site registrations cannot be decided before the on-site editor: test
       // registrants would wait "under review" with nobody able to answer them.
-      body: webinar || savedVisibility === 'hidden'
+      body: testsAllowed || savedVisibility === 'hidden'
         ? t('adminEvents.basics.hiddenBody', 'Never listed. Registration works only with the direct link, for tests.')
         : t('adminEvents.basics.hiddenLaterOnsite', 'Tests of on-site registration come with the on-site editor.'),
-      disabled: !webinar && savedVisibility !== 'hidden',
+      disabled: !testsAllowed && savedVisibility !== 'hidden',
     },
   ];
 
@@ -285,6 +305,64 @@ export function BasicsTab({
               spellCheck={false}
             />
           </Field>
+        ) : onsiteEditor ? (
+          <>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label={t('adminEvents.basics.venue', 'Venue')} htmlFor="ev-venue" optional>
+                <Input
+                  id="ev-venue"
+                  value={v.venue}
+                  onChange={(e) => setPlace('venue', e.target.value)}
+                  placeholder={t('adminEvents.basics.venuePh', 'Yacht Club de Monaco')}
+                  className={INPUT}
+                  maxLength={150}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label={t('adminEvents.basics.city', 'City')} htmlFor="ev-city" optional>
+                <Input
+                  id="ev-city"
+                  value={v.city}
+                  onChange={(e) => setPlace('city', e.target.value)}
+                  placeholder={t('adminEvents.basics.cityPh', 'Monaco')}
+                  className={INPUT}
+                  maxLength={80}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label={t('adminEvents.basics.address', 'Street address')} htmlFor="ev-address" optional hint={t('adminEvents.basics.addressHint', 'Shown on the event page with a map link.')}>
+                <Input
+                  id="ev-address"
+                  value={v.address}
+                  onChange={(e) => setPlace('address', e.target.value)}
+                  placeholder={t('adminEvents.basics.addressPh', 'Quai Louis II')}
+                  className={INPUT}
+                  maxLength={200}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label={t('adminEvents.basics.country', 'Country')} htmlFor="ev-country" optional>
+                <Input
+                  id="ev-country"
+                  value={v.country}
+                  onChange={(e) => setPlace('country', e.target.value)}
+                  list="ev-country-list"
+                  placeholder={t('adminEvents.basics.countryPh', 'Monaco')}
+                  className={INPUT}
+                  maxLength={80}
+                  autoComplete="off"
+                />
+                <datalist id="ev-country-list">
+                  {COUNTRIES.filter((c) => c !== 'Other').map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </Field>
+            </div>
+            {v.location && (
+              <p className="text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
+                {t('adminEvents.basics.placeShown', 'In the e-mails:')} <span className="font-semibold text-navy">{v.location}</span>
+              </p>
+            )}
+          </>
         ) : (
           <Field label={t('adminEvents.basics.location', 'Venue and city')} htmlFor="ev-location" optional>
             <Input
@@ -297,6 +375,16 @@ export function BasicsTab({
           </Field>
         )}
       </Block>
+
+      {staff && (
+        <StaffAlertBlock
+          value={staff.value}
+          onChange={staff.onChange}
+          issues={issues}
+          issueTab="basics"
+          mode={staff.mode}
+        />
+      )}
 
       <Block
         title={t('adminEvents.basics.visibilityTitle', 'Who can see it')}
@@ -312,7 +400,9 @@ export function BasicsTab({
           <Note>
             {webinar
               ? t('adminEvents.basics.publishNote', 'Publishing opens once the new event pages are live on the site. Until then, prepare the event as a draft, or test it as a hidden event.')
-              : t('adminEvents.basics.publishNoteOnsite', 'On-site events made here can be published from a later update. Until then, prepare the event as a draft, or test it as a hidden event.')}
+              : onsiteEditor
+                ? t('adminEvents.basics.publishNoteOnsiteLive', 'Publishing opens once on-site registration is live on the site. Until then, prepare the event as a draft, or test it as a hidden event: only a hidden test takes registrations and decisions.')
+                : t('adminEvents.basics.publishNoteOnsite', 'On-site events made here can be published from a later update. Until then, prepare the event as a draft, or test it as a hidden event.')}
           </Note>
         )}
       </Block>

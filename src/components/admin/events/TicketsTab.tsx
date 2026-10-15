@@ -69,7 +69,8 @@ export function TicketsTab({
     { key: 'vip', make: () => ({ ...blank('vip'), label: t('adminEvents.tk.vip', 'VIP'), inviteOnly: true, priceNote: t('adminEvents.tk.byInvitation', 'By invitation') }) },
     { key: 'sponsor', make: () => ({ ...blank('sponsor'), label: t('adminEvents.tk.sponsor', 'Sponsor'), description: t('adminEvents.tk.sponsorBody', 'For the companies sponsoring the event.'), inviteOnly: true, priceNote: t('adminEvents.tk.onAgreement', 'On agreement') }) },
   ];
-  const freePresets = presets.filter((p) => !list.some((x) => x.key === p.key) && !taken().includes(p.key));
+  // A preset keeps its fixed key: one removed and added again before saving is the same type again (upsert by key).
+  const freePresets = presets.filter((p) => !list.some((x) => x.key === p.key));
 
   const addPreset = (p: Preset) => {
     const row = p.make();
@@ -241,7 +242,7 @@ export function TicketsTab({
       )}
 
       <Block
-        title={t('adminEvents.tk.partsTitle', 'Parts of the event')}
+        title={t('adminEvents.tk.partsTitle', 'Programme parts')}
         description={t('adminEvents.tk.partsBody', 'For an event in several parts (a conference, then a gala dinner): say which parts each type includes. Add the question "Which parts will you attend?" in Questions to let people choose.')}
       >
         {parts.length === 0 ? (

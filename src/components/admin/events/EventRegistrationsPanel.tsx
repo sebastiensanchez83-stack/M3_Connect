@@ -620,8 +620,8 @@ export function EventRegistrationsPanel({
     const bad = (tally.failed || 0) + (tally.failed_gave_up || 0);
     toast({
       title: acct.kind === 'send'
-        ? t('adminEvents.acct.sentN', '{{n}} account e-mails sent', { n: ok })
-        : t('adminEvents.acct.runN', '{{n}} accounts set up', { n: ok }),
+        ? (ok === 1 ? t('adminEvents.acct.sentOne', 'One account e-mail sent') : t('adminEvents.acct.sentN', '{{n}} account e-mails sent', { n: ok }))
+        : (ok === 1 ? t('adminEvents.acct.runOne', 'One account set up') : t('adminEvents.acct.runN', '{{n}} accounts set up', { n: ok })),
       description: [
         bad ? t('adminEvents.acct.failedN', '{{n}} failed: try again later.', { n: bad }) : '',
         tally.pending_link ? t('adminEvents.acct.pendingN', '{{n}} wait for the person to confirm their e-mail address.', { n: tally.pending_link }) : '',
@@ -746,7 +746,7 @@ export function EventRegistrationsPanel({
   const dialogBody: Record<Decision, string> = {
     approve: onsite
       ? (accountTiming === 'after_event'
-        ? t('adminEvents.regs.approveBodyOnsiteAfter', 'They get a confirmation e-mail with their entry QR code. Their Smart Marina Connect account is set up now; the e-mail to choose its password goes after the event.')
+        ? t('adminEvents.regs.approveBodyOnsiteAfter', 'They get a confirmation e-mail with their entry QR code. Their Smart Marina Connect account is prepared; the e-mail to choose its password goes after the event.')
         : t('adminEvents.regs.approveBodyOnsite', 'They get a confirmation e-mail with their entry QR code. A few minutes later, a second e-mail lets them choose the password of their Smart Marina Connect account.'))
       : t('adminEvents.regs.approveBodyWebinar2', 'They get a confirmation e-mail with the calendar file and the join link (when it is set).'),
     reject: t('adminEvents.regs.rejectBody', 'Their registration is closed. You choose whether they are told.'),
@@ -1162,8 +1162,8 @@ export function EventRegistrationsPanel({
         open={acctOpen}
         onOpenChange={(o) => { if (!o) setAcctOpen(false); }}
         title={acct?.kind === 'run'
-          ? t('adminEvents.acct.runTitle', 'Set up {{n}} accounts now?', { n: acct?.jobIds.length ?? 0 })
-          : t('adminEvents.acct.sendTitle', 'Send {{n}} account e-mails now?', { n: acct?.jobIds.length ?? 0 })}
+          ? ((acct?.jobIds.length ?? 0) === 1 ? t('adminEvents.acct.runTitleOne', 'Set up this account now?') : t('adminEvents.acct.runTitle', 'Set up {{n}} accounts now?', { n: acct?.jobIds.length ?? 0 }))
+          : ((acct?.jobIds.length ?? 0) === 1 ? t('adminEvents.acct.sendTitleOne', 'Send this account e-mail now?') : t('adminEvents.acct.sendTitle', 'Send {{n}} account e-mails now?', { n: acct?.jobIds.length ?? 0 }))}
         description={acct?.kind === 'run'
           ? t('adminEvents.acct.runBody', 'Their Smart Marina Connect account is created (or the event is added to the account they have). The "choose your password" e-mail then goes at its usual time.')
           : t('adminEvents.acct.sendBody', 'They get "Your Smart Marina Connect account is ready, choose your password" now, instead of on the planned date. Someone who already chose a password gets nothing.')}
@@ -1179,9 +1179,10 @@ export function EventRegistrationsPanel({
         onOpenChange={(o) => { if (!o && !busy) setInviteOpen(false); }}
         title={t('adminEvents.inv.title', 'Invite people')}
         description={inviteResult ? undefined : t('adminEvents.inv.body', 'Each person gets an e-mail inviting them to the event, with a button to accept or decline. Paste one person per line: an e-mail address, "First Last <e-mail>", or rows copied from a spreadsheet (first name, last name, e-mail, company).')}
-        onSave={inviteResult ? () => setInviteOpen(false) : runInvite}
+        onSave={inviteResult ? undefined : runInvite}
+        quietClose={!!inviteResult}
         saveLabel={inviteResult ? t('adminEvents.done', 'Done') : newInvites.length
-          ? t('adminEvents.inv.go', 'Invite {{n}} people', { n: newInvites.length })
+          ? (newInvites.length === 1 ? t('adminEvents.inv.goOne', 'Invite 1 person') : t('adminEvents.inv.go', 'Invite {{n}} people', { n: newInvites.length }))
           : t('adminEvents.inv.goNone', 'Invite')}
         saving={busy}
         error={dialogError}
@@ -1190,7 +1191,7 @@ export function EventRegistrationsPanel({
         {inviteResult ? (
           <div className="space-y-2 text-[15px] leading-6 text-navy" role="status">
             <p>{t('adminEvents.inv.doneN', '{{n}} invited.', { n: inviteResult.invited })}</p>
-            {inviteResult.sent !== null && <p className="text-meta">{t('adminEvents.inv.sentN', '{{n}} invitation e-mails sent.', { n: inviteResult.sent })}</p>}
+            {inviteResult.sent !== null && <p className="text-meta">{inviteResult.sent === 1 ? t('adminEvents.inv.sentOne', 'One invitation e-mail sent.') : t('adminEvents.inv.sentN', '{{n}} invitation e-mails sent.', { n: inviteResult.sent })}</p>}
             {inviteResult.failed > 0 && <Note tone="danger">{t('adminEvents.inv.failedN', '{{n}} e-mails could not be sent. Use "Send their personal link again" on those people.', { n: inviteResult.failed })}</Note>}
             {inviteResult.already > 0 && <p className="text-meta">{t('adminEvents.inv.alreadyN', 'Already on the list, left as they were: {{n}}.', { n: inviteResult.already })}</p>}
           </div>
@@ -1211,7 +1212,7 @@ export function EventRegistrationsPanel({
             {inviteText.trim() && (
               <div className="space-y-1 text-[13px] leading-[18px]">
                 <p className="font-semibold text-navy">
-                  {t('adminEvents.inv.found', '{{n}} people found.', { n: parsedInvites.people.length })}
+                  {parsedInvites.people.length === 1 ? t('adminEvents.inv.foundOne', '1 person found.') : t('adminEvents.inv.found', '{{n}} people found.', { n: parsedInvites.people.length })}
                   {parsedInvites.people.length - newInvites.length > 0 && ` ${t('adminEvents.inv.knownN', '{{n}} already on the list (left out).', { n: parsedInvites.people.length - newInvites.length })}`}
                   {parsedInvites.repeated > 0 && ` ${t('adminEvents.inv.repeatedN', '{{n}} repeated (counted once).', { n: parsedInvites.repeated })}`}
                 </p>

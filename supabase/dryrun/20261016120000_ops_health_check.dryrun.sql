@@ -4,13 +4,16 @@
 -- rolls back. Tripwire: "FAIL before-snapshot missing" = NOT one transaction: check at once
 -- for cron job 'ops-health' and table public.ops_health_run, and run the down if present.
 -- Rolled-back writes: the ops_health row and its edits, one ops_health_run row, one
--- ops_health_alert row, one notification_outbox row. No gl_*, sm_*, payment or guest row.
--- No HTTP call (the invoker is tested on 'skipped' and 'not due' only). Test accounts are
--- looked up: the oldest verified admin and the oldest verified non-staff profile.
--- Expected (15-16 Oct 2026): "DRYRUN 29 PASS, 0 FAIL" plus
+-- ops_health_alert row, two notification_outbox rows. No gl_*, sm_*, payment, profile or
+-- guest row. No HTTP call (the invoker is tested on 'skipped' and 'not due' only). Test
+-- accounts are looked up: the oldest verified admin, the oldest verified non-staff profile
+-- and the oldest pending profile (only named in a rolled-back outbox row).
+-- Expected (from 16 Oct 2026): "DRYRUN 30 PASS, 0 FAIL" plus
 --   INFO report rows: 38
 --   INFO not ok today: security.open_functions:warn
--- Another entry in "not ok today" is a real finding of the monitor, not a defect.
+-- Another entry in "not ok today" is a real finding of the monitor, not a defect (once WYS
+-- guests are confirmed while the switch provisioning is off: reg.provisioning:warn too).
+-- "INFO outbox detection not tested" (no pending profile that day) gives 29 PASS: fine.
 
 -- 0. Before
 do $before$
@@ -34,7 +37,8 @@ $before$;
 -- Additive; reads (never writes) cron, net, vault (names), storage, sm_*, gl_*, payments.
 --  1. platform_settings 'ops_health' (enabled false; recipients copied from
 --     review_digest_recipients; pins = md5 of 13 function bodies and baseline = SM26 counts
---     and event-media file count, both AT APPLY TIME), staff-only by a restrictive policy.
+--     and event-media file counts per folder group, both AT APPLY TIME; heartbeat_url empty),
+--     staff-only by a restrictive policy.
 --  2. ops_health_checks(): all checks, one read-only SELECT, owner only.
 --  3. ops_health_report(): worst first; staff, service role or a direct session, else 42501.
 --  4. ops_health_alert (6-hour re-alert memory) and ops_health_run (history): staff read.
@@ -53,6 +57,7 @@ select 'ops_health',
     'realert_hours', 6,
     'mute', '[]'::jsonb,
     'http_checks', true,
+    'heartbeat_url', '',
     'wys_slug', 'wys26',
     'freeze', jsonb_build_object('from', '2026-11-20', 'to', '2026-11-28'),
     'pins', (select jsonb_object_agg(f.fn, f.md5_now)
@@ -68,9 +73,12 @@ select 'ops_health',
         'sm_role_assignment', (select count(*) from public.sm_role_assignment), 'sm_attendee', (select count(*) from public.sm_attendee),
         'sm_badge', (select count(*) from public.sm_badge), 'sm_payment', (select count(*) from public.sm_payment),
         'sm_invoice', (select count(*) from public.sm_invoice), 'sm_networking_pass', (select count(*) from public.sm_networking_pass)),
-      'event_media_files', (select count(*) from storage.objects o where o.bucket_id = 'event-media'))),
+      'event_media', coalesce((select jsonb_object_agg(g.grp, g.cnt) from (
+        select case when split_part(o.name, '/', 1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then 'registrations'
+                    when position('/' in o.name) = 0 then '(root)' else split_part(o.name, '/', 1) end as grp, count(*) as cnt
+          from storage.objects o where o.bucket_id = 'event-media' group by 1) g), '{}'::jsonb))),
   'Health monitor (ops-health)',
-  'enabled (JSON true), recipients (max 10), interval_minutes (15-300), realert_hours (6-48), mute (check ids not e-mailed), http_checks, wys_slug, freeze, pins, baseline. Staff only. docs/operations/health-monitor.md.'
+  'enabled (JSON true), recipients (max 10), interval_minutes (15-300), realert_hours (6-48), mute (check ids, or id:warn, not e-mailed), http_checks, heartbeat_url (https, pinged after each run), wys_slug, freeze, pins, baseline. Staff only. docs/operations/health-monitor.md.'
 on conflict (key) do nothing;
 
 drop policy if exists platform_settings_ops_health_private on public.platform_settings;
@@ -111,7 +119,11 @@ hr as (
     case when r.content is not null and pg_input_is_valid(r.content, 'jsonb') then r.content::jsonb end as body
   from net._http_response r where r.created > now() - interval '6 hours'),
 wev as (select e.id, e.slug, e.notify_email from public.gl_event e where e.engine = 'guest_list_v1'),
-wys as (select coalesce(nullif(cfg.v ->> 'wys_slug', ''), 'wys26') as slug from cfg)
+wys as (select coalesce(nullif(cfg.v ->> 'wys_slug', ''), 'wys26') as slug from cfg),
+em as (
+  select case when split_part(o.name, '/', 1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then 'registrations'
+              when position('/' in o.name) = 0 then '(root)' else split_part(o.name, '/', 1) end as grp, count(*) as cnt
+  from storage.objects o where o.bucket_id = 'event-media' group by 1)
 -- cron
 select 'cron.failed_runs'::text as check_id, 'cron'::text as area,
   case when x.n > 0 then 'fail' else 'ok' end as status,
@@ -210,7 +222,7 @@ select 'reg.provisioning', 'registration',
   case when x.dead > 0 or (x.waiting + x.overdue > 0 and x.flag_on) then 'fail' when x.waiting + x.overdue > 0 then 'warn' else 'ok' end,
   case when x.dead > 0 then x.dead || ' account job(s) failed 5 times and are no longer retried.'
     when x.waiting + x.overdue > 0 and x.flag_on then x.waiting || ' account job(s) waiting over 15 min, ' || x.overdue || ' account e-mail(s) overdue.'
-    when x.waiting + x.overdue > 0 then x.waiting || ' guest(s) wait for the "choose your password" e-mail: switch provisioning is OFF.'
+    when x.waiting + x.overdue > 0 then (x.waiting + x.overdue) || ' guest(s) wait for the "choose your password" e-mail: switch provisioning is OFF.'
     else 'No account job waiting or failed (provisioning ' || case when x.flag_on then 'on' else 'off' end || ').' end,
   jsonb_build_object('waiting', x.waiting, 'overdue', x.overdue, 'dead', x.dead, 'provisioning_on', x.flag_on)
 from (select count(*) filter (where a.status = 'queued' and a.created_at < now() - interval '15 minutes') as waiting,
@@ -232,14 +244,23 @@ from (select count(*) as n, string_agg(distinct e.slug, ', ') as slugs
 union all
 select 'reg.outbox', 'registration',
   case when x.dead > 0 then 'fail' when x.stale + x.errored > 0 then 'warn' else 'ok' end,
-  case when x.dead + x.stale + x.errored > 0 then x.stale || ' notification(s) unsent after 15 min, ' || x.errored || ' with an error, '
+  case when x.dead + x.stale + x.errored > 0 then x.stale || ' notification(s) of 7 days unsent after 15 min, ' || x.errored || ' with an error, '
       || x.dead || ' given up after 5 attempts.'
-    else 'Nothing stuck in the notification outbox.' end,
+    else 'Nothing stuck in the notification outbox (7 days).' end,
   jsonb_build_object('stale', x.stale, 'errored', x.errored, 'dead', x.dead)
+-- Only rows send-notification would still send: the person still pending, the join request
+-- still open (it refuses the others and leaves them unsent for ever). 7 days at most.
 from (select count(*) filter (where o.created_at < now() - interval '15 minutes') as stale,
     count(*) filter (where o.last_error is not null) as errored,
     count(*) filter (where o.attempts >= 5) as dead
-  from public.notification_outbox o where o.sent_at is null) x
+  from public.notification_outbox o
+  where o.sent_at is null and o.created_at > now() - interval '7 days'
+    and case o.kind
+      when 'account_under_review' then exists (select 1 from public.profiles pr
+        where pr.user_id = o.user_id and pr.access_status::text = 'pending')
+      when 'team_join_request' then exists (select 1 from public.organization_invitations i
+        where i.id = o.subject_id and i.status = 'join_requested')
+      else true end) x
 -- payments
 union all
 select 'pay.emails', 'payments',
@@ -255,10 +276,14 @@ from (select (select count(*) from public.payments p
 union all
 select 'pay.ipn_review', 'payments',
   case when x.n > 0 then 'fail' else 'ok' end,
-  case when x.n > 0 then x.n || ' payment(s) of 14 days flagged by the bank notification (mismatch or review).' else 'No payment flagged by the bank.' end,
+  case when x.n > 0 then x.n || ' payment(s) flagged by the bank notification in the last 48 h (mismatch or review).'
+    else 'No payment flagged by the bank in the last 48 h.' end,
   jsonb_build_object('flagged', x.n)
-from (select count(*) as n from public.payments p
-  where p.metadata ?| array['ipn_review', 'ipn_mismatch'] and p.updated_at > now() - interval '14 days') x
+-- The flag's own time (payment-ipn writes "at"): payments.updated_at moves with any later edit.
+from (select count(distinct p.id) as n from public.payments p
+  cross join lateral (values (p.metadata -> 'ipn_review'), (p.metadata -> 'ipn_mismatch')) f(v)
+  where jsonb_typeof(f.v) = 'object'
+    and case when pg_input_is_valid(f.v ->> 'at', 'timestamptz') then (f.v ->> 'at')::timestamptz end > now() - interval '48 hours') x
 union all
 select 'pay.stale_pending', 'payments',
   case when x.n > 0 then 'warn' else 'ok' end,
@@ -302,7 +327,8 @@ select 'wys.event', 'guest list',
     when e.engine is distinct from 'guest_list_v1' or e.door_token is distinct from 'shared' or e.kind is distinct from 'onsite' or e.hidden
       then wys.slug || ' changed: engine ' || coalesce(e.engine, '-') || ', door ' || coalesce(e.door_token, '-') || ', kind '
         || coalesce(e.kind, '-') || ', hidden ' || e.hidden || '.'
-    else wys.slug || ': requests ' || case when e.requests_open then 'open' else 'closed' end || ', capacity ' || e.capacity || '.' end,
+    else wys.slug || ': requests ' || case when e.requests_open then 'open' else 'closed' end || ', capacity '
+      || coalesce(e.capacity::text, 'unlimited') || '.' end,
   jsonb_build_object('slug', wys.slug, 'requests_open', e.requests_open, 'capacity', e.capacity)
 from wys left join public.gl_event e on e.slug = wys.slug
 union all
@@ -419,13 +445,22 @@ from (select pg_database_size(current_database()) as bytes) x
 -- storage (no backup of the files exists)
 union all
 select 'storage.event_media', 'storage',
-  case when x.n < x.base then 'fail' else 'ok' end,
-  case when x.n < x.base then (x.base - x.n) || ' file(s) deleted from event-media (SM26 uploads, invoices), which has no backup.'
-    else x.n || ' file(s) in event-media, baseline ' || coalesce(x.base::text, 'none') || '.' end,
-  jsonb_build_object('files', x.n, 'baseline', x.base)
-from (select (select count(*) from storage.objects o where o.bucket_id = 'event-media') as n,
-    (select case when jsonb_typeof(cfg.v -> 'baseline' -> 'event_media_files') = 'number'
-      then (cfg.v -> 'baseline' ->> 'event_media_files')::numeric end from cfg) as base) x
+  case when x.lost > 0 then 'fail' else 'ok' end,
+  case when x.lost > 0 then x.lost || ' file(s) missing from event-media (' || x.groups || '), which has no backup.'
+    when not x.has_base then x.n || ' file(s) in event-media, no baseline stored.'
+    else x.n || ' file(s) in event-media, none missing against the baseline.' end,
+  jsonb_build_object('files', x.n, 'missing', x.lost)
+-- Per folder group (registrations = the per-registration folders, imported, invoices...), so a
+-- new upload in one group cannot hide a deletion in another.
+from (select (select coalesce(sum(em.cnt), 0) from em) as n,
+    (select coalesce(jsonb_typeof(cfg.v -> 'baseline' -> 'event_media') = 'object', false) from cfg) as has_base,
+    coalesce(sum(greatest(k.want - coalesce(em.cnt, 0), 0)), 0) as lost,
+    string_agg(k.grp || ' -' || (k.want - coalesce(em.cnt, 0)), ', ' order by k.grp) filter (where coalesce(em.cnt, 0) < k.want) as groups
+  from cfg
+  cross join lateral jsonb_each(case when jsonb_typeof(cfg.v -> 'baseline' -> 'event_media') = 'object'
+    then cfg.v -> 'baseline' -> 'event_media' else '{}'::jsonb end) e
+  cross join lateral (select e.key as grp, case when jsonb_typeof(e.value) = 'number' then (e.value)::numeric end as want) k
+  left join em on em.grp = k.grp) x
 -- other queues
 union all
 select 'other.contact_inbox', 'other',
@@ -594,11 +629,15 @@ declare
   v_cfg jsonb;
   v_digest integer;
   v_media bigint;
+  v_groups bigint;
+  v_pending uuid;
 begin
   select pr.user_id into v_staff from public.profiles pr
    where pr.persona::text = 'admin' and pr.access_status::text = 'verified' order by pr.created_at limit 1;
   select pr.user_id into v_member from public.profiles pr
    where pr.persona::text not in ('admin', 'moderator') and pr.access_status::text = 'verified' order by pr.created_at limit 1;
+  select pr.user_id into v_pending from public.profiles pr
+   where pr.access_status::text = 'pending' order by pr.created_at limit 1;
 
   -- T0 one transaction, nothing there before
   v_r := case when current_setting('smc_dryrun.before', true) = 'yes' then 'PASS before-snapshot present (one transaction)'
@@ -611,15 +650,21 @@ begin
     select ps.value into v_cfg from public.platform_settings ps where ps.key = 'ops_health';
     select coalesce((select jsonb_array_length(ps.value) from public.platform_settings ps
       where ps.key = 'review_digest_recipients' and jsonb_typeof(ps.value) = 'array'), 0) into v_digest;
-    select count(*) into v_media from storage.objects o where o.bucket_id = 'event-media';
-    v_txt := format('enabled=%s interval=%s realert=%s recipients=%s/%s pins=%s sm26=%s media=%s/%s freeze=%s',
-      v_cfg -> 'enabled', v_cfg -> 'interval_minutes', v_cfg -> 'realert_hours', jsonb_array_length(v_cfg -> 'recipients'), v_digest,
+    select count(*), count(distinct case when split_part(o.name, '/', 1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then 'registrations' when position('/' in o.name) = 0 then '(root)' else split_part(o.name, '/', 1) end)
+      into v_media, v_groups from storage.objects o where o.bucket_id = 'event-media';
+    v_txt := format('enabled=%s interval=%s realert=%s heartbeat=%s recipients=%s/%s pins=%s sm26=%s media=%s/%s groups=%s/%s freeze=%s',
+      v_cfg -> 'enabled', v_cfg -> 'interval_minutes', v_cfg -> 'realert_hours', v_cfg -> 'heartbeat_url',
+      jsonb_array_length(v_cfg -> 'recipients'), v_digest,
       (select count(*) from jsonb_object_keys(v_cfg -> 'pins')),
-      (v_cfg -> 'baseline' -> 'sm26') = '{"sm_registration": 201, "sm_role_assignment": 128, "sm_attendee": 263, "sm_badge": 247,
-        "sm_payment": 178, "sm_invoice": 41, "sm_networking_pass": 43}'::jsonb,
-      v_cfg -> 'baseline' -> 'event_media_files', v_media, v_cfg -> 'freeze');
-    v_r := v_r || v_nl || case when v_txt = format('enabled=false interval=60 realert=6 recipients=%s/%s pins=13 sm26=true media=%s/%s '
-      'freeze={"to": "2026-11-28", "from": "2026-11-20"}', v_digest, v_digest, v_media, v_media) then 'PASS ' else 'FAIL ' end || 'settings ' || v_txt;
+      -- ::text: format('%s') prints a boolean as t / f
+      ((v_cfg -> 'baseline' -> 'sm26') = '{"sm_registration": 201, "sm_role_assignment": 128, "sm_attendee": 263, "sm_badge": 247,
+        "sm_payment": 178, "sm_invoice": 41, "sm_networking_pass": 43}'::jsonb)::text,
+      (select coalesce(sum((e.value)::numeric), 0) from jsonb_each(v_cfg -> 'baseline' -> 'event_media') e), v_media,
+      (select count(*) from jsonb_object_keys(v_cfg -> 'baseline' -> 'event_media')), v_groups, v_cfg -> 'freeze');
+    v_r := v_r || v_nl || case when v_txt = format('enabled=false interval=60 realert=6 heartbeat="" recipients=%s/%s pins=13 sm26=true '
+      'media=%s/%s groups=%s/%s freeze={"to": "2026-11-28", "from": "2026-11-20"}', v_digest, v_digest, v_media, v_media, v_groups, v_groups)
+      then 'PASS ' else 'FAIL ' end || 'settings ' || v_txt;
   exception when others then
     v_r := v_r || v_nl || 'FAIL settings: ' || sqlstate || ' ' || sqlerrm;
   end;
@@ -812,20 +857,36 @@ begin
   begin
     update public.platform_settings set value = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(value,
         '{pins,gl_checkin_v2}', '"0"'), '{freeze}', jsonb_build_object('from', '2026-10-15', 'to', (current_date + 1)::text)),
-        '{baseline,sm26,sm_badge}', '0'), '{baseline,event_media_files}', to_jsonb(v_media + 1)), '{wys_slug}', '"no-such-event"')
+        '{baseline,sm26,sm_badge}', '0'), '{baseline,event_media,zz-dryrun}', '1'), '{wys_slug}', '"no-such-event"')
      where key = 'ops_health';
     select string_agg(q.check_id || ':' || q.status, ', ' order by q.check_id) into v_txt from public.ops_health_report() q
      where q.check_id in ('drift.freeze', 'drift.function_pins', 'drift.sm26_archive', 'storage.event_media', 'wys.event');
     update public.platform_settings set value = v_cfg where key = 'ops_health';
     v_r := v_r || v_nl || case when v_txt = 'drift.freeze:warn, drift.function_pins:warn, drift.sm26_archive:fail, storage.event_media:fail, wys.event:fail'
       then 'PASS ' else 'FAIL ' end || 'tampered settings caught: ' || coalesce(v_txt, '-');
+    -- A row send-notification would refuse for ever (the person is no longer pending): ignored.
     insert into public.notification_outbox (kind, user_id, dedupe_key, created_at)
     values ('account_under_review', v_staff, 'dryrun-ops-health-' || gen_random_uuid(), now() - interval '1 hour');
     select q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
     update public.notification_outbox set attempts = 5 where dedupe_key like 'dryrun-ops-health-%';
     select v_txt || '/' || q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
     delete from public.notification_outbox where dedupe_key like 'dryrun-ops-health-%';
-    v_r := v_r || v_nl || case when v_txt = 'warn/fail' then 'PASS ' else 'FAIL ' end || 'outbox row unsent 1 h, then dead: ' || coalesce(v_txt, '-');
+    v_r := v_r || v_nl || case when v_txt = 'ok/ok' then 'PASS ' else 'FAIL ' end || 'outbox row of a verified person (never sent) ignored, then dead: ' || coalesce(v_txt, '-');
+    -- A pending person's row: warn after 15 min, fail once dead, out of the 7-day window after 8 days.
+    if v_pending is null then
+      v_r := v_r || v_nl || 'INFO outbox detection not tested: no pending profile today';
+    else
+      insert into public.notification_outbox (kind, user_id, dedupe_key, created_at)
+      values ('account_under_review', v_pending, 'dryrun-ops-health-p-' || gen_random_uuid(), now() - interval '1 hour');
+      select q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
+      update public.notification_outbox set attempts = 5 where dedupe_key like 'dryrun-ops-health-p-%';
+      select v_txt || '/' || q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
+      update public.notification_outbox set created_at = now() - interval '8 days' where dedupe_key like 'dryrun-ops-health-p-%';
+      select v_txt || '/' || q.status into v_txt from public.ops_health_report() q where q.check_id = 'reg.outbox';
+      delete from public.notification_outbox where dedupe_key like 'dryrun-ops-health-%';
+      v_r := v_r || v_nl || case when v_txt = 'warn/fail/ok' then 'PASS ' else 'FAIL ' end
+             || 'outbox row of a pending person unsent 1 h, then dead, then 8 days old: ' || coalesce(v_txt, '-');
+    end if;
   exception when others then
     v_r := v_r || v_nl || 'FAIL detection: ' || sqlstate || ' ' || sqlerrm;
   end;

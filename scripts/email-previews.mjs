@@ -144,7 +144,7 @@ const digest = load("messages-digest", ["renderDigest", "signUnsubToken"]);
 const acct = load("account-signup", ["renderAccountAlreadyExists", "renderEmailProof", "signInLinks", "typeLabel", "companyCard", "foldName", "significantLength"]);
 const invite = load("accept-invite", ["renderInviteLink", "signInviteToken", "readInviteToken", "inviteTokenValid", "maskEmail", "fmtDay"]);
 // Health monitor (16 Oct 2026): ops-health (staff alert only).
-const ops = load("ops-health", ["renderAlert", "decideDue", "settingsOf", "projectUrl"]);
+const ops = load("ops-health", ["renderAlert", "decideDue", "settingsOf", "projectUrl", "isMuted", "heartbeatDue"]);
 
 // A token signed by send-notification verifies in the unsubscribe function, and a
 // tampered or foreign one does not (sample key, nothing leaves this process).
@@ -850,8 +850,17 @@ for (const it of items) {
     ["fail e-mailed 1 h ago, now warn", due(warn, { check_id: "a.check", last_alert_at: at(1), last_alert_status: "fail" }), false],
     ["fail e-mailed 1 h ago, cleared, fails again", due(failing, { check_id: "a.check", last_alert_at: at(1), last_alert_status: "fail", cleared_at: at(0.5) }), false],
     ["muted", due(failing, null, ["a.check"]), false],
+    ["warn muted at its level", due(warn, null, ["a.check:warn"]), false],
+    ["fail of a check muted at warn only", due(failing, null, ["a.check:warn"]), true],
     ["seen but never e-mailed (no recipient then)", due(warn, { check_id: "a.check", last_alert_at: null }), true],
   ];
+  if (ops.isMuted(warn, new Set(["a.check:fail"])) || !ops.isMuted(failing, new Set(["a.check:fail"]))) fail("ops-health isMuted: a level mute must match that level only");
+  // The heartbeat: only after a recorded run, and never while a due problem reached nobody.
+  const hb = [
+    [ops.heartbeatDue(true, 0, 0), true], [ops.heartbeatDue(true, 2, 1), true],
+    [ops.heartbeatDue(true, 2, 0), false], [ops.heartbeatDue(false, 0, 0), false],
+  ];
+  hb.forEach(([got, want], i) => { if (got !== want) fail(`ops-health heartbeatDue case ${i}: ${got}, expected ${want}`); });
   for (const [label, got, want] of cases) if (got !== want) fail(`ops-health decideDue: ${label} gave ${got}, expected ${want}`);
 
   const s = ops.settingsOf({ enabled: "true", recipients: ["A@Example.com", "a@example.com", "not an address", 3], realert_hours: 1, mute: ["x", 2], http_checks: "no" });
@@ -860,6 +869,11 @@ for (const it of items) {
   if (s.realertHours !== 6) fail(`ops-health settingsOf: realert_hours under 6 must clamp to 6, got ${s.realertHours}`);
   if (![...s.mute].join(",").startsWith("x") || s.mute.size !== 1) fail("ops-health settingsOf: mute keeps strings only");
   if (s.httpChecks !== true) fail("ops-health settingsOf: only a JSON false turns the HTTP checks off");
+  if (s.heartbeatUrl !== "") fail("ops-health settingsOf: no heartbeat_url must give none");
+  if (ops.settingsOf({ heartbeat_url: " https://hc.example.org/ping/abc " }).heartbeatUrl !== "https://hc.example.org/ping/abc") fail("ops-health settingsOf: an https heartbeat_url is kept (trimmed)");
+  for (const bad of ["http://hc.example.org/ping/abc", "javascript:alert(1)", "https://a b", 42, `https://x.org/${"a".repeat(500)}`]) {
+    if (ops.settingsOf({ heartbeat_url: bad }).heartbeatUrl !== "") fail(`ops-health settingsOf: heartbeat_url ${String(bad).slice(0, 40)} must be refused`);
+  }
   if (ops.settingsOf("garbage").enabled !== false || ops.settingsOf(null).realertHours !== 6) fail("ops-health settingsOf: a value of the wrong shape must give the defaults");
   if (ops.settingsOf({ recipients: Array.from({ length: 15 }, (_, i) => `r${i}@example.com`) }).recipients.length !== 10) fail("ops-health settingsOf: more than 10 recipients");
   if (ops.projectUrl("https://abc123.supabase.co", SITE) !== "https://supabase.com/dashboard/project/abc123") fail("ops-health projectUrl");

@@ -11,8 +11,13 @@
 //   3. e-mails ops_health.recipients ONLY when a check is warn or fail, and at most once per
 //      problem per ops_health.realert_hours (6 to 48, default 6). A problem is a check at a
 //      level: a warn that turns into a fail is e-mailed at once. Checks listed in
-//      ops_health.mute are recorded but never e-mailed;
-//   4. records the run in ops_health_run (kept 30 days) and the problems in ops_health_alert.
+//      ops_health.mute are recorded but never e-mailed ("<check id>:warn" mutes the warn
+//      level only, so a fail of that check is still e-mailed);
+//   4. records the run in ops_health_run (kept 30 days) and the problems in ops_health_alert;
+//   5. pings ops_health.heartbeat_url (an external heartbeat service, optional) once the run
+//      is recorded and nothing due was left unsent. When the pings stop (pg_cron, pg_net or
+//      the Vault secrets broken, this function failing, e-mail not leaving), the external
+//      service raises the alarm the monitor cannot raise about itself.
 // It changes nothing else: it reads, e-mails and writes its own two tables.
 //
 // POST body, all optional:
@@ -114,14 +119,27 @@ function settingsOf(value: unknown) {
     realertHours: num(o.realert_hours, 6, 48, 6),
     mute: new Set(strings(o.mute)),
     httpChecks: o.http_checks !== false,
+    heartbeatUrl: typeof o.heartbeat_url === "string" && /^https:\/\/[^\s]+$/.test(o.heartbeat_url.trim()) && o.heartbeat_url.trim().length <= 500
+      ? o.heartbeat_url.trim()
+      : "",
   };
+}
+
+/** A check id muted whole ("reg.provisioning") or at this level only ("reg.provisioning:warn"). */
+function isMuted(c: Check, mute: Set<string>): boolean {
+  return mute.has(c.check_id) || mute.has(`${c.check_id}:${c.status}`);
+}
+
+/** The heartbeat goes only when the run is recorded and every problem due now was e-mailed. */
+function heartbeatDue(runRecorded: boolean, dueCount: number, emailed: number): boolean {
+  return runRecorded && (dueCount === 0 || emailed > 0);
 }
 
 // ─── Re-alert rule ───────────────────────────────────────────────────────────
 /** The problems to e-mail now: never e-mailed, escalated to fail, or last e-mailed realertMs ago or more. Muted checks never. */
 function decideDue(problems: Check[], previous: Map<string, Json>, mute: Set<string>, realertMs: number, nowMs: number): Check[] {
   return problems.filter((c) => {
-    if (mute.has(c.check_id)) return false;
+    if (isMuted(c, mute)) return false;
     const p = previous.get(c.check_id);
     if (!p || !p.last_alert_at) return true;
     if (c.status === "fail" && p.last_alert_status !== "fail") return true;
@@ -151,7 +169,11 @@ async function twice(probe: () => Promise<Check>): Promise<Check> {
   return probe();
 }
 
-/** The SPA answers 200 for any path: only the index AND the bundle it names prove a working deploy. */
+/**
+ * The index AND the bundle it names. Netlify answers ANY missing path with index.html and a
+ * 200 (the SPA catch-all of netlify.toml), so the bundle must also BE JavaScript: a
+ * javascript content type and a body that does not start with "<".
+ */
 async function probeSite(): Promise<Check> {
   const base = { check_id: "web.site", area: "web" };
   const r = await fetchSoon(`${SITE_URL}/`);
@@ -163,9 +185,23 @@ async function probeSite(): Promise<Check> {
   const bundle = html.match(/\/assets\/index-[A-Za-z0-9_-]+\.js/);
   if (!bundle) return { ...base, status: "warn", summary: "The site answered, but its page names no main bundle." };
   const b = await fetchSoon(`${SITE_URL}${bundle[0]}`);
-  await b?.body?.cancel();
-  if (!b || !b.ok) return { ...base, status: "fail", summary: `The site answered, but its main bundle did not (${b ? b.status : "no answer"}): broken deploy?` };
-  return { ...base, status: "ok", summary: "The site and its main bundle answer." };
+  if (!b || !b.ok) {
+    await b?.body?.cancel();
+    return { ...base, status: "fail", summary: `The site answered, but its main bundle did not (${b ? b.status : "no answer"}): broken deploy?` };
+  }
+  const type = (b.headers.get("content-type") || "").toLowerCase();
+  // The first chunk is enough: the bundle itself is megabytes.
+  const reader = b.body?.getReader();
+  let head = "";
+  try {
+    const first = reader ? await reader.read() : null;
+    head = new TextDecoder().decode(first?.value || new Uint8Array()).slice(0, 200).trimStart();
+  } catch { /* unreadable body: judged on the type alone */ }
+  await reader?.cancel().catch(() => {});
+  if (!type.includes("javascript") || head.startsWith("<")) {
+    return { ...base, status: "fail", summary: `The site answered, but its main bundle came back as a page, not JavaScript (${type || "no type"}): broken deploy?` };
+  }
+  return { ...base, status: "ok", summary: "The site and its main bundle answer (JavaScript)." };
 }
 
 async function probeRss(): Promise<Check> {
@@ -515,7 +551,7 @@ function renderAlert(o: { due: Check[]; others: Check[]; when: Date; realertHour
   const still = !o.test && o.others.length
     ? `Still open, already reported in the last ${o.realertHours} hours: ${o.others.map((c) => c.check_id).join(", ")}.`
     : "";
-  const help = "Full report: run select * from ops_health_report(); in the Supabase SQL editor. What each check means and what to do: docs/operations/health-monitor.md. To stop e-mails about a known problem, add its check id to mute in the ops_health platform setting.";
+  const help = "Full report: run select * from ops_health_report(); in the Supabase SQL editor. What each check means and what to do: docs/operations/health-monitor.md. To stop e-mails about a known problem, add its check id (or check id:warn, which still lets a fail through) to mute in the ops_health platform setting.";
   const footer = `Sent by the ops-health monitor, at most once every ${o.realertHours} hours per problem. Recipients and schedule: platform setting ops_health.`;
   const subject = o.test
     ? "Test: Smart Marina Connect health monitor"
@@ -666,7 +702,7 @@ Deno.serve(async (req: Request) => {
 
     const due = decideDue(problems, previous, cfg.mute, cfg.realertHours * 3600000, now.getTime());
     const dueIds = new Set(due.map((c) => c.check_id));
-    const others = problems.filter((c) => !dueIds.has(c.check_id) && !cfg.mute.has(c.check_id));
+    const others = problems.filter((c) => !dueIds.has(c.check_id) && !isMuted(c, cfg.mute));
     let emailed = 0;
     if (due.length && cfg.recipients.length) {
       const mail = renderAlert({ due, others, when: now, realertHours: cfg.realertHours, ctaUrl });
@@ -684,7 +720,22 @@ Deno.serve(async (req: Request) => {
     const { error: pruneError } = await db.from("ops_health_run").delete().lt("run_at", new Date(now.getTime() - RUN_KEEP_DAYS * 86400000).toISOString());
     if (pruneError) console.error("ops-health: old runs not pruned", pruneError.message);
 
-    return jsonRes({ ok: true, worst, counts, problems: brief, due: [...dueIds], emailed });
+    // The heartbeat: silence from it is what tells the external service that this monitor
+    // stopped. Nothing is sent but the GET itself.
+    let heartbeat = "off";
+    if (cfg.heartbeatUrl) {
+      if (heartbeatDue(!runError, due.length, emailed)) {
+        const hb = await fetchSoon(cfg.heartbeatUrl);
+        await hb?.body?.cancel();
+        heartbeat = hb && hb.ok ? "sent" : "failed";
+        if (heartbeat === "failed") console.error("ops-health: heartbeat not accepted", hb ? hb.status : "no answer");
+      } else {
+        heartbeat = "withheld";
+        console.error("ops-health: heartbeat withheld (run not recorded, or problems due and no e-mail left)");
+      }
+    }
+
+    return jsonRes({ ok: true, worst, counts, problems: brief, due: [...dueIds], emailed, heartbeat });
   } catch (e) {
     console.error("ops-health: run failed", e instanceof Error ? e.message : JSON.stringify(e));
     return jsonRes({ ok: false, error: "server" }, 500);

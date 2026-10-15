@@ -426,7 +426,7 @@ export function ValidatePersonDialog({ open, onOpenChange, userId, initialAction
                   </p>
                   {r.kind === 'claim' && r.id && (
                     <div className="mt-2.5 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" className={cn(ADMIN_BTN_PRIMARY, 'h-auto min-h-11 whitespace-normal py-2 text-left')} disabled={claimBusy || saving} onClick={() => approveClaimHere(r)}>
+                      <Button type="button" size="sm" variant="outline" className={cn(ADMIN_BTN, 'h-auto min-h-11 whitespace-normal py-2 text-left')} disabled={claimBusy || saving} onClick={() => approveClaimHere(r)}>
                         {claimBusy ? <Loader2 className="mr-1.5 h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="mr-1.5 h-4 w-4 shrink-0" aria-hidden="true" />}
                         {t('adminValidate.request.approveClaim', 'Approve the claim: they manage {{org}}', { org: r.org_name ?? t('adminValidate.theCompany', 'the company') })}
                       </Button>

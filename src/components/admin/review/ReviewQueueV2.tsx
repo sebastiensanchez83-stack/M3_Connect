@@ -1106,7 +1106,7 @@ export function ReviewQueueV2() {
           {shown?.mode === 'orgArchive' && (
             <WindowBody
               title={t('adminReview.v2.archive.title', 'Archive {{name}}?', { name: shown.row.title })}
-              description={t('adminReview.v2.archive.body', 'The company leaves this list, sign-up search and company matching. Nothing is deleted and nobody is e-mailed: you can bring it back right after, or later from the company page.')}
+              description={t('adminReview.v2.archive.body', 'The company leaves this list, sign-up search and company matching. Nothing is deleted and nobody is e-mailed. Undo, right after, brings it back; later, only the developers can (no screen for it yet).')}
               error={dialogError}
               busy={busy}
               onCancel={() => setDialog(null)}

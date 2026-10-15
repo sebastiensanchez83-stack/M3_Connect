@@ -133,7 +133,7 @@ function flagInfos(t: TFunction): FlagInfo[] {
       on: t('adminSettings.flag.provisioning.on', 'Accounts are made and their e-mails sent, also for every guest confirmed earlier and still waiting.'),
       off: t('adminSettings.flag.provisioning.off', 'Confirmed guests wait in the list; nothing is lost.'),
       warning: t('adminSettings.flag.provisioning.warn', 'The first run e-mails every guest already waiting. Check that list first (docs/registration-contract.md, section 9, "Before switching provisioning on").'),
-      runbook: 'docs/registration-contract.md §9 (Before switching provisioning on)',
+      runbook: 'docs/registration-contract.md §9, "Before switching provisioning on"',
     },
     {
       key: 'outbox_sender', group: 'tools', serverOnly: true,

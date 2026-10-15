@@ -39,6 +39,10 @@ export interface Resource {
   file_url: string | null;
   seo_keywords: string | null;
   published: boolean;
+  /** Listed in the /rss.xml feed that m3monaco.com imports. */
+  share_to_m3?: boolean;
+  /** Listed in the /rss-s3.xml feed that s3monaco.com imports. */
+  share_to_s3?: boolean;
 }
 
 export interface SpeakerFormRow {

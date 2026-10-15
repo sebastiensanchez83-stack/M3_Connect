@@ -27,6 +27,17 @@
 [context.staging.environment]
   VITE_SM26_ENABLED = "true"
 
+# The article feeds m3monaco.com and s3monaco.com import (netlify/edge-functions/rss.ts).
+[[edge_functions]]
+  function = "rss"
+  path = "/rss.xml"
+  cache = "manual"
+
+[[edge_functions]]
+  function = "rss"
+  path = "/rss-s3.xml"
+  cache = "manual"
+
 [[headers]]
   for = "/index.html"
   [headers.values]

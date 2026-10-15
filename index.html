@@ -2,6 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Google tag (gtag.js), GA4 property G-MCT9N2QCJJ. One index.html serves every page of the app,
+      and GA4's enhanced measurement counts the in-app route changes as page views.
+      Consent Mode v2: nothing is stored on the device until the visitor clicks Accept on the
+      cookie banner (src/components/layout/CookieBanner.tsx), which updates the consent below.
+    -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      var smcCookieConsent = null;
+      try { smcCookieConsent = localStorage.getItem('cookie_consent'); } catch (e) {}
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: smcCookieConsent === 'accepted' ? 'granted' : 'denied'
+      });
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MCT9N2QCJJ"></script>
+    <script>
+      gtag('js', new Date());
+      gtag('config', 'G-MCT9N2QCJJ');
+    </script>
     <!-- Square icons made from the S symbol (public/icons): Google wants a square favicon in a multiple of 48 px. -->
     <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />

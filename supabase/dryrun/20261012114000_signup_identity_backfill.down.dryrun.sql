@@ -4,7 +4,9 @@
 -- proof must survive the down), the down verbatim, then checks that production is back:
 -- e-mail proofs as before but the re-proven one, review_log rows gone, updated_at untouched
 -- (snapshot). Ends with RAISE EXCEPTION 'DRYRUN ...'; everything rolls back. Off-peak (lock
--- on profiles until the rollback). Expected: "5 PASS, 0 FAIL".
+-- on profiles until the rollback). Expected: "5 PASS, 0 FAIL", D01 "backfill undone exactly
+-- (47 account(s) stamped by the migration) ..." as read on 15 Oct 2026 (the count moves as
+-- sessions end or start); D02 then really tests a re-proven account.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -44,32 +46,34 @@ create temp table _dr_proven on commit drop as
 -- ─── B. The migration, verbatim ───────────────────────────────────────────────
 -- Unified registration, Phase 2 (DB lane): legacy e-mail proof backfill (spec §5).
 -- Contract: docs/registration-contract.md §10.7.
--- NOT APPLIED. HOLD until Victor has chosen which sessions count (v_methods below; after a
--- change, rebuild the dry run). Needs only 20261009210000_registration_core: it does not
--- depend on 20261012113000 / 20261012113500, nor they on it.
+-- NOT APPLIED. Rule chosen by Victor on 15 Oct 2026 (below): run the dry run, then apply.
+-- Needs only 20261009210000_registration_core: it does not depend on 20261012113000 /
+-- 20261012113500, nor they on it. After any change to v_methods, rebuild the dry runs.
 -- Down: supabase/migrations/down/20261012114000_signup_identity_backfill.down.sql.
 -- Dry run: supabase/dryrun/20261012114000_signup_identity_backfill.dryrun.sql (+ .down.dryrun).
 --
--- The choice (counts read on 15 Oct 2026; ended sessions drop out of the evidence, so the
--- numbers only go down while this waits):
---   array['recovery'] (THIS FILE): a "Forgot password?" link of this address was opened,
---     the flow in which a new password is saved: the nearest to the Phase 1 rule (proof only
---     once a new password is chosen from an e-mailed link). 4 accounts.
---   array['otp', 'magiclink', 'recovery', 'invite', 'email/signup', 'email_change']: the
---     spec's wording, "a sign-in from an e-mail link". 47 accounts, 43 of them on magic-link
---     or one-time-code sign-ins only: a link proves the inbox, not that the password is the
---     person's (Confirm email has been off since May: anyone could create an account with
---     another person's address and keep its password).
---   Not applying it: everyone else proves the address with the dashboard banner
---     (/verify-email, signed in with the password) or by choosing a new password.
+-- The rule (spec §5, Victor 15 Oct 2026): email_proven_at is stamped only where auth data
+-- proves a later sign-in from ANY e-mail link sent to the account's current address:
+-- v_methods = every e-mail-link method mark_email_proven knows (otp, magiclink, recovery,
+-- invite, email/signup, email_change). 47 accounts on 15 Oct 2026, each stamped with its
+-- latest such session: 24 magiclink, 19 otp, 4 recovery (43 of the 47 on magic-link or
+-- one-time-code sessions only); 34 more had e-mail-link sessions only around an admin "view
+-- as user" and are left unproven. The number moves while this waits (ended sessions drop
+-- out of the evidence; main still offers magic-link sign-in). Accepted on purpose: a link
+-- proves the inbox, not that the password is the person's (Confirm email has been off since
+-- May: anyone could create an account with another person's address and keep its
+-- password), which mark_email_proven guards against by stamping only once a new password is
+-- saved. Not chosen: recovery sessions only (4 accounts). Everyone not stamped proves the
+-- address with the dashboard banner (/verify-email, signed in with the password) or by
+-- choosing a new password.
 --
 -- What a stamp changes at once, on the live main site too: get_my_event_access (main's
 -- dashboard and event page) counts a confirmed gl_guest row of the PROVEN address;
 -- gl_guest_engine_guard keeps user_id on a new WYS row only for a proven account;
 -- my_participations and attach_my_records (the redesign) read by the proven address, and
 -- mark_email_proven (redesign /welcome, /reset-password) attaches records when already
--- proven. On 15 Oct 2026 no unlinked gl_guest row and no pending_link job matched these
--- accounts.
+-- proven. On 15 Oct 2026 no unlinked gl_guest, sm_attendee or legacy guest
+-- event_registrations row and no pending_link job matched the 47 accounts' addresses.
 --
 -- Evidence: auth.audit_log_entries is EMPTY in this project (0 rows; GoTrue's audit trail
 -- goes to the log service), so the spec's source proves nothing. auth.mfa_amr_claims keeps
@@ -108,8 +112,8 @@ $pre$;
 
 do $backfill$
 declare
-  -- Victor's choice: see the header.
-  v_methods constant text[] := array['recovery'];
+  -- Victor's choice (15 Oct 2026): every e-mail-link method (spec §5); see the header.
+  v_methods constant text[] := array['otp', 'magiclink', 'recovery', 'invite', 'email/signup', 'email_change'];
   v_n integer;
   v_q integer;
 begin
@@ -171,6 +175,8 @@ end
 $backfill$;
 
 -- ─── C. A backfilled account proven again later ──────────────────────────────
+select set_config('dr.stamped', (select count(*)::text from public.review_log l
+   where l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012114000'), true);
 alter table public.profiles disable trigger trg_profiles_updated_at;
 select set_config('dr.kept', coalesce((select l.subject_id::text from public.review_log l
    where l.action = 'email_proof_backfill' and l.details ->> 'migration' = '20261012114000' order by l.id limit 1), ''), true);
@@ -222,7 +228,7 @@ declare
   v_err text;
 begin
   for v_c in select * from (values
-    ('D01', 'backfill undone exactly: e-mail proofs = before, except the account proven again since',
+    ('D01', format('backfill undone exactly (%s account(s) stamped by the migration): e-mail proofs = before, except the account proven again since', current_setting('dr.stamped')),
      $q$select not exists ((select pr.user_id, pr.email_proven_at from public.profiles pr where pr.email_proven_at is not null and pr.user_id::text <> current_setting('dr.kept')) except (select b.user_id, b.email_proven_at from _dr_proven b)) and not exists ((select b.user_id, b.email_proven_at from _dr_proven b) except (select pr.user_id, pr.email_proven_at from public.profiles pr where pr.email_proven_at is not null))$q$),
     ('D02', 'the account proven again since keeps its proof (none backfilled: skipped)',
      $q$select current_setting('dr.kept') = '' or exists (select 1 from public.profiles where user_id::text = current_setting('dr.kept') and email_proven_at is not null)$q$),

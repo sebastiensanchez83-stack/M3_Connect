@@ -58,9 +58,10 @@ const PINNED_HEADER_ROUTES = /^\/(admin|sm26|wys26|sponsorship|account|inbox|das
 /**
  * Utility pages (password, proof, sign-up, invitation and registration links): with
  * flag password_only_login their "Sign in" button shows on phones too, not only in
- * the menu, since that is often what the person came to do.
+ * the menu, since that is often what the person came to do. Never the WYS pages
+ * (/wys26*): they change only with their own flags (spec §11).
  */
-const UTILITY_PAGES = /^\/(welcome|reset-password|verify-email|signup|join\/|register\/|registration|wys26\/guest)/i;
+const UTILITY_PAGES = /^\/(welcome|reset-password|verify-email|signup|join\/|register\/|registration)/i;
 
 /** True when the element got focus from the keyboard (not a click, not Radix handing focus back). */
 function focusIsVisible(el: EventTarget | null): boolean {
@@ -222,23 +223,35 @@ export function Navbar() {
   }, [location.pathname]);
 
   // Auto-open signup modal when arriving via ?signup=true (e.g. from org_claim_code email link).
-  // Flag front_door: that link (/?signup=true&email=…&code=…) goes to the /signup page instead.
+  // Flags front_door + account_signup_v2: that link (/?signup=true&email=…&code=…) goes to the
+  // /signup page instead, the code as ?claim= (supabase-js reads ?code= as a sign-in code when
+  // a page loads). front_door without the sign-up v2: the window of before, as with the flags off
+  // (its form reads the code from this address).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('signup') === 'true') {
       if (!regFlagsReady) return; // decided once the switches are known (one short read)
-      if (regFlags.front_door) {
+      if (regFlags.front_door && regFlags.account_signup_v2) {
         const keep = new URLSearchParams();
-        for (const k of ['email', 'code', 'then']) {
-          const v = params.get(k);
-          if (v) keep.set(k, v);
-        }
+        const email = params.get('email');
+        const code = params.get('code');
+        const then = params.get('then');
+        if (email) keep.set('email', email);
+        if (code) keep.set('claim', code);
+        if (then) keep.set('then', then);
         const q = keep.toString();
         navigate(`${SIGNUP_PATH}${q ? `?${q}` : ''}`, { replace: true });
         return;
       }
       if (regFlags.account_signup_v2) {
+        // The v2 form holds the code and the address: out of the address bar (a copied link
+        // must not carry the code).
         setSignupPrefill({ email: params.get('email') || '', code: params.get('code') || '' });
+        params.delete('signup');
+        params.delete('code');
+        params.delete('email');
+        const q = params.toString();
+        window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
       }
       setSignupOpen(true);
     } else if (params.get('signin') === 'true') {
@@ -887,8 +900,8 @@ export function Navbar() {
         open={signupOpen}
         onOpenChange={setSignupOpen}
         sheet={regFlags.account_signup_v2}
-        // Signed in by the sign-up just made (Confirm email off): no "Already have an account?".
-        switchTo={regFlags.account_signup_v2 && user ? undefined : { onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+        // AuthDialog drops "Already have an account?" once the sign-up v2 signed the person in.
+        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
       >
         {regFlags.account_signup_v2 ? (
           // The sign-up v2 (Victor, 8 Oct 2026: "Sign up" opens the form itself, no chooser).

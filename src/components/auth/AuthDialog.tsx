@@ -6,6 +6,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { SITE_IMAGES, type SiteImage } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { useRegistrationFlags } from '@/lib/flags';
+import { useAuth } from '@/contexts/AuthContext';
 import { registerAuthRefonteStrings } from '@/i18n/refonte-auth';
 
 registerAuthRefonteStrings();
@@ -81,7 +82,12 @@ export function AuthDialog({
 }) {
   const { t } = useTranslation();
   const { flags } = useRegistrationFlags();
+  const { user } = useAuth();
   const sheet = sheetProp ?? (mode === 'signup' ? flags.account_signup_v2 : flags.password_only_login);
+  // The sign-up v2 signs the new account in at once (Confirm email off) and keeps its
+  // "Confirm your e-mail" step in this window: no "Already have an account? Sign in" then,
+  // whichever page opened the window.
+  const showSwitch = !!switchTo && !(mode === 'signup' && flags.account_signup_v2 && user);
   const [stepTitle, setStepTitle] = useState<string | null>(null);
   const image = photo === undefined ? (mode === 'login' ? SITE_IMAGES.homeHero : SITE_IMAGES.joinHero) : photo;
   const heading = stepTitle ?? title ?? (mode === 'login' ? t('auth.login', 'Sign in') : t('auth.signup', 'Sign up'));
@@ -127,7 +133,7 @@ export function AuthDialog({
           <div className="mt-6">
             <AuthDialogTitleContext.Provider value={setStepTitle}>{children}</AuthDialogTitleContext.Provider>
           </div>
-          {switchTo && (
+          {showSwitch && switchTo && (
             <p className="mt-6 border-t border-rule pt-5 text-center text-sm leading-6 text-meta">
               {prompt}{' '}
               <UnderlineLink arrow={false} onClick={switchTo.onClick} className="min-h-11 !text-sm">

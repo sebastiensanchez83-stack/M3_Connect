@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Ban, Building2, CheckCircle2, Clock, Loader2, MailWarning, Ticket, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/StatusCard';
@@ -7,21 +8,21 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { MemberBanner } from '@/components/member/MemberUI';
 import { AddCompanyForm, companyPathText, useCompanyRequest } from '@/components/organization/AddCompanyForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { isProven, sendEmailProof } from '@/lib/accountSignup';
-import { notifyAdmin } from '@/lib/notifications';
+import { isProven, readStoredIntent, requestReviewAgain, sendEmailProof } from '@/lib/accountSignup';
 import { useReviewSla } from '@/lib/registration';
-import { supabase } from '@/lib/supabase';
 import type { HomePanel } from '@/lib/accountNav';
 
 /**
  * The top of the dashboard behind flag front_door (spec regspec-en.md §6
  * /dashboard; Victor 6 Oct 2026: M3 validates every person):
  *
- *  - the e-mail proof banner, while the account's address is not proven
- *    (send_email_proof: a /verify-email link; until then the sign-up's company
- *    request waits, and registrations made with that address do not show);
  *  - ONE status card: under review, participant, member of X, or not accepted
  *    with "Ask M3 to review again" (suspended accounts are told so);
+ *  - the e-mail proof, in one place: a sign-up waiting for its proof (its company
+ *    request and M3's review wait for it) gets "Send me the link" in the status
+ *    card itself; any other account whose address is not proven gets the banner
+ *    "Confirm your e-mail address" (spec §5: so the registrations made with that
+ *    address show here);
  *  - "Add my company" (flag account_signup_v2), for a person in no company with
  *    no company request waiting. Optional: a participant gets no red badge and no
  *    redirect to a company wizard.
@@ -42,6 +43,67 @@ function readReviewAgain(uid: string | undefined): boolean {
   }
 }
 
+/** A claim link opened while signed in: ?claim= (the front door's own redirects) or the e-mail's ?code=. */
+function readUrlClaim(): string {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get('claim') || params.get('code') || '').trim().slice(0, 40);
+  } catch {
+    return '';
+  }
+}
+
+/** What the database said about a company code typed at sign-up or in "Add my company". */
+function codeNoteText(t: TFunction, code: string | undefined): string | null {
+  if (code === 'invalid' || code === 'throttled') {
+    return t('dashStatus.codeInvalid', 'We could not match your company code. Search for your company or create it below, or write to events@m3monaco.com.');
+  }
+  if (code === 'refused_has_owner') {
+    return t('dashStatus.codeHasOwner', 'Your company code was not used: this company already has an owner on the platform.');
+  }
+  return null;
+}
+
+type ProofState = 'idle' | 'sending' | 'sent' | 'too_soon' | 'error';
+
+/** "Send me the link": a /verify-email link to the account's address (account-signup send_email_proof). */
+function useProofLink() {
+  const { refreshProfile } = useAuth();
+  const [state, setState] = useState<ProofState>('idle');
+  const send = async () => {
+    if (state === 'sending') return;
+    setState('sending');
+    const res = await sendEmailProof();
+    if (res.ok) {
+      if (res.already_proven) { void refreshProfile().catch(() => {}); setState('idle'); return; }
+      setState('sent');
+      return;
+    }
+    setState(res.error === 'rate_limited' ? 'too_soon' : 'error');
+  };
+  return { state, send };
+}
+
+function proofFeedback(t: TFunction, state: ProofState, email: string): ReactNode | null {
+  if (state === 'sent') {
+    return <span role="status">{t('dashStatus.proofSentPlain', { email, defaultValue: 'We sent a link to {{email}}. Open it on this phone or computer, where you are signed in. Nothing after a few minutes? Check your spam folder.' })}</span>;
+  }
+  if (state === 'too_soon') return <span role="alert">{t('dashStatus.proofTooSoon', 'A link was sent a moment ago. Please wait a minute before asking for another one.')}</span>;
+  if (state === 'error') return <span role="alert">{t('dashStatus.proofError', "We couldn't send the link just now. Please try again in a moment.")}</span>;
+  return null;
+}
+
+function ProofButton({ state, onSend }: { state: ProofState; onSend: () => void }) {
+  const { t } = useTranslation();
+  if (state === 'sent') return null;
+  return (
+    <Button type="button" variant="ctaNavy" size="sm" arrow={false} roll={false} onClick={onSend} disabled={state === 'sending'}>
+      {state === 'sending' && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+      {t('dashStatus.proofSend', 'Send me the link')}
+    </Button>
+  );
+}
+
 export function AccountStatus({
   onOpen,
   hasOrganization,
@@ -59,13 +121,12 @@ export function AccountStatus({
   const { t } = useTranslation();
   const { user, profile } = useAuth();
   const sla = useReviewSla();
-  // ?code= on the home page: a claim link opened while signed in (/onboarding?code= lands here).
-  const [urlCode] = useState(() => {
-    try { return new URLSearchParams(window.location.search).get('code') || ''; } catch { return ''; }
-  });
+  // A claim link opened while signed in (/onboarding?code= and /signup?code= land here as ?claim=).
+  const [urlCode] = useState(readUrlClaim);
   const [addOpen, setAddOpen] = useState(!!urlCode);
   const [reviewAgain, setReviewAgain] = useState(() => readReviewAgain(user?.id));
-  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewState, setReviewState] = useState<'idle' | 'busy' | 'error' | 'too_many'>('idle');
+  const proof = useProofLink();
   // Where a company request stands (the open request row first: useCompanyRequest).
   const request = useCompanyRequest(signupV2 && !hasOrganization);
   // A request sent from the card keeps the card (and its "Request sent" notice) on screen.
@@ -76,6 +137,7 @@ export function AccountStatus({
     if (!urlCode) return;
     try {
       const url = new URL(window.location.href);
+      url.searchParams.delete('claim');
       url.searchParams.delete('code');
       window.history.replaceState(window.history.state, '', url.toString());
     } catch { /* ignore */ }
@@ -83,25 +145,31 @@ export function AccountStatus({
 
   if (!user || !profile) return null;
 
+  const email = user.email ?? '';
   const proven = isProven(profile, user.email);
   const status = profile.access_status;
-  const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || user.email || '';
+  const intent = readStoredIntent(profile);
+  // A sign-up v2 (or "Add my company") saved but not run yet: it runs once the address is proven.
+  const waitsForProof = !proven && !!intent && !intent.done_at;
+  const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || email;
   const requestWaiting = !hasOrganization && request.waiting;
-  const pathLine = !hasOrganization && request.path ? companyPathText(t, request.path, request.orgName) : null;
+  const pathLine = requestWaiting && request.path ? companyPathText(t, request.path, request.orgName) : null;
+  const codeNote = !hasOrganization && intent?.done_at ? codeNoteText(t, intent.code) : null;
   const showAdd = signupV2 && !hasOrganization && (sentHere || !requestWaiting) && (status === 'pending' || status === 'verified');
+  // The proof request sits in the pending card when the review itself waits for it; else one banner.
+  const proofInCard = status === 'pending' && waitsForProof;
+  const showBanner = !proven && !proofInCard && status !== 'suspended';
 
   const askReviewAgain = async () => {
-    if (reviewBusy) return;
-    setReviewBusy(true);
-    // M3 sees it as a new item: the person's own sign-up step is submitted again, and the team is told.
-    try { await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id); } catch { /* the e-mail below is what counts */ }
-    await notifyAdmin(
-      'account review requested again',
-      name,
-      [`Email: ${user.email ?? ''}`, profile.rejection_reason ? `Reason given before: ${profile.rejection_reason}` : '', 'The person asks the M3 team to review their account again (dashboard).'].filter(Boolean).join('\n'),
-    );
+    if (reviewState === 'busy') return;
+    setReviewState('busy');
+    const res = await requestReviewAgain({ userId: user.id, name, email, reason: profile.rejection_reason });
+    if (!res.ok) {
+      setReviewState(res.error === 'rate_limited' ? 'too_many' : 'error');
+      return;
+    }
     try { localStorage.setItem(REVIEW_AGAIN_KEY + user.id, String(Date.now())); } catch { /* ignore */ }
-    setReviewBusy(false);
+    setReviewState('idle');
     setReviewAgain(true);
   };
 
@@ -122,8 +190,8 @@ export function AccountStatus({
         title={t('dashStatus.rejected', 'The M3 team did not accept your account')}
         actions={reviewAgain ? undefined : (
           <>
-            <Button type="button" size="sm" variant="ctaNavy" arrow={false} roll={false} onClick={() => void askReviewAgain()} disabled={reviewBusy}>
-              {reviewBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+            <Button type="button" size="sm" variant="ctaNavy" arrow={false} roll={false} onClick={() => void askReviewAgain()} disabled={reviewState === 'busy'}>
+              {reviewState === 'busy' && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
               {t('dashStatus.reviewAgain', 'Ask M3 to review again')}
             </Button>
             <UnderlineLink to="/contact" className="!text-[15px]">{t('dashStatus.write', 'Write to the M3 team')}</UnderlineLink>
@@ -134,28 +202,40 @@ export function AccountStatus({
         {reviewAgain
           ? <p role="status" className="font-medium text-navy">{t('dashStatus.reviewAgainSent', 'Done: the M3 team will look at your account again and e-mail you.')}</p>
           : <p>{t('dashStatus.reviewAgainHint', 'Correct your profile if something was missing, then ask the M3 team to look again.')}</p>}
+        {reviewState === 'error' && (
+          <p role="alert" className="font-medium text-red-700">{t('dashStatus.reviewAgainError', "We couldn't send your request just now. Please try again in a moment, or write to the M3 team.")}</p>
+        )}
+        {reviewState === 'too_many' && (
+          <p role="alert" className="font-medium text-red-700">{t('dashStatus.reviewAgainTooMany', 'Too many messages in the last hour. Please try again later, or write to the M3 team.')}</p>
+        )}
       </StatusCard>
     );
   } else if (status === 'pending') {
+    const feedback = proofInCard ? proofFeedback(t, proof.state, email) : null;
     card = (
       <StatusCard
         tone="pending"
-        icon={Clock}
+        icon={proofInCard ? MailWarning : Clock}
         eyebrow={t('dashStatus.eyebrow', 'Your account')}
-        title={proven ? t('dashStatus.pending', 'The M3 team is reviewing your account') : t('dashStatus.pendingProof', 'Confirm your e-mail, then the M3 team reviews your account')}
+        title={proofInCard ? t('dashStatus.pendingProof', 'Confirm your e-mail, then the M3 team reviews your account') : t('dashStatus.pending', 'The M3 team is reviewing your account')}
         actions={(
           <>
+            {proofInCard && <ProofButton state={proof.state} onSend={() => void proof.send()} />}
             <UnderlineLink onClick={() => onOpen('profile')} className="!text-[15px]">{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
             <UnderlineLink to="/events" className="!text-[15px]">{t('dashStatus.seeEvents', 'See the events')}</UnderlineLink>
           </>
         )}
       >
         <p>
-          {proven
-            ? t('dashStatus.pendingBody', { sla, defaultValue: 'M3 checks every member, usually {{sla}}, and e-mails you. Meanwhile, the events, the library and the directory are open to you.' })
-            : t('dashStatus.pendingProofBody', 'Use the link we e-mailed you (the banner above sends a new one). Meanwhile, the events, the library and the directory are open to you.')}
+          {proofInCard
+            ? (proof.state === 'sent'
+              ? feedback
+              : t('dashStatus.pendingProofBody2', 'Open the link we e-mailed you, on this phone or computer, where you are signed in. No e-mail? Ask for a new one here. Meanwhile, the events, the library and the directory are open to you.'))
+            : t('dashStatus.pendingBody', { sla, defaultValue: 'M3 checks every member, usually {{sla}}, and e-mails you. Meanwhile, the events, the library and the directory are open to you.' })}
         </p>
-        {proven && pathLine && <p>{pathLine}</p>}
+        {feedback && proof.state !== 'sent' && <p>{feedback}</p>}
+        {pathLine && <p>{pathLine}</p>}
+        {codeNote && <p>{codeNote}</p>}
       </StatusCard>
     );
   } else if (hasOrganization) {
@@ -183,14 +263,15 @@ export function AccountStatus({
         actions={<UnderlineLink to="/events" className="!text-[15px]">{t('dashStatus.seeEvents', 'See the events')}</UnderlineLink>}
       >
         <p>{t('dashStatus.participantBody', 'Verified by M3. The events, the library and the company directory are open to you.')}</p>
-        {pathLine && requestWaiting && <p>{pathLine}</p>}
+        {pathLine && <p>{pathLine}</p>}
+        {codeNote && <p>{codeNote}</p>}
       </StatusCard>
     );
   }
 
   return (
     <div className="mb-6 space-y-4">
-      {!proven && <ProofBanner email={user.email ?? ''} />}
+      {showBanner && <ProofBanner email={email} proof={proof} />}
       {card}
       {showAdd && (
         <section aria-labelledby="add-company-title" className="rounded-card border border-rule bg-white p-4 sm:p-5">
@@ -221,46 +302,22 @@ export function AccountStatus({
   );
 }
 
-/** "Confirm your e-mail address": one button, the link goes to the account's address. */
-function ProofBanner({ email }: { email: string }) {
+/**
+ * "Confirm your e-mail address" for an account whose address is not proven and whose
+ * review does not wait for it (a member, a participant, an older account): the
+ * registrations made with that address join the account once it is (spec §5).
+ */
+function ProofBanner({ email, proof }: { email: string; proof: ReturnType<typeof useProofLink> }) {
   const { t } = useTranslation();
-  const { refreshProfile } = useAuth();
-  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'too_soon' | 'error'>('idle');
-
-  const send = async () => {
-    if (state === 'sending') return;
-    setState('sending');
-    const res = await sendEmailProof();
-    if (res.ok) {
-      if (res.already_proven) { void refreshProfile().catch(() => {}); setState('idle'); return; }
-      setState('sent');
-      return;
-    }
-    setState(res.error === 'rate_limited' ? 'too_soon' : 'error');
-  };
-
+  const feedback = proofFeedback(t, proof.state, email);
   return (
     <MemberBanner
       tone="info"
       icon={MailWarning}
       className="mb-0"
       title={t('dashStatus.proofTitle', 'Confirm your e-mail address')}
-      body={
-        state === 'sent'
-          ? <span role="status">{t('dashStatus.proofSent', { email, defaultValue: 'Sent to {{email}}. Open the link while signed in to this account. Nothing after a few minutes? Check your spam folder.' })}</span>
-          : state === 'too_soon'
-            ? <span role="alert">{t('dashStatus.proofTooSoon', 'A link was sent a moment ago. Please wait a minute before asking for another one.')}</span>
-            : state === 'error'
-              ? <span role="alert">{t('dashStatus.proofError', "We couldn't send the link just now. Please try again in a moment.")}</span>
-              : t('dashStatus.proofBody', { email, defaultValue: 'So the M3 team can review your account, and so the registrations made with {{email}} show here.' })
-      }
-      action={state === 'sent' ? undefined : (
-        <Button type="button" variant="ctaNavy" size="sm" arrow={false} roll={false} onClick={() => void send()} disabled={state === 'sending'}>
-          {state === 'sending' && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-          {t('dashStatus.proofSend', 'Send me the link')}
-        </Button>
-      )}
+      body={feedback ?? t('dashStatus.proofBodyRegs', { email, defaultValue: 'So that the event registrations made with {{email}} show here.' })}
+      action={proof.state === 'sent' ? undefined : <ProofButton state={proof.state} onSend={() => void proof.send()} />}
     />
   );
 }
-

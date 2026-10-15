@@ -38,7 +38,7 @@ import { useRegistrationFlags } from '@/lib/flags';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
 import {
   addOrgGalleryImages, answerJoinRequest, cancelTeamInvitation, deleteOrgDocument, fetchOrgDocuments, imageProblem,
-  invitationProblem, inviterName, leaveOrg, removeOrgBrandImage, removeOrgGalleryImage, removeOrgMember,
+  invitationProblem, inviterName, leaveOrg, removeOrgBrandImage, removeOrgGalleryImage, removeOrgMember, seatCapApplies,
   resendTeamInvitation, sendTeamInvitation, uploadOrgBrandImage, uploadOrgDocument, ORG_DOC_MAX_BYTES, type OrgDocument,
 } from './orgActions';
 
@@ -648,7 +648,7 @@ export function OrganizationTab({ onSaved }: {
 
     // Capacity check — block invite if at max_seats (marinas/developers have unlimited seats).
     // No seat cap with account_signup_v2 (the domain rule stays).
-    const problem = invitationProblem(signupV2 ? { ...org, max_seats: 0 } : org, members.length + invitations.length, inviteForm.email);
+    const problem = invitationProblem(org, members.length + invitations.length, inviteForm.email, { seatCap: seatCapApplies(regFlags) });
     if (problem === 'capacity') {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({

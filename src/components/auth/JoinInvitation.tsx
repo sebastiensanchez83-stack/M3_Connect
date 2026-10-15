@@ -112,12 +112,22 @@ export function JoinInvitation({ token }: { token: string }) {
     const { error } = await supabase.rpc('accept_org_invitation', { p_invitation_id: preview.invitation_id });
     setAccepting(false);
     if (error) {
-      if (import.meta.env.DEV) console.error('accept_org_invitation:', error.message);
-      setFormError(/expired/i.test(error.message)
+      const msg = error.message || '';
+      if (import.meta.env.DEV) console.error('accept_org_invitation:', msg);
+      // The database's words (accept_org_invitation): "Invitation is no longer pending (current
+      // status: …)", "This invitation has expired…", "Your email does not match this invitation",
+      // "Please confirm your email address before joining an organization".
+      if (/no longer pending/i.test(msg)) {
+        setPreview({ ...preview, state: /accepted/i.test(msg) ? 'accepted' : /expired/i.test(msg) ? 'expired' : 'closed' });
+        return;
+      }
+      setFormError(/expired/i.test(msg)
         ? t('joinV2.expiredAccept', 'This invitation has expired. Ask the company’s owner to send a new one.')
-        : /email|match|another/i.test(error.message)
+        : /does not match/i.test(msg)
           ? t('joinV2.wrongAccount', { email: user?.email ?? '', defaultValue: 'This invitation was sent to another address. You are signed in as {{email}}.' })
-          : t('joinV2.acceptFailed', "We couldn't add you to the team just now. Please try again in a moment."));
+          : /confirm your email/i.test(msg)
+            ? t('joinV2.confirmFirst', 'Confirm your e-mail address first, with the link we e-mailed you when you signed up. Then open this invitation again.')
+            : t('joinV2.acceptFailed', "We couldn't add you to the team just now. Please try again in a moment."));
       return;
     }
     clearStoredInvite();
@@ -167,6 +177,7 @@ export function JoinInvitation({ token }: { token: string }) {
     if (!res.ok) {
       setBusy(false);
       if (res.error === 'weak_password') setErrors({ password: t('signupV2.err.weak', { min: PASSWORD_MIN, defaultValue: 'This password is too weak or too common. Go back and choose a longer one (at least {{min}} characters), less easy to guess.' }) });
+      else if (res.error === 'password_too_long') setErrors({ password: t('signupV2.err.passwordLong', 'Password too long (max. 72 characters).') });
       else if (res.error === 'expired' || res.error === 'accepted' || res.error === 'closed') setPreview({ ...preview, state: res.error });
       else if (res.error === 'rate_limited') setFormError(t('joinV2.tooMany', 'Too many attempts. Please wait a few minutes, then try again.'));
       else setFormError(t('joinV2.createFailed', "We couldn't create your account just now. Please try again in a moment."));
@@ -232,6 +243,7 @@ export function JoinInvitation({ token }: { token: string }) {
       title={orgName ? t('joinInvite.title', 'Join {{org}}', { org: orgName }) : t('joinV2.titleGeneric', 'Join the team')}
       lead={orgName ? t('joinV2.lead', { org: orgName, defaultValue: '{{org}} invited you to Smart Marina Connect, the marina industry network. Free.' }) : null}
       points={false}
+      stickyActions
     >
       {children}
     </AuthShell>

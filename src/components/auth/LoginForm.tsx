@@ -319,7 +319,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
         <AuthInput
           id="email"
           type="email"
-          inputMode="email"
+          inputMode={v2 ? 'email' : undefined}
           autoComplete="email"
           value={email}
           onChange={(e) => { setEmail(e.target.value); setSignInError(null); setWrongCredentials(false); }}

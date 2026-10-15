@@ -77,13 +77,17 @@ export function useCompanyRequest(enabled: boolean): CompanyRequest {
     let alive = true;
     void (async () => {
       try {
-        // RLS shows the person their own rows (by e-mail); staff see more, hence the filter below.
+        // The person's own rows only, filtered by the server: RLS also shows staff every
+        // request, and a company's members that company's (the requests are stored with the
+        // lower-case address; the account's own spelling is asked too, in case).
+        const addresses = Array.from(new Set([email, (user?.email ?? '').trim()].filter(Boolean)));
         const { data } = await supabase
           .from('organization_invitations')
           .select('status, organization_id, email')
           .in('status', ['join_requested', 'claim_requested'])
+          .in('email', addresses)
           .order('created_at', { ascending: false })
-          .limit(20);
+          .limit(1);
         const rows = (data ?? []) as { status: string; organization_id: string; email: string | null }[];
         if (alive) setOpen(rows.find((r) => (r.email ?? '').trim().toLowerCase() === email) ?? null);
       } catch {
@@ -92,6 +96,7 @@ export function useCompanyRequest(enabled: boolean): CompanyRequest {
     })();
     return () => { alive = false; };
     // The stored intent's time changes when a request is sent or run: read again then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- user.email is `email`, normalised
   }, [enabled, uid, email, stamp]);
 
   const orgName = intent?.name ?? null;
@@ -107,7 +112,8 @@ export function useCompanyRequest(enabled: boolean): CompanyRequest {
 export function AddCompanyForm({ initialCode = '', onDone }: { initialCode?: string; onDone?: () => void }) {
   const { t } = useTranslation();
   const { refreshProfile } = useAuth();
-  const [type, setType] = useState<SignupType | null>(initialCode ? 'marina' : null);
+  // Always an explicit choice (a claim code does not say which kind of company it is).
+  const [type, setType] = useState<SignupType | null>(null);
   const [choice, setChoice] = useState<CompanyChoice>(EMPTY_CHOICE);
   const [code, setCode] = useState(initialCode);
   const [errors, setErrors] = useState<{ type?: string; company?: string }>({});
@@ -134,19 +140,36 @@ export function AddCompanyForm({ initialCode = '', onDone }: { initialCode?: str
           : res.error === 'already_in_company' ? t('signupV2.add.already', 'You are already in a company. Reload the page to see it.')
             : res.error === 'too_soon' ? t('signupV2.add.tooSoon', 'Please wait a minute before sending another request.')
               : res.error === 'account_suspended' ? t('signupV2.add.suspended', 'This account is suspended. Please contact events@m3monaco.com.')
-                : t('signupV2.add.failed', "We couldn't send your request just now. Please try again in a moment."),
+                : res.error === 'flag_off' ? t('signupV2.add.notOpen', 'Adding a company is not open yet. Please write to the M3 team at events@m3monaco.com.')
+                  : t('signupV2.add.failed', "We couldn't send your request just now. Please try again in a moment."),
       );
       return;
     }
     const result = res.result ?? {};
-    const inner = (result.result && typeof result.result === 'object' ? result.result : {}) as { path?: string };
+    const inner = (result.result && typeof result.result === 'object' ? result.result : {}) as { path?: string; code?: string };
     // The e-mails this step owes (the owner's join request; "under review" for a pending account).
     void sendSignupNotices(result);
     const name = choice.mode === 'join' ? choice.org.name : choice.mode === 'new' ? choice.name.trim() : null;
+    const badCode = inner.code === 'invalid' || inner.code === 'throttled';
+    if (result.done === true && badCode && (inner.path === 'none' || !inner.path)) {
+      // The code was all the request had, and it named no company: nothing was sent.
+      setCode('');
+      void refreshProfile().catch(() => {});
+      setFailure(inner.code === 'throttled'
+        ? t('signupV2.add.codeThrottled', 'Too many company codes tried in the last hour. Search for your company or create it, or write to events@m3monaco.com.')
+        : t('signupV2.add.codeInvalid', 'We could not match this company code. Search for your company or create it, or write to events@m3monaco.com.'));
+      return;
+    }
     if (result.done === true) {
-      setSent(companyPathText(t, inner.path, name) ?? t('signupV2.add.sent', 'Your request is sent to the M3 team.'));
+      const line = companyPathText(t, inner.path, name) ?? t('signupV2.add.sent', 'Your request is sent to the M3 team.');
+      const codeLine = badCode
+        ? t('signupV2.add.codeIgnored', 'The company code did not match, so it was not used.')
+        : inner.code === 'refused_has_owner'
+          ? t('dashStatus.codeHasOwner', 'Your company code was not used: this company already has an owner on the platform.')
+          : '';
+      setSent([line, codeLine].filter(Boolean).join(' '));
     } else if (result.reason === 'not_proven') {
-      setSent(t('signupV2.add.afterProof', 'Saved. It goes to the M3 team as soon as you confirm your e-mail address (see the banner above).'));
+      setSent(t('signupV2.add.afterProofPlain', 'Saved. It goes to the M3 team as soon as you confirm your e-mail address.'));
     } else {
       setSent(t('signupV2.add.saved', 'Saved. The M3 team will look at it.'));
     }
@@ -206,7 +229,7 @@ export function AddMyCompany({ onSaved }: { onSaved?: () => void }) {
   const [sentHere, setSentHere] = useState(false);
   const waiting = request.waiting && !sentHere;
   const line = request.awaitingProof
-    ? t('signupV2.add.afterProof', 'Saved. It goes to the M3 team as soon as you confirm your e-mail address (see the banner above).')
+    ? t('signupV2.add.afterProofDash', 'Saved. It goes to the M3 team as soon as you confirm your e-mail address (your dashboard sends the link).')
     : companyPathText(t, request.path ?? undefined, request.orgName);
   return (
     <>

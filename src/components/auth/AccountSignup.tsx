@@ -73,9 +73,8 @@ export function AccountSignup({
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [terms, setTerms] = useState(false);
-  const [type, setType] = useState<SignupType | null>(
-    isSignupType(initialType) ? initialType : initialCode ? 'marina' : null,
-  );
+  // A claim code says nothing about the kind of company: the person always chooses the card.
+  const [type, setType] = useState<SignupType | null>(isSignupType(initialType) ? initialType : null);
   const [choice, setChoice] = useState<CompanyChoice>(EMPTY_CHOICE);
   const [code, setCode] = useState(initialCode);
   const [affiliation, setAffiliation] = useState('');
@@ -185,7 +184,7 @@ export function AccountSignup({
           )}
           {code && (
             <AuthNotice tone="success" title={t('signupV2.codeNotice', 'Your company code is noted')}>
-              <p className="text-[13px]">{t('signupV2.codeNoticeBody', 'You confirm your company in the next step. The M3 team checks it with your request.')}</p>
+              <p className="text-[13px]">{t('signupV2.codeNoticeBody2', 'The M3 team checks it with your sign-up. In the next step, just choose your profile.')}</p>
             </AuthNotice>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-3">
@@ -382,7 +381,7 @@ function SignupDone({ done, onContinue }: { done: Done; onContinue: () => void }
         </div>
         {done.proofSent ? (
           <p className="text-sm leading-6 text-ink">
-            {t('signupV2.done.proofSent', { email: done.email, defaultValue: 'We sent a link to {{email}}. Open it, signed in on this account, so the M3 team can review it. Nothing after a few minutes? Check your spam folder.' })}
+            {t('signupV2.done.proofSentPlain', { email: done.email, defaultValue: 'We sent a link to {{email}}. Open it on this phone or computer, where you are signed in. Then the M3 team reviews your account. Nothing after a few minutes? Check your spam folder.' })}
           </p>
         ) : (
           <AuthNotice tone="warning">

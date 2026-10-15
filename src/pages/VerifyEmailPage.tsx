@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CheckCircle2, Loader2, Mail } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, KeyRound, Loader2, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell';
 import { AuthNotice, CTA_WRAP } from '@/components/auth/fields';
@@ -24,9 +24,13 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
  * proof. Signed out, the sign-in form stands in place, then the link is used.
  * The token leaves the address bar at once (kept in memory only).
  *
- * Without a token, and with flags front_door and account_signup_v2 both off, the
- * address is the 404 it was before (the e-mail with the link is only sent while
- * one of them is on).
+ * confirm_email_proof wants a session opened with the account's PASSWORD (a link
+ * session proves the inbox, not that the password is the person's): with another
+ * session it answers password_session_required, and the page asks the person to
+ * sign in again with the password, then uses the same link.
+ *
+ * With flags front_door and account_signup_v2 both off the address is the 404 it was
+ * before, token or not: nothing new runs with every flag off.
  */
 
 type Phase = 'idle' | 'checking' | 'done' | 'failed';
@@ -34,7 +38,7 @@ type Phase = 'idle' | 'checking' | 'done' | 'failed';
 export function VerifyEmailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, loading, refreshProfile } = useAuth();
+  const { user, profile, loading, refreshProfile, signOut } = useAuth();
   const { flags, ready } = useRegistrationFlags();
   const [token] = useState(() => {
     try { return new URLSearchParams(window.location.search).get('t') || ''; } catch { return ''; }
@@ -43,19 +47,25 @@ export function VerifyEmailPage() {
   const [reason, setReason] = useState<string | null>(null);
   const [newLink, setNewLink] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const tried = useRef<string | null>(null);
+  const enabled = ready && (flags.front_door || flags.account_signup_v2);
 
   // The token is a one-time secret: out of the address bar (and of any copied link) at once.
   useEffect(() => {
-    if (!token) return;
+    if (!token || !enabled) return;
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('t');
       window.history.replaceState(window.history.state, '', url.pathname + (url.search || ''));
     } catch { /* ignore */ }
-  }, [token]);
+  }, [token, enabled]);
+
+  // Signed out (e.g. to sign in again with the password): the link is tried again afterwards.
+  useEffect(() => {
+    if (!loading && !user) tried.current = null;
+  }, [loading, user]);
 
   useEffect(() => {
-    if (!token || loading || !user || tried.current === user.id) return;
+    if (!token || !enabled || loading || !user || tried.current === user.id) return;
     tried.current = user.id;
     setPhase('checking');
     void (async () => {
@@ -70,7 +80,7 @@ export function VerifyEmailPage() {
       setReason(res.ok ? res.reason ?? 'invalid_token' : res.error);
       setPhase('failed');
     })();
-  }, [token, loading, user, refreshProfile]);
+  }, [token, enabled, loading, user, refreshProfile]);
 
   const askNewLink = async () => {
     setNewLink('sending');
@@ -83,10 +93,16 @@ export function VerifyEmailPage() {
     setNewLink(res.ok ? 'sent' : 'error');
   };
 
-  if (!token && ready && !flags.front_door && !flags.account_signup_v2) return <NotFoundPage />;
-  if (loading || (!token && !ready)) return <AuthLoading />;
+  const signInAgain = async () => {
+    setPhase('idle');
+    setReason(null);
+    await signOut().catch(() => {});
+  };
 
-  const title = t('verifyEmail.title', 'Confirm your e-mail address');
+  if (!ready || loading) return <AuthLoading />;
+  if (!enabled) return <NotFoundPage />;
+
+  const title = phase === 'done' ? t('verifyEmail.titleDone', 'E-mail address confirmed') : t('verifyEmail.title', 'Confirm your e-mail address');
   const head = <Helmet><title>{`${title} — Smart Marina Connect`}</title><meta name="referrer" content="no-referrer" /></Helmet>;
 
   if (!token) {
@@ -116,16 +132,38 @@ export function VerifyEmailPage() {
   }
 
   if (phase === 'done') {
+    // The review line only for an account M3 still has to review.
+    const underReview = profile?.access_status === 'pending';
     return (
       <>
         {head}
         <AuthShell title={title} lead={null} points={false}>
           <AuthStatus icon={<CheckCircle2 className="h-6 w-6" />} title={t('verifyEmail.doneTitle', 'Your e-mail address is confirmed')}>
             <p className="text-sm leading-6 text-meta">
-              {t('verifyEmail.done', 'Thank you. The registrations made with this address are now in your account, and the M3 team can review your sign-up.')}
+              {underReview
+                ? t('verifyEmail.done', 'Thank you. The registrations made with this address are now in your account, and the M3 team can review your sign-up.')
+                : t('verifyEmail.doneMember', 'Thank you. The registrations made with this address are now in your account.')}
             </p>
             <Button variant="cta" className={cn('w-full justify-between', CTA_WRAP)} roll={false} onClick={() => navigate(MEMBER_HOME, { replace: true })} data-help-avoid>
               {t('verifyEmail.continue', 'Go to my dashboard')}
+            </Button>
+          </AuthStatus>
+        </AuthShell>
+      </>
+    );
+  }
+
+  if (phase === 'failed' && reason === 'password_session_required') {
+    return (
+      <>
+        {head}
+        <AuthShell title={title} lead={null} points={false}>
+          <AuthStatus icon={<KeyRound className="h-6 w-6" />} title={t('verifyEmail.passwordTitle', 'Sign in with your password')}>
+            <p className="text-sm leading-6 text-meta">
+              {t('verifyEmail.passwordBody', 'For your security, this link works once you are signed in with your password. Sign in again: this page then confirms your address. Forgot your password? The sign-in form sends you a link to choose one.')}
+            </p>
+            <Button type="button" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={() => void signInAgain()} data-help-avoid>
+              {t('verifyEmail.signInAgain', 'Sign in again')}
             </Button>
           </AuthStatus>
         </AuthShell>

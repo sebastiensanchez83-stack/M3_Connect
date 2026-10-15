@@ -87,9 +87,10 @@ export function AuthRedirector() {
   const { pathname } = useLocation()
   // Flag front_door: no forced company wizard for drafts, and /welcome forced only
   // right after an e-mailed link (spec regspec-en.md §6 /welcome, §12: the 14
-  // pw_pending accounts are not sent there on every visit). Until the switches are
-  // read, the current rules apply.
-  const { flags } = useRegistrationFlags()
+  // pw_pending accounts are not sent there on every visit). Nothing is decided until
+  // the switches are read (one short request): with them still at their defaults the
+  // old "always /welcome" rule would fire on every fresh page load.
+  const { flags, ready: flagsReady } = useRegistrationFlags()
   const frontDoor = flags.front_door
   // A sign-up v2 account (its profile carries the cleaned intent) never meets the old
   // company wizard, even while front_door is still off.
@@ -98,7 +99,7 @@ export function AuthRedirector() {
   // a password: "right after such a link". The amr survives token refreshes, so an
   // older link session no longer forces /welcome on every visit.
   const linkAt = linkSessionAt(session)
-  const fromLink = linkAt !== null && (linkAt === 0 || Date.now() - linkAt < LINK_SESSION_FRESH_MS)
+  const fromLink = linkAt !== null && Date.now() - linkAt < LINK_SESSION_FRESH_MS
 
   const isAdminRoute = pathname.startsWith('/admin')
   const isOnboardingRoute = pathname === '/onboarding'
@@ -115,6 +116,10 @@ export function AuthRedirector() {
     // the destination of an e-mailed link is not lost. The pages with their own
     // locked state (/submit-rfp…) do the same through ProtectedRoute.
     if (!user) return
+
+    // The rules below depend on the registration switches: wait for them (with the
+    // flags off, the same rules as before then apply).
+    if (!flagsReady) return
 
     // The password pages drive their own next step (WelcomePage: ?next= or the stored
     // pw_pending_next; ResetPasswordPage: ?next= or the pw_pending fallback). A redirect
@@ -188,7 +193,7 @@ export function AuthRedirector() {
     if (isCompleted && isOnboardingRoute && !pendingInviteId) {
       navigate('/account', { replace: true })
     }
-  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute, frontDoor, noWizard, fromLink])
+  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute, frontDoor, noWizard, fromLink, flagsReady])
 
   return null
 }

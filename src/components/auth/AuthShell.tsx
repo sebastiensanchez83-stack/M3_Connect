@@ -43,6 +43,7 @@ export function AuthShell({
   seed = 'auth-shell',
   children,
   cardClassName,
+  stickyActions = false,
 }: {
   title: string;
   /** The sentence under the title (default: what the network is). `null` for none. */
@@ -62,6 +63,13 @@ export function AuthShell({
   /** The card's content (split) or the actions under the sentence (centered). */
   children?: ReactNode;
   cardClassName?: string;
+  /**
+   * The card holds a form with a sticky bottom button on phones (STICKY_ACTIONS: the
+   * registration Phase 2 pages, behind their flags). The panel then clips with
+   * overflow: clip where supported instead of hidden: same clipping of the photo, but
+   * no scroll container, so the button sticks to the screen. Off: unchanged.
+   */
+  stickyActions?: boolean;
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
@@ -69,10 +77,8 @@ export function AuthShell({
   const sentence = lead === undefined ? t('authRefonte.shell.lead', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events.") : lead;
   const enter = (delay: number) => ({ '--enter-delay': `${delay}s` }) as CSSProperties;
 
-  // overflow: clip where supported (not hidden): it clips the photo the same way but is no
-  // scroll container, so a form's sticky bottom button (sign-up v2, phones) sticks to the screen.
   return (
-    <section ref={ref} className="relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white supports-[overflow:clip]:overflow-clip lg:min-h-[min(100svh,860px)]">
+    <section ref={ref} className={cn('relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white lg:min-h-[min(100svh,860px)]', stickyActions && 'supports-[overflow:clip]:overflow-clip')}>
       <div aria-hidden="true" className="absolute inset-0 -z-30">
         <CoverImage
           src={image?.src ?? null}

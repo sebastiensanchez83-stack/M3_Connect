@@ -218,10 +218,12 @@ export function CompanyPicker({
   }
 
   // ── Searching ──
+  // With a company code the search is optional: the code alone names the company.
+  const hasCode = !!code.trim();
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <AuthLabel htmlFor={`${idPrefix}-search`}>{t('signupV2.company.label', 'Your company')} *</AuthLabel>
+        <AuthLabel htmlFor={`${idPrefix}-search`}>{t('signupV2.company.label', 'Your company')}{hasCode ? '' : ' *'}</AuthLabel>
         <div className="relative">
           <AuthInput
             id={`${idPrefix}-search`}
@@ -236,7 +238,11 @@ export function CompanyPicker({
           {searching && <Loader2 aria-hidden="true" className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-meta" />}
         </div>
         <FieldHint>
-          <span id={`${idPrefix}-search-hint`}>{t('signupV2.company.searchHint', 'Type its name: if it is already on the platform, pick it.')}</span>
+          <span id={`${idPrefix}-search-hint`}>
+            {hasCode
+              ? t('signupV2.company.searchHintCode', 'Your company code names the company: no need to search. You can still pick it from the list if you prefer.')
+              : t('signupV2.company.searchHint', 'Type its name: if it is already on the platform, pick it.')}
+          </span>
         </FieldHint>
       </div>
 

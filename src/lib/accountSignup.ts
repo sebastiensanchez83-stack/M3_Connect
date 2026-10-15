@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { throughWelcome } from '@/lib/confirmationLink';
 import { notifyAdminsOfSignup } from '@/lib/notifications';
 import { isAlreadyRegistered, type AuthErrorLike } from '@/lib/authErrors';
+import { loadRegistrationFlags } from '@/lib/flags';
 
 /**
  * The account sign-up v2 (registration Phase 2, AUTH lane; spec regspec-en.md §4.4,
@@ -149,6 +150,44 @@ export function sendEmailProof(): Promise<Result<{ sent?: boolean; already_prove
   return callAccountSignup<{ sent?: boolean; already_proven?: boolean }>({ action: 'send_email_proof' });
 }
 
+/**
+ * "Ask M3 to review again" (dashboard status card, an account M3 did not accept;
+ * spec §12: the 3 rejected accounts). The person's sign-up step is marked submitted
+ * again (onboarding_status, the same write as the old wizard's resubmit: the person
+ * may write it), then the M3 team is e-mailed through notify-admins (type "account
+ * review requested again", members only, 10 an hour). Only that e-mail reaching the
+ * function counts as done: any refusal comes back as `{ ok: false }`, so the card
+ * never says "Done" when nobody was told.
+ */
+export async function requestReviewAgain(input: {
+  userId: string;
+  name: string;
+  email: string;
+  reason?: string | null;
+}): Promise<Result<object>> {
+  try {
+    await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', input.userId);
+  } catch { /* the e-mail below is what tells M3 */ }
+  try {
+    const details = [
+      `Email: ${input.email}`,
+      input.reason ? `Reason given before: ${input.reason}` : '',
+      'The person asks the M3 team to review their account again (dashboard).',
+    ].filter(Boolean).join('\n');
+    const { data, error } = await supabase.functions.invoke('notify-admins', {
+      body: { submission_type: 'account review requested again', submitter: input.name, details, include_contact_inbox: true },
+    });
+    if (error) {
+      const status = (error as { context?: Response }).context?.status;
+      return { ok: false, error: status === 429 ? 'rate_limited' : 'unavailable' };
+    }
+    if (!isObj(data) || data.success !== true) return { ok: false, error: 'unavailable' };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'network' };
+  }
+}
+
 /* ------------------------------------------------------------------ RPCs */
 
 export interface ProofResult {
@@ -224,6 +263,10 @@ export async function sendSignupNotices(signup: unknown): Promise<void> {
 const JUST_RUN_MS = 10 * 60 * 1000;
 export async function sendNoticesAfterProof(): Promise<void> {
   try {
+    // The intent runs only with account_signup_v2 on (complete_signup_for: flag_off): with
+    // it off there is nothing to send, and nothing new is read.
+    const flags = await loadRegistrationFlags();
+    if (!flags.account_signup_v2) return;
     const { data: s } = await supabase.auth.getSession();
     const uid = s.session?.user?.id;
     if (!uid) return;
@@ -247,7 +290,7 @@ export async function submitSignupIntent(intent: SignupIntent): Promise<Result<{
     const { data, error } = await supabase.rpc('submit_signup_intent', { p_intent: intent });
     if (error) {
       const msg = error.message || '';
-      const known = ['no_profile', 'account_suspended', 'already_in_company', 'request_pending', 'too_soon', 'bad_input', 'not_signed_in'];
+      const known = ['flag_off', 'no_profile', 'account_suspended', 'already_in_company', 'request_pending', 'too_soon', 'bad_input', 'not_signed_in'];
       const code = known.find((k) => msg === k || msg.includes(k));
       if (code) return { ok: false, error: code };
       if (error.code === 'PGRST202' || error.code === '42883') return { ok: false, error: 'unavailable' };
@@ -349,9 +392,10 @@ export function linkSessionAt(session: Session | null | undefined): number | nul
     let at: number | null = null;
     for (const a of claims.amr) {
       if (!isObj(a) || typeof a.method !== 'string' || !LINK_METHODS.includes(a.method)) continue;
-      const ts = typeof a.timestamp === 'number' ? a.timestamp * 1000 : null;
-      if (ts && (at === null || ts > at)) at = ts;
-      else if (!ts && at === null) at = 0;
+      // An entry without a time says nothing about "right after" (mark_email_proven needs
+      // a numeric timestamp too): ignored, never taken as fresh.
+      const ts = typeof a.timestamp === 'number' && Number.isFinite(a.timestamp) && a.timestamp > 0 ? a.timestamp * 1000 : null;
+      if (ts !== null && (at === null || ts > at)) at = ts;
     }
     return at;
   } catch {

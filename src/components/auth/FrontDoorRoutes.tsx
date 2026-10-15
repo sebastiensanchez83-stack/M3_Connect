@@ -40,6 +40,9 @@ export function OnboardingRoute({ legacy }: { legacy: ReactNode }) {
  *  - anything else: the dashboard (signed out, its sign-in form first).
  * A claim code needs the sign-up v2 (account_signup_v2) to be read: without it the
  * code keeps going to the wizard of before (`legacy`).
+ * The code travels on as ?claim=, never ?code=: supabase-js (PKCE, detectSessionInUrl)
+ * reads ?code= as a sign-in code when the page loads, and a failed exchange (a stale
+ * code verifier in this browser) would sign the person out.
  */
 export function OnboardingRedirect({ legacy }: { legacy: ReactNode }) {
   const { user, loading } = useAuth();
@@ -47,11 +50,11 @@ export function OnboardingRedirect({ legacy }: { legacy: ReactNode }) {
   const { search } = useLocation();
   if (loading) return <ScreenLoader />;
   const params = new URLSearchParams(search);
-  const code = (params.get('code') || '').trim();
+  const code = (params.get('code') || '').trim().slice(0, 40);
   if (code) {
     if (!flags.account_signup_v2) return <>{legacy}</>;
-    if (user) return <Navigate to={`/?code=${encodeURIComponent(code)}#dashboard`} replace />;
-    const keep = new URLSearchParams({ code });
+    if (user) return <Navigate to={`/?claim=${encodeURIComponent(code)}#dashboard`} replace />;
+    const keep = new URLSearchParams({ claim: code });
     const email = params.get('email');
     if (email) keep.set('email', email);
     return <Navigate to={`${SIGNUP_PATH}?${keep.toString()}`} replace />;

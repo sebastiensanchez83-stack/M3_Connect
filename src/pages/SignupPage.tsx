@@ -35,7 +35,9 @@ export function SignupPage() {
   const [params] = useState(() => new URLSearchParams(window.location.search));
   const then = safeNext(params.get('then'), { deny: ['/signup', '/welcome', '/reset-password', '/verify-email'] });
   const email = (params.get('email') || '').trim().slice(0, 254);
-  const code = (params.get('code') || '').trim().slice(0, 40);
+  // ?claim= (the front door's own redirects: a name supabase-js never reads as a sign-in
+  // code) or the claim e-mail's ?code=.
+  const code = (params.get('claim') || params.get('code') || '').trim().slice(0, 40);
   const [loginOpen, setLoginOpen] = useState(false);
   // Signed in when the page opened, not by the sign-up made here: with Confirm email off,
   // signUp signs the new account in at once, and its "Confirm your e-mail" step must stay
@@ -50,6 +52,7 @@ export function SignupPage() {
     if (!showForm || !code) return;
     try {
       const url = new URL(window.location.href);
+      url.searchParams.delete('claim');
       url.searchParams.delete('code');
       window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
     } catch { /* ignore */ }
@@ -61,7 +64,7 @@ export function SignupPage() {
   if (!flags.front_door) return <NotFoundPage />;
   if (user && arrivedSignedIn.current) {
     // A claim code: "Add my company" on the dashboard (sign-up v2), else the wizard of before.
-    if (code) return <Navigate to={flags.account_signup_v2 ? `/?code=${encodeURIComponent(code)}#dashboard` : `/onboarding?code=${encodeURIComponent(code)}`} replace />;
+    if (code) return <Navigate to={flags.account_signup_v2 ? `/?claim=${encodeURIComponent(code)}#dashboard` : `/onboarding?code=${encodeURIComponent(code)}`} replace />;
     return <Navigate to={then ?? MEMBER_HOME} replace />;
   }
 
@@ -73,6 +76,7 @@ export function SignupPage() {
         <meta name="robots" content="noindex" />
       </Helmet>
       <AuthShell
+        stickyActions={flags.account_signup_v2}
         title={title}
         lead={t('signupPage.lead', 'Free. Marinas, service providers, investors, developers and media meet here, and the M3 team checks every member.')}
       >

@@ -8,7 +8,7 @@
 // function adds the e-mails, the status links, the rate limits and the flags.
 // wys26 (engine guest_list_v1) keeps the FROZEN guest-list function; here it only
 // gets the "parity" request form (flag wys_form_v2) and, behind wys_status_edit,
-// edit / cancel / attach of a request through its personal link.
+// edit / cancel / restore / attach of a request through its personal link.
 //
 // verify_jwt = FALSE: anonymous visitors call it. When an Authorization header
 // carries a user session, the session is checked here (auth.getUser).
@@ -22,7 +22,7 @@
 //   webinar_v2 / onsite_v2  core_v2 registration on webinars / on-site events
 //                           (hidden test events and staff work with the flag off)
 //   wys_form_v2             parity request form for guest_list_v1 events
-//   wys_status_edit         edit / cancel / attach a wys26 request by its link
+//   wys_status_edit         edit / cancel / restore / attach a wys26 request by its link
 //   turnstile               Cloudflare Turnstile required for anonymous registration
 //
 // This file must not contain a literal backslash-u escape (the MCP deploy mangles
@@ -1136,10 +1136,20 @@ function renderFloodAlert(ctx: Ctx, count: number): Mail {
 // renderParityAck = guest-list renderRequestAck + the "View my request" button.
 // renderParityStaffNotice = guest-list renderStaffNotice, unchanged.
 // scripts/email-previews.mjs checks both against the guest-list code.
-type Ev = { id: string; slug: string; title: string; capacity: number | null; notify_email: string | null; requests_open: boolean; settings: Record<string, any> };
+type Ev = { id: string; slug: string; title: string; capacity: number | null; notify_email: string | null; requests_open: boolean; settings: Record<string, any>; hidden?: boolean };
 type Guest = Record<string, any>;
 
-const guestUrl = (ev: Ev, g: Guest) => `${SITE_URL}/${ev.slug}/guest?t=${g.token}`;
+/** The personal page of a guest-list row. Only /wys26/guest exists as a route, and that page
+ *  reads nothing but the token: a HIDDEN event (canary-onsite) uses it on REGISTRATION_SITE_URL
+ *  (the site that has the wys_status_edit code), so its links can be opened during the tests. */
+const glPersonalUrl = (slug: string, hidden: boolean, token: string) =>
+  hidden ? `${REG_SITE}/wys26/guest?t=${token}` : `${SITE_URL}/${slug}/guest?t=${token}`;
+const guestUrl = (ev: Ev, g: Guest) => glPersonalUrl(ev.slug, ev.hidden === true, String(g.token));
+/** The parity e-mails' view of a guest-list event. */
+const glEvOf = (ev: Json): Ev => ({
+  id: ev.id, slug: ev.slug, title: ev.title, capacity: ev.capacity, notify_email: ev.notify_email,
+  requests_open: ev.requests_open, settings: ev.settings || {}, hidden: ev.hidden === true,
+});
 
 /** The line under every e-mail: date, venue, city (plain text, may be empty). */
 function eventLine(ev: Ev): string {
@@ -1638,55 +1648,31 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   const { count } = await db.from("gl_guest").select("id", { count: "exact", head: true })
     .eq("event_id", ev.id).eq("source", "request").gte("created_at", since);
   if ((count || 0) > 40) return json(req, { error: "busy" }, 429);
-  const { data: existing } = await db.from("gl_guest").select("id, source, status, decided_by, decided_at, user_id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
+  const { data: existing } = await db.from("gl_guest").select("id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
+  // Same answer as a new request, whatever the existing status: this form must not reveal who
+  // is on the list, and (as guest-list) it never writes on a row that exists. A request its
+  // author cancelled from the personal link comes back through that link only (`restore`).
+  if (existing) return json(req, { ok: true });
   const extra: Json = { consents: consentsFrom(body.consents) };
   // Linked only to an account that PROVED this very address (the DB guard drops anything else).
   const proven = !!caller && caller.proven && caller.email === g.email;
-  let row: Json | null = null;
-  let revivedRow = false;
-  if (existing) {
-    // Same answer as a new request, whatever the existing status: this form must not reveal
-    // who is on the list. One exception: a request its author cancelled from the personal
-    // link (wys_status_edit) comes back to life as a new request (same row, same token,
-    // legacy values only). Staff never get there: guest-list's staff cancel stamps
-    // decided_at and decided_by (decided_at stays even if that staff account is deleted).
-    const e = existing as Json;
-    if (e.source !== "request" || e.status !== "cancelled" || e.decided_by || e.decided_at) return json(req, { ok: true });
-    const revive = (withUser: boolean) => db.from("gl_guest")
-      .update({ ...g, ...extra, ...(withUser ? { user_id: caller!.id } : {}), status: "requested", cancelled_at: null })
-      .eq("id", e.id).eq("status", "cancelled").is("decided_by", null).is("decided_at", null).select("*").maybeSingle();
-    const linkIt = proven && !e.user_id;
-    let { data: revived, error: reviveErr } = await revive(linkIt);
-    // 23505 with a user_id: this account already holds another row of the event
-    // (gl_guest_event_user_uq). The request still comes back, unlinked.
-    if (reviveErr && reviveErr.code === "23505" && linkIt) ({ data: revived, error: reviveErr } = await revive(false));
-    if (reviveErr) {
-      console.error("registration: parity revive failed", reviveErr.code, reviveErr.message);
-      return json(req, { ok: true });
-    }
-    if (!revived) return json(req, { ok: true });
-    row = revived as Json;
-    revivedRow = true;
-  } else {
-    const insert = (withUser: boolean) => db.from("gl_guest")
-      .insert({ ...g, ...extra, ...(withUser ? { user_id: caller!.id } : {}), event_id: ev.id, source: "request", status: "requested" })
-      .select("*").single();
-    let { data: inserted, error } = await insert(proven);
-    // guest-list reads 23505 as "this address is already on the list" (unique event + e-mail).
-    // With a user_id it may instead be gl_guest_event_user_uq (this account already holds
-    // another row of the event, under another address): the request must not be lost, so it
-    // is written again without the link, exactly as guest-list would write it.
-    if (error && error.code === "23505" && proven) ({ data: inserted, error } = await insert(false));
-    if (error) {
-      if (error.code === "23505") return json(req, { ok: true });
-      console.error("registration: parity insert failed", error.code, error.message);
-      return json(req, { error: "server" }, 500);
-    }
-    row = inserted as Json;
+  const insert = (withUser: boolean) => db.from("gl_guest")
+    .insert({ ...g, ...extra, ...(withUser ? { user_id: caller!.id } : {}), event_id: ev.id, source: "request", status: "requested" })
+    .select("*").single();
+  let { data: inserted, error } = await insert(proven);
+  // guest-list reads 23505 as "this address is already on the list" (unique event + e-mail).
+  // With a user_id it may instead be gl_guest_event_user_uq (this account already holds
+  // another row of the event, under another address): the request must not be lost, so it
+  // is written again without the link, exactly as guest-list would write it.
+  if (error && error.code === "23505" && proven) ({ data: inserted, error } = await insert(false));
+  if (error) {
+    if (error.code === "23505") return json(req, { ok: true });
+    console.error("registration: parity insert failed", error.code, error.message);
+    return json(req, { error: "server" }, 500);
   }
-  const evRow: Ev = { id: ev.id, slug: ev.slug, title: ev.title, capacity: ev.capacity, notify_email: ev.notify_email, requests_open: ev.requests_open, settings: ev.settings || {} };
-  const sent = row as Json;
-  await inBackground("wys26 request e-mails", () => sendParityMails(evRow, sent, revivedRow));
+  const sent = inserted as Json;
+  const evRow = glEvOf(ev);
+  await inBackground("wys26 request e-mails", () => sendParityMails(evRow, sent));
   return json(req, { ok: true });
 }
 
@@ -1694,14 +1680,14 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
  *  (sendRequestAck + notifyStaff): same sender, reply-to, recipients, subjects and log kinds;
  *  the acknowledgement adds "View my request". scripts/contract/wys-parity.mjs renders this
  *  function next to guest-list's for the same row.
- *  A REVIVED request (cancelled from its link, then sent again) is not counted by the flood
- *  guard (its created_at is old), and its holder could cancel and send it again in a loop:
- *  the staff notice of a revived row goes out at most once a day. The acknowledgement always
- *  goes (to the row's own inbox: each revival needs a cancel from that inbox's link first). */
-async function sendParityMails(ev: Ev, g: Guest, revived = false): Promise<boolean[]> {
+ *  A RESTORED request (`restore`: cancelled from its link, then sent again from that link) is
+ *  not counted by the flood guard (its created_at is old), and its holder could cancel and
+ *  restore it in a loop: its staff notice goes out at most once a day. The acknowledgement
+ *  always goes (to the row's own inbox: only the holder of that inbox's link can restore). */
+async function sendParityMails(ev: Ev, g: Guest, restored = false): Promise<boolean[]> {
   const from = `${ev.title.replace(/[<>"]/g, "")} <${FROM_ADDRESS}>`;
   const replyTo = ev.settings?.contact_email || EM.contact;
-  const staffRecent = revived && ev.notify_email ? await sentRecently(g.id, "staff_notify", STAFF_NEW_MAIL_GAP_MS) : false;
+  const staffRecent = restored && ev.notify_email ? await sentRecently(g.id, "staff_notify", STAFF_NEW_MAIL_GAP_MS) : false;
   return Promise.all([
     sendMail({ from, to: g.email, replyTo, mail: renderParityAck(ev, g), log: { guestId: g.id, eventId: ev.id, kind: "request_ack" } }),
     ev.notify_email && !staffRecent
@@ -1877,19 +1863,44 @@ async function statusView(t: Target): Promise<Json> {
 
 async function actionStatus(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
   const t = await resolveTarget(body, caller, flags, { touch: true, allowGuestLink: true });
-  if (t.via === "guest_link") return json(req, guestRequestView(t));
+  if (t.via === "guest_link") return json(req, guestRequestView(t, caller));
   return json(req, await statusView(t));
 }
 
+/** Guest-list statuses a personal link may add to an account ("Add to my account"). */
+const GL_ATTACHABLE = new Set(["requested", "invited", "confirmed"]);
+/** ...of which the token was only ever e-mailed. A confirmed row's gl_guest.token is ALSO its
+ *  door QR (/admin/guest-list/<slug>/checkin?token=…, printed on every pass): anyone who saw a
+ *  pass holds it. So another address may take a requested or invited row (the link reached
+ *  that inbox), never a confirmed one, and a staff account never takes someone else's row
+ *  (staff open guests' personal links from AdminGuestList). */
+const GL_EMAILED_ONLY = new Set(["requested", "invited"]);
+
+function guestLinkAttach(g: Json, caller: Caller | null): { can: boolean; sameEmail: boolean } {
+  const sameEmail = !!caller && !!caller.email && String(g.email || "").trim().toLowerCase() === caller.email;
+  const status = String(g.status);
+  const can = !!caller && !g.user_id && GL_ATTACHABLE.has(status) &&
+    (sameEmail || (GL_EMAILED_ONLY.has(status) && !caller.isStaff));
+  return { can, sameEmail };
+}
+
+/** A request its author cancelled from the personal link: never touched by staff (guest-list's
+ *  staff cancel stamps decided_at and decided_by; decided_at stays even if that staff account is
+ *  deleted), not a plus-one (its host asks again; plus-one logic stays guest-list's). */
+const glSelfCancelled = (g: Json) =>
+  g.status === "cancelled" && g.source === "request" && !g.plus_one_of && !g.decided_by && !g.decided_at;
+
 /** wys26 personal link (flag wys_status_edit): what the personal page needs to offer "Edit my
- *  request", "Cancel my request" and "Add to my account". The page itself keeps guest-list's
- *  "guest" action for everything else (invitation, RSVP, pass, plus-one). The details of the
- *  request are given only while it can be edited, to the holder of the link (the inbox). */
-function guestRequestView(t: Target): Json {
+ *  request", "Cancel my request", "Send my request again" and "Add to my account". The page
+ *  itself keeps guest-list's "guest" action for everything else (invitation, RSVP, pass,
+ *  plus-one). The details of the request are given only while it can be edited, to the holder
+ *  of the link (the inbox). */
+function guestRequestView(t: Target, caller: Caller | null): Json {
   const g = t.g;
   const status = String(g.status);
   const isRequest = g.source === "request";
   const canEdit = status === "requested" && isRequest;
+  const attach = guestLinkAttach(g, caller);
   return {
     ok: true,
     engine: "guest_list_v1",
@@ -1900,8 +1911,14 @@ function guestRequestView(t: Target): Json {
     can_edit: canEdit,
     // A plus-one request can be withdrawn too (the host may then ask for someone else).
     can_cancel: status === "requested",
+    can_restore: glSelfCancelled(g) && t.ctx.ev.requests_open === true,
     linked: !!g.user_id,
     linked_to_me: !!t.callerId && g.user_id === t.callerId,
+    // Signed in: may this account take the row, and is it the address the link was sent to?
+    can_attach: attach.can,
+    same_email: attach.sameEmail,
+    // Only to say, before adding it to ANOTHER address's account, where the link was sent.
+    email_masked: attach.can && !attach.sameEmail ? maskEmail(String(g.email || "")) : null,
     request: canEdit
       ? {
         first_name: g.first_name,
@@ -1922,7 +1939,7 @@ function guestRequestView(t: Target): Json {
 // ─── Public: update ──────────────────────────────────────────────────────────
 async function actionUpdate(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
   const t = await resolveTarget(body, caller, flags, { touch: false, allowGuestLink: true });
-  if (t.via === "guest_link") return updateGuestListRequest(req, body, t);
+  if (t.via === "guest_link") return updateGuestListRequest(req, body, t, caller);
   if (t.readOnly) throw new HttpError(403, "sign_in_required");
   const { g, ctx } = t;
   const ev = ctx.ev;
@@ -2028,7 +2045,7 @@ function changedLabels(before: Json, after: Json, questions: Json[]): string[] {
 /** wys26 request edited from its personal link (flag wys_status_edit): only an invitation
  *  request (source 'request'; a plus-one follows its host), only while requested. The names
  *  and the e-mail are never editable. Answers the same view as `status`. */
-async function updateGuestListRequest(req: Request, body: Json, t: Target): Promise<Response> {
+async function updateGuestListRequest(req: Request, body: Json, t: Target, caller: Caller | null): Promise<Response> {
   const g = t.g;
   if (g.status !== "requested" || g.source !== "request") throw new HttpError(409, "locked");
   const patch: Json = {};
@@ -2044,11 +2061,11 @@ async function updateGuestListRequest(req: Request, body: Json, t: Target): Prom
   const conf = "wants_conference" in patch ? patch.wants_conference : g.wants_conference;
   const gala = "wants_gala" in patch ? patch.wants_gala : g.wants_gala;
   if (!conf && !gala) return json(req, { error: "no_part" }, 400);
-  if (!Object.keys(patch).length) return json(req, guestRequestView(t));
+  if (!Object.keys(patch).length) return json(req, guestRequestView(t, caller));
   const { data: up, error } = await db.from("gl_guest").update(patch).eq("id", g.id).eq("status", "requested").select("*").maybeSingle();
   if (error) throw error;
   if (!up) throw new HttpError(409, "locked");
-  return json(req, guestRequestView({ ...t, g: up as Json }));
+  return json(req, guestRequestView({ ...t, g: up as Json }, caller));
 }
 
 // ─── Public: cancel ──────────────────────────────────────────────────────────
@@ -2061,6 +2078,7 @@ async function actionCancel(req: Request, body: Json, caller: Caller | null, fla
     const { data: up, error } = await db.from("gl_guest").update({ status: "cancelled" }).eq("id", g.id).eq("status", "requested").select("id").maybeSingle();
     if (error) throw error;
     if (!up) throw new HttpError(409, "locked");
+    await logGuestLink(g, "cancelled_by_guest", caller);
     return json(req, { ok: true, status: "cancelled" });
   }
   if (t.readOnly) throw new HttpError(403, "sign_in_required");
@@ -2076,6 +2094,44 @@ async function actionCancel(req: Request, body: Json, caller: Caller | null, fla
     log: { guestId: up.id, eventId: ctx.ev.id, kind: "reg_cancelled", by: caller?.id || null },
   });
   return json(req, { ok: true, status: "cancelled" });
+}
+
+/** History line of a personal-link change (staff read review_log): a cancel by the guest is
+ *  told from a staff cancel, and a restored request is not mistaken for a new one. */
+async function logGuestLink(g: Json, action: string, caller: Caller | null) {
+  const { error } = await db.from("review_log").insert({
+    subject_type: "registration",
+    subject_id: g.id,
+    action,
+    details: { gl_event_id: g.event_id, via: "guest_link" },
+    actor_id: caller?.id ?? null,
+  });
+  if (error) console.error("registration: review_log failed", error.message);
+}
+
+// ─── Public: restore (wys26 personal link) ───────────────────────────────────
+/** "Send my request again" (flag wys_status_edit): a request its author cancelled from this
+ *  link goes back to "requested" (same row, same token, same details), while the event takes
+ *  requests. Holding the link proves the inbox: the /wys26 form itself never writes on a row
+ *  that exists, exactly as guest-list. Then the parity acknowledgement, and the staff notice at
+ *  most once a day for that row. A request cancelled by staff, a plus-one or a decided row:
+ *  409 locked. */
+async function actionRestore(req: Request, body: Json, caller: Caller | null, flags: Flags): Promise<Response> {
+  const t = await resolveTarget(body, caller, flags, { touch: false, allowGuestLink: true });
+  if (t.via !== "guest_link") throw new HttpError(404, "not_found");
+  const g = t.g;
+  if (!glSelfCancelled(g)) throw new HttpError(409, "locked");
+  if (t.ctx.ev.requests_open !== true) return json(req, { error: "closed" }, 400);
+  const { data: up, error } = await db.from("gl_guest").update({ status: "requested", cancelled_at: null })
+    .eq("id", g.id).eq("status", "cancelled").eq("source", "request").is("plus_one_of", null)
+    .is("decided_by", null).is("decided_at", null).select("*").maybeSingle();
+  if (error) throw error;
+  if (!up) throw new HttpError(409, "locked");
+  const row = up as Json;
+  await logGuestLink(row, "restored_by_guest", caller);
+  const evRow = glEvOf(t.ctx.ev);
+  await inBackground("wys26 restore e-mails", () => sendParityMails(evRow, row, true));
+  return json(req, guestRequestView({ ...t, g: row }, caller));
 }
 
 // ─── Public: reminders on / off for one registration ─────────────────────────
@@ -2130,7 +2186,7 @@ async function actionResendLinks(req: Request, body: Json, _caller: Caller | nul
         if (url) items.push({ title: ctx.title, when: whenText(ctx), url, label: "View my registration", guestId: g.id, eventId: ctx.ev.id });
       } else if (v1Links && g.token) {
         const label = g.status === "requested" ? "View my request" : "Open my invitation";
-        items.push({ title: ctx.title, when: clean(ctx.ev.settings?.date_label, 120) || whenText(ctx), url: `${SITE_URL}/${ctx.ev.slug}/guest?t=${g.token}`, label, guestId: g.id, eventId: ctx.ev.id });
+        items.push({ title: ctx.title, when: clean(ctx.ev.settings?.date_label, 120) || whenText(ctx), url: glPersonalUrl(ctx.ev.slug, ctx.ev.hidden === true, String(g.token)), label, guestId: g.id, eventId: ctx.ev.id });
       }
     }
     if (!items.length) return;
@@ -2151,6 +2207,13 @@ async function actionAttach(req: Request, body: Json, caller: Caller | null, fla
   const g = t.g;
   if (g.user_id === caller.id) return json(req, { ok: true, already: true });
   if (g.user_id) return json(req, { error: "linked_elsewhere" }, 409);
+  if (t.via === "guest_link") {
+    // wys26: only a request, an invitation or a confirmed place; another address than the
+    // row's only for a token that was never printed in a door QR, and never for staff
+    // (GL_EMAILED_ONLY). guestRequestView's can_attach says the same to the page.
+    if (!GL_ATTACHABLE.has(String(g.status))) throw new HttpError(409, "locked");
+    if (!guestLinkAttach(g, caller).can) return json(req, { error: "use_invitation_email" }, 409);
+  }
   const { data: other } = await db.from("gl_guest").select("id").eq("event_id", g.event_id).eq("user_id", caller.id).limit(1);
   if ((other as Json[] | null)?.length) return json(req, { error: "already_registered" }, 409);
   // The token proves the registration's mailbox, the session proves the account.
@@ -2249,7 +2312,7 @@ async function actionSendStatusLink(req: Request, body: Json, caller: Caller | n
     item = {
       title: ctx.title,
       when: clean(ctx.ev.settings?.date_label, 120) || whenText(ctx),
-      url: `${SITE_URL}/${ctx.ev.slug}/guest?t=${g.token}`,
+      url: glPersonalUrl(ctx.ev.slug, ctx.ev.hidden === true, String(g.token)),
       label: g.status === "requested" ? "View my request" : "Open my invitation",
     };
   }
@@ -2288,6 +2351,7 @@ const ACTIONS: Record<string, Handler> = {
   status: actionStatus,
   update: actionUpdate,
   cancel: actionCancel,
+  restore: actionRestore,
   reminders: actionReminders,
   resend_links: actionResendLinks,
   attach: actionAttach,

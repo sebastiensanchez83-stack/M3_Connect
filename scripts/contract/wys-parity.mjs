@@ -15,20 +15,28 @@
 //   4. a parity row is an ordinary guest-list row: guest-list's guest view, staff decide
 //      (pass e-mail, QR = /admin/guest-list/<slug>/checkin?token=<token>) and gl_checkin
 //      work on it unchanged;
-//   5. the personal-page actions behind wys_status_edit (status / update / cancel through
-//      `registration`, with the gl_guest.token): what they change and nothing else, the
-//      refusals (locked, missing_fields, no_part, sign_in_required), a self-cancelled
-//      request brought back by the parity form only, a staff-cancelled one never.
+//   5. the personal-page actions behind wys_status_edit (status / update / cancel / restore
+//      through `registration`, with the gl_guest.token): what they change and nothing else,
+//      the refusals (locked, missing_fields, no_part, sign_in_required); a self-cancelled
+//      request comes back through its link only (`restore`): the parity form, like
+//      guest-list, never writes on an existing row; a staff-cancelled request never comes back.
 //   Optional (MEMBER_JWT): the user_id rule of a signed-in request (linked only when the
-//   account PROVED that very address) and "Add to my account" (attach).
+//   account PROVED that very address) and "Add to my account" (attach): another address may
+//   take a requested row, never a confirmed one (its token is also the door QR).
 //
 // KNOWN DIFFERENCES (on purpose; see supabase/functions/registration/README.md, `register`):
 //   - the switch: parity answers 403 not_available while wys_form_v2 is off, EXCEPT on a
-//     hidden event (this canary): that is why this script runs with every switch off;
+//     hidden event (this canary): that is why this script runs with every switch off (an
+//     UNKNOWN personal link answers 403 not_available while wys_status_edit is off, 404
+//     not_found once it is on: nothing is told about a link before the switch);
+//   - "View my request" of a hidden event points at REGISTRATION_SITE_URL/wys26/guest?t=
+//     (the only personal-page route; it reads the token only), so the canary's link opens;
 //   - the deployed guest-list (version 6, frozen until 28 Nov) sends the pre-refonte HTML
 //     frame without a text part; parity sends the SMC e-mail layout v1 (the repo's
-//     guest-list look). Point 3 compares the repository templates; compare the two inboxes
-//     by eye once (subject, words, sender, reply-to) before flipping wys_form_v2;
+//     guest-list look, never deployed). Point 3 compares the REPOSITORY templates only, not
+//     what v6 sends: compare the two inboxes by eye once (subject, words, sender, reply-to,
+//     look) before flipping wys_form_v2 (a Victor decision: the new look for the request
+//     acknowledgement while invitations and passes keep the old one until 28 Nov);
 //   - reply-to when the event has no settings.contact_email (this canary): deployed
 //     guest-list contact@smartmarinaconnect.com, parity events@m3monaco.com (wys26 sets
 //     contact_email: identical there). Not logged, so not checked here: look at the inbox;
@@ -38,11 +46,19 @@
 // CONTRACT_EMAIL inbox (and to CONTRACT_EMAIL with tag "staff" as the staff address). It
 // refuses any slug that is not canary-*, wys26 in any form, an event that is not hidden,
 // not guest_list_v1 or has a public catalogue row, and runs only while the "provisioning"
-// switch is off (an approval below queues an account job; its row is deleted at the end,
-// so provision-person skips it). It deletes the canary's guest rows at the start and at the
-// end, and puts back requests_open = false, notify_email and capacity as they were.
-// The attach test (MEMBER_JWT only) leaves one review_log row (action "attach") about a
-// canary row: staff cannot delete review_log rows.
+// switch is off. It deletes the canary's guest rows at the start and at the end, and puts
+// back requests_open = false, notify_email and capacity as they were.
+// WHAT A RUN LEAVES BEHIND (staff can only read these tables; the coordinator cleans them
+// with the service role, or leaves them):
+//   - ONE account_provision_job, status 'queued', e-mail CONTRACT_EMAIL+parity: the approval
+//     (G2) fires gl_guest_queue_provisioning (canary-onsite is on-site). Its guest row is
+//     deleted at the end, so provision-person marks it skipped once provisioning is on; until
+//     then it counts as "waiting" in the staff digest. The run prints its id.
+//   - review_log rows about canary rows: "cancelled_by_guest" and "restored_by_guest" (C1,
+//     C5, C7, C8), and with MEMBER_JWT one "attach" (U3).
+//   - with MEMBER_JWT, U1 sends a real request_ack to that account's OWN address: use a
+//     dedicated NON-STAFF test account whose auth e-mail is a CONTRACT_EMAIL alias, never a
+//     person's (a staff account may not take another address's row: U3 would fail).
 //
 // Usage (Node 18+; run from the repository root, it reads the functions' source):
 //   node scripts/contract/wys-parity.mjs --offline
@@ -50,10 +66,12 @@
 //       no database: safe anywhere, run it after any change to either function.
 //   SUPABASE_URL=https://<ref>.supabase.co SUPABASE_ANON_KEY=<public anon key> \
 //   STAFF_JWT=<access token of a verified admin session> \
-//   CONTRACT_EMAIL='you+{tag}@your-domain' [MEMBER_JWT=<access token of a test account>] \
+//   CONTRACT_EMAIL='you+{tag}@your-domain' [MEMBER_JWT=<access token of a non-staff test account>] \
 //   node scripts/contract/wys-parity.mjs [--slug canary-onsite] [--yes]
 //       without --yes it only prints the plan. Never commit tokens or keys.
 // Optional: SITE_URL (the functions' SITE_URL secret, default https://smartmarinaconnect.com),
+//           REGISTRATION_SITE_URL (the registration function's secret of that name, default
+//           SITE_URL: the site of a hidden event's links),
 //           CONTRACT_CAPTCHA (a Turnstile token; only if TURNSTILE_ENFORCE=true, which this
 //           script cannot satisfy for its ~40 requests: run it in soft mode).
 
@@ -75,6 +93,7 @@ const STAFF = process.env.STAFF_JWT || '';
 const MEMBER = process.env.MEMBER_JWT || '';
 const EMAIL_TEMPLATE = process.env.CONTRACT_EMAIL || '';
 const SITE_URL = (process.env.SITE_URL || 'https://smartmarinaconnect.com').replace(/\/+$/, '');
+const REG_SITE = (process.env.REGISTRATION_SITE_URL || SITE_URL).replace(/\/+$/, '');
 const CAPTCHA = process.env.CONTRACT_CAPTCHA || undefined;
 const SLUG = opt('--slug', 'canary-onsite');
 const OFFLINE = flag('--offline');
@@ -106,7 +125,7 @@ async function loadRenderers() {
     let src = fs.readFileSync(path.join(ROOT, 'supabase', 'functions', fn, 'index.ts'), 'utf8');
     src = src.replace(/^import .*$/gm, '');
     const js = ts.transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-    const Deno = { env: { get: (k) => (k === 'SITE_URL' ? SITE_URL : undefined) }, serve() {} };
+    const Deno = { env: { get: (k) => (k === 'SITE_URL' ? SITE_URL : k === 'REGISTRATION_SITE_URL' ? REG_SITE : undefined) }, serve() {} };
     return new Function('Deno', 'createClient', 'QRCode', `${js}\nreturn { ${names.join(', ')} };`)(Deno, () => ({}), {});
   };
   return {
@@ -117,14 +136,16 @@ async function loadRenderers() {
 
 /** Point 3: the parity e-mails of `row` against guest-list's, from the repository code. */
 function compareTemplates(R, id, ev, row) {
-  const personal = `${SITE_URL}/${ev.slug}/guest?t=${row.token}`;
+  // A hidden event's personal link: the /wys26/guest page on the registration site (the only
+  // personal-page route; it reads the token only). Any other event: guest-list's own link.
+  const personal = ev.hidden === true ? `${REG_SITE}/wys26/guest?t=${row.token}` : `${SITE_URL}/${ev.slug}/guest?t=${row.token}`;
   const glAck = R.gl.renderRequestAck(ev, row);
   const pAck = R.reg.renderParityAck(ev, row);
   check(`${id}a`, 'ack subject identical', glAck.subject === pAck.subject, `${glAck.subject} / ${pAck.subject}`);
   check(`${id}b`, 'ack words identical apart from "View my request: <personal link>"',
     pAck.text.replace(`View my request: ${personal}\n\n`, '') === glAck.text, pAck.text);
   const escaped = personal.replace(/&/g, '&amp;');
-  check(`${id}c`, 'ack has the "View my request" button to /<slug>/guest?t=<token>',
+  check(`${id}c`, `ack has the "View my request" button to ${ev.hidden === true ? 'REGISTRATION_SITE_URL/wys26' : '/<slug>'}/guest?t=<token>`,
     pAck.html.includes(`href="${escaped}"`) && pAck.html.includes('View my request'), personal);
   // Apart from the button row, the HTML is guest-list's.
   const strip = (html) => html.replace(/<tr><td class="px" align="left" style="padding:8px 40px 8px;">[\s\S]*?<\/table><\/td><\/tr>/, '');
@@ -150,6 +171,7 @@ if (OFFLINE) {
   };
   compareTemplates(R, 'T1', ev, row);
   compareTemplates(R, 'T2', { ...ev, title: 'World Yachting Summit 2026', settings: {} }, { ...row, motivation: '', phone: '', country: '', wants_gala: true });
+  compareTemplates(R, 'T3', { ...ev, hidden: true }, row);
   console.log(`\n${pass} PASS, ${fail} FAIL (wys parity templates, offline)`);
   process.exit(fail ? 1 : 0);
 }
@@ -162,9 +184,9 @@ const PLAN = [
   'duplicates on both (same function, across functions, other letter case): same {ok:true}, no new row, no new e-mail',
   'e-mails: gl_email_log kinds, recipients, sender and event identical; repository templates compared for the rows written',
   'personal page (wys_status_edit actions, canary skips the switch): status / update / cancel and their refusals',
-  'self-cancelled request: guest-list re-request records nothing; parity re-request brings the same row back; staff-cancelled never',
+  'self-cancelled request: guest-list and parity re-requests record nothing; restore (personal link) brings the same row back; staff-cancelled never',
   'guest-list on a parity row: guest view, staff approve (pass + QR URL), gl_checkin',
-  ...(MEMBER ? ['MEMBER_JWT: user_id only for a proven account sending its own address; attach ("Add to my account")'] : []),
+  ...(MEMBER ? ['MEMBER_JWT: user_id only for a proven account sending its own address; attach ("Add to my account"): another address takes a requested row, never a confirmed one'] : []),
 ];
 
 if (!SLUG.startsWith('canary-') || /wys/i.test(SLUG)) die(`refusing slug "${SLUG}": only canary-* events may be tested, never wys26`);
@@ -289,6 +311,7 @@ async function main() {
   if (ev.engine !== 'guest_list_v1') die(`"${SLUG}" is not a guest_list_v1 event: refusing`);
   const flagsRow = await rest('GET', 'platform_settings?key=eq.registration_flags&select=value');
   if (flagsRow[0]?.value?.provisioning === true) die('the "provisioning" switch is ON: switch it off before a contract run');
+  const statusEditOn = flagsRow[0]?.value?.wys_status_edit === true;
   const original = { requests_open: ev.requests_open, capacity: ev.capacity, notify_email: ev.notify_email };
 
   try {
@@ -374,11 +397,14 @@ async function main() {
 
     // ── 5. personal page (wys_status_edit; the hidden canary skips the switch) ──
     r = await reg({ action: 'status', token: gb.token });
-    check('S1', 'status by personal link: requested, can edit and cancel, e-mail masked, not linked',
+    check('S1', 'status by personal link: requested, can edit and cancel, e-mail masked, not linked, nothing to attach or restore signed out',
       r.status === 200 && r.json?.via === 'guest_link' && r.json?.status === 'requested' && r.json?.can_edit === true && r.json?.can_cancel === true &&
+      r.json?.can_restore === false && r.json?.can_attach === false && r.json?.email_masked === null &&
       r.json?.linked === false && r.json?.request?.email_masked && !String(r.json.request.email_masked).includes(mail('parity').split('@')[0].slice(1)), show(r));
     r = await reg({ action: 'status', token: '00000000-0000-4000-8000-000000000000' });
-    check('S2', 'unknown personal link -> 404 not_found', r.status === 404 && r.json?.error === 'not_found', show(r));
+    // Switch off: an unknown link is refused like any other (403 not_available) and tells nothing.
+    const [s2Status, s2Code] = statusEditOn ? [404, 'not_found'] : [403, 'not_available'];
+    check('S2', `unknown personal link -> ${s2Status} ${s2Code} (wys_status_edit ${statusEditOn ? 'on' : 'off'})`, r.status === s2Status && r.json?.error === s2Code, show(r));
     const pre = await byEmail(mail('parity'));
     r = await reg({ action: 'update', token: gb.token, company: '  New company  ', wants_gala: false });
     const post = await byEmail(mail('parity'));
@@ -400,29 +426,51 @@ async function main() {
     let gc = await byEmail(mail('parity'));
     check('C1', 'cancel -> cancelled; decided_at / decided_by empty; cancelled_at stamped',
       r.status === 200 && same(r.json, { ok: true, status: 'cancelled' }) && gc.status === 'cancelled' && !gc.decided_at && !gc.decided_by && !!gc.cancelled_at, show(r));
+    r = await reg({ action: 'status', token: gb.token });
+    check('C1b', 'status of the self-cancelled request: can_restore, nothing else', r.status === 200 && r.json?.status === 'cancelled' && r.json?.can_restore === true &&
+      r.json?.can_edit === false && r.json?.can_cancel === false && r.json?.request === null, show(r));
     r = await gl({ action: 'guest', token: gb.token });
     check('C2', 'guest-list guest view of the cancelled request: status cancelled', r.status === 200 && r.json?.guest?.status === 'cancelled', show(r));
     r = await reg({ action: 'update', token: gb.token, country: 'France' });
     x = await reg({ action: 'cancel', token: gb.token });
     check('C3', 'update / cancel of a cancelled request -> 409 locked', r.status === 409 && r.json?.error === 'locked' && x.status === 409 && x.json?.error === 'locked', `${show(r)} | ${show(x)}`);
     const acksBefore = (await logOf(gb.id)).filter((l) => l.kind === 'request_ack').length;
-    r = await gl({ action: 'request', ...body('parity') });
+    r = await gl({ action: 'request', ...body('parity', { company: 'Someone else' }) });
+    x = await reg({ action: 'register', ...body('parity', { company: 'Someone else' }) });
+    await sleep(3000);
     gc = await byEmail(mail('parity'));
-    check('C4', 'guest-list re-request of a self-cancelled request: {ok:true}, nothing recorded (frozen guest-list)', r.status === 200 && same(r.json, { ok: true }) && gc.status === 'cancelled', show(r));
-    r = await reg({ action: 'register', ...body('parity') });
+    const acksMid = (await logOf(gb.id)).filter((l) => l.kind === 'request_ack').length;
+    check('C4', 'guest-list AND parity re-request of a self-cancelled request: {ok:true}, nothing written or sent',
+      sameAnswer(r, x) && same(r.json, { ok: true }) && gc.status === 'cancelled' && gc.company === 'New company' && acksMid === acksBefore, `${show(r)} | ${show(x)} status=${gc.status} acks ${acksBefore}->${acksMid}`);
+    r = await reg({ action: 'restore', token: gb.token });
     const back = await byEmail(mail('parity'));
     const logAfter = await waitLog(gb.id, (await logOf(gb.id)).length + 1);
     const acksAfter = logAfter.filter((l) => l.kind === 'request_ack').length;
-    check('C5', 'parity re-request: same row and token back to requested, cancelled_at cleared, a new acknowledgement',
-      r.status === 200 && same(r.json, { ok: true }) && back.id === gb.id && back.token === gb.token && back.status === 'requested' && back.cancelled_at === null && acksAfter === acksBefore + 1,
+    check('C5', 'restore by the personal link: same row, token and details back to requested, cancelled_at cleared, a new acknowledgement',
+      r.status === 200 && r.json?.status === 'requested' && r.json?.can_edit === true && back.id === gb.id && back.token === gb.token && back.status === 'requested' &&
+      back.cancelled_at === null && back.company === 'New company' && !back.decided_at && acksAfter === acksBefore + 1,
       `${show(r)} status=${back.status} acks ${acksBefore}->${acksAfter}`);
     await sleep(2000);
     const staffNotices = (await logOf(gb.id)).filter((l) => l.kind === 'staff_notify').length;
-    check('C5b', 'revived within a day: no second staff notice for that row', staffNotices === 1, `${staffNotices} staff_notify`);
+    check('C5b', 'restored within a day: no second staff notice for that row', staffNotices === 1, `${staffNotices} staff_notify`);
+    r = await reg({ action: 'restore', token: gb.token });
+    check('C5c', 'restore of a request that is not cancelled -> 409 locked', r.status === 409 && r.json?.error === 'locked', show(r));
     await gl({ action: 'cancel', slug: SLUG, guest_id: ga.id }, STAFF);
     r = await reg({ action: 'register', ...body('gl') });
+    x = await reg({ action: 'restore', token: ga.token });
+    const y6 = await reg({ action: 'status', token: ga.token });
     const staffCancelled = await byEmail(mail('gl'));
-    check('C6', 'a request cancelled by staff never comes back through the parity form', r.status === 200 && same(r.json, { ok: true }) && staffCancelled.status === 'cancelled' && !!staffCancelled.decided_by, show(r));
+    check('C6', 'a request cancelled by staff never comes back (parity form {ok:true} and nothing; restore 409 locked; can_restore false)',
+      r.status === 200 && same(r.json, { ok: true }) && x.status === 409 && x.json?.error === 'locked' && y6.json?.can_restore === false &&
+      staffCancelled.status === 'cancelled' && !!staffCancelled.decided_by, `${show(r)} | ${show(x)} | ${show(y6)}`);
+    await reg({ action: 'cancel', token: gb.token });
+    await setEvent({ requests_open: false });
+    r = await reg({ action: 'restore', token: gb.token });
+    x = await reg({ action: 'status', token: gb.token });
+    await setEvent({ requests_open: true });
+    check('C7', 'restore while requests are closed -> 400 closed, can_restore false', r.status === 400 && r.json?.error === 'closed' && x.json?.can_restore === false, `${show(r)} | ${show(x)}`);
+    r = await reg({ action: 'restore', token: gb.token });
+    check('C8', 'restore once requests are open again -> requested', r.status === 200 && r.json?.status === 'requested', show(r));
 
     // ── 4. guest-list on a parity row ──
     r = await gl({ action: 'guest', token: gb.token });
@@ -430,14 +478,20 @@ async function main() {
     r = await gl({ action: 'decide', slug: SLUG, guest_ids: [gb.id], decision: 'approve' }, STAFF);
     const gbc = await byEmail(mail('parity'));
     check('G2', 'guest-list staff approve of a parity row -> confirmed, pass e-mail', r.status === 200 && r.json?.approved === 1 && r.json?.sent === 1 && gbc.status === 'confirmed' && (await logOf(gb.id)).some((l) => l.kind === 'pass'), show(r));
+    try {
+      const jobs = await rest('GET', `account_provision_job?source_kind=eq.gl_guest&source_id=eq.${gb.id}&select=id,status,email`);
+      for (const j of jobs || []) info(`left behind: account_provision_job ${j.id} (${j.status}, ${j.email}); delete it with the service role, or provision-person skips it`);
+    } catch (e) {
+      info(`could not read account_provision_job (${e.message}): look for source_id ${gb.id}`);
+    }
     r = await gl({ action: 'guest', token: gb.token });
     check('G3', 'QR / checkin_url = /admin/guest-list/<slug>/checkin?token=<the same token>', r.json?.guest?.checkin_url === `${SITE_URL}/admin/guest-list/${SLUG}/checkin?token=${gb.token}`, show(r));
     const c = await rpc('gl_checkin', { p_event_id: ev.id, p_token: gb.token, p_guest_id: null, p_undo: false });
     check('G4', 'gl_checkin with the parity row token -> ok', c?.ok === true && c?.guest_id === gb.id, JSON.stringify(c));
     r = await reg({ action: 'status', token: gb.token });
     x = await reg({ action: 'cancel', token: gb.token });
-    check('G5', 'personal page of a confirmed guest: no edit, no cancel (RSVP decline stays on guest-list)',
-      r.status === 200 && r.json?.can_edit === false && r.json?.can_cancel === false && r.json?.request === null && x.status === 409, `${show(r)} | ${show(x)}`);
+    check('G5', 'personal page of a confirmed guest: no edit, no cancel, no restore (RSVP decline stays on guest-list)',
+      r.status === 200 && r.json?.can_edit === false && r.json?.can_cancel === false && r.json?.can_restore === false && r.json?.request === null && x.status === 409, `${show(r)} | ${show(x)}`);
 
     // ── optional: a signed-in request ──
     if (MEMBER) {
@@ -459,6 +513,14 @@ async function main() {
         const go = await byEmail(mail('member-other'));
         check('U2', 'signed in with another address: user_id empty', r.status === 200 && go && go.user_id === null, `${show(r)} user_id=${go?.user_id}`);
         if (gm?.user_id) await rest('PATCH', `gl_guest?id=eq.${gm.id}`, { user_id: null });
+        r = await reg({ action: 'status', token: go.token }, MEMBER);
+        check('U2b', 'status signed in, another address, requested: can_attach, same_email false, the sent-to address masked',
+          r.status === 200 && r.json?.can_attach === true && r.json?.same_email === false && typeof r.json?.email_masked === 'string' && !r.json.email_masked.includes(mail('member-other').split('@')[0].slice(2)), show(r));
+        r = await reg({ action: 'status', token: gb.token }, MEMBER);
+        x = await reg({ action: 'attach', token: gb.token }, MEMBER);
+        const gbAfter = await byEmail(mail('parity'));
+        check('U6', 'a CONFIRMED row of another address (its token is the door QR): can_attach false, attach 409 use_invitation_email, not linked',
+          r.status === 200 && r.json?.can_attach === false && x.status === 409 && x.json?.error === 'use_invitation_email' && gbAfter.user_id === null, `${show(r)} | ${show(x)}`);
         r = await reg({ action: 'attach', token: go.token }, MEMBER);
         const ga2 = await byEmail(mail('member-other'));
         check('U3', 'attach with a session ("Add to my account") links that one row', r.status === 200 && ga2.user_id === u.id, show(r));

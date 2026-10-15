@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
-import { CalendarDays, MapPin, Loader2, CheckCircle, XCircle, Clock, UserPlus, Link2, Link2Off, Pencil } from 'lucide-react';
+import { CalendarDays, MapPin, Loader2, CheckCircle, XCircle, Clock, UserPlus, Link2, Link2Off, Pencil, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { AuthInput as Input, AuthLabel as Label, AuthTextarea as Textarea, FieldError, FieldHint } from '@/components/auth/fields';
@@ -15,9 +15,9 @@ import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
-import { useRegistrationFlags } from '@/lib/flags';
+import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
 import {
-  attachWysRequest, cancelWysRequest, getWysRequest, guestList, partsLabel, updateWysRequest,
+  attachWysRequest, cancelWysRequest, getWysRequest, guestList, partsLabel, restoreWysRequest, updateWysRequest,
   type GuestStatus, type GuestView, type WysRequestChanges, type WysRequestView,
 } from '@/lib/guestList';
 import { registrationErrorText, type RegFailure } from '@/lib/registration';
@@ -37,9 +37,12 @@ registerWysRefonteStrings();
 //
 // Switch wys_status_edit (registration_flags, off by default) adds, through the
 // `registration` function: "Edit my request" and "Cancel my request" while a
-// request is under review, and "Add to my account" when signed in. Everything
-// else (the view, RSVP, the pass, the plus-one) stays on guest-list, and the
-// statuses show exactly as before. Switch off: nothing of this is called.
+// request is under review, "Send my request again" once its author cancelled it,
+// and "Add to my account" when signed in. Everything else (the view, RSVP, the
+// pass, the plus-one) stays on guest-list, and the statuses show exactly as
+// before. Switch off: nothing of this is called, except on a hidden test event
+// (slug canary-*), which the server serves with every switch off so the
+// contract tests and the pre-switch check can use the real page.
 
 const ERRORS: Record<string, string> = {
   not_found: 'This link is not valid. Please use the link from your email, or contact us.',
@@ -159,19 +162,23 @@ export function GuestInvitationPage() {
   const { user } = useAuth();
   const userId = user?.id;
   const { flags } = useRegistrationFlags();
-  const statusEdit = flags.wys_status_edit;
-  const formV2 = flags.wys_form_v2;
+  const canary = !!view?.event.slug?.startsWith('canary-');
+  const statusEdit = flags.wys_status_edit || canary;
+  // "My events" lists guest-list rows only with the new event pages on (MyEvents.tsx):
+  // promise it, and offer "Add to my account", only then.
+  const myEventsShowsIt = newEventPagesOn(flags) || canary;
   const [req, setReq] = useState<WysRequestView | null>(null);
   const [reqVersion, setReqVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<EditValues | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [reqBusy, setReqBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [reqError, setReqError] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const guestStatus = view?.guest.status;
 
-  // Asked only with the switch on (an answer of "not_available" just hides the buttons).
+  // Asked only with the switch on, or on a canary (an answer of "not_available" just hides the buttons).
   useEffect(() => {
     if (!statusEdit || !token || !guestStatus) { setReq(null); return; }
     let alive = true;
@@ -189,8 +196,24 @@ export function GuestInvitationPage() {
     if (f.error === 'no_part') return t('wysGuest.edit.noPart', 'Choose the conference, the gala dinner, or both.');
     if (f.error === 'missing_fields') return t('wysGuest.edit.missing', 'Please give your company and your job title.');
     if (f.error === 'locked') return t('wysGuest.edit.locked', 'Your request can no longer be changed: our team has already answered it.');
+    if (f.error === 'closed') return t('wysGuest.restore.closed', 'Invitation requests are not open at the moment.');
+    if (f.error === 'use_invitation_email') return t('wysGuest.account.otherEmail', 'This invitation can only be added to the account that uses the address it was sent to.');
     return registrationErrorText(t, f);
   };
+
+  /** After a tap that opens a block further down: bring it into view and give it the focus
+   *  (once React has put it in the page). */
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const focusSoon = (id: string) => setFocusTarget(id);
+  useEffect(() => {
+    if (!focusTarget) return;
+    const el = document.getElementById(focusTarget);
+    setFocusTarget(null);
+    if (!el) return;
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+    el.focus({ preventScroll: true });
+  }, [focusTarget]);
 
   const openEdit = () => {
     if (!req?.request) return;
@@ -202,6 +225,13 @@ export function GuestInvitationPage() {
     setReqError(null);
     setConfirmCancel(false);
     setEditing(true);
+    focusSoon('inv-edit');
+  };
+
+  const openCancel = () => {
+    setReqError(null);
+    setConfirmCancel(true);
+    focusSoon('inv-cancel-title');
   };
 
   const saveEdit = async (e: React.FormEvent) => {
@@ -255,11 +285,26 @@ export function GuestInvitationPage() {
     const r = await attachWysRequest(token);
     setReqBusy(false);
     if (r.ok) {
-      toast({ title: t('wysGuest.account.added', 'Added to your account. You find it in My events.') });
+      toast({ title: t('wysGuest.account.added', 'Added to your account. You’ll find it in My events.') });
       setReqVersion((v) => v + 1);
       return;
     }
     setAttachError(reqErrorText(r as RegFailure));
+  };
+
+  const doRestore = async () => {
+    setReqBusy(true); setRestoreError(null);
+    const r = await restoreWysRequest(token);
+    setReqBusy(false);
+    if (r.ok) {
+      setReq(r as WysRequestView);
+      toast({ title: t('wysGuest.restore.done', 'Your request is sent again. Our team will review it.') });
+      await reloadGuest();
+      return;
+    }
+    setRestoreError(reqErrorText(r as RegFailure));
+    void reloadGuest();
+    setReqVersion((v) => v + 1);
   };
 
   if (loading) {
@@ -348,7 +393,7 @@ export function GuestInvitationPage() {
                   </Button>
                 )}
                 {req.can_cancel && (
-                  <UnderlineLink onClick={() => { setReqError(null); setConfirmCancel(true); }} arrow={false} className="self-start !text-sm sm:self-auto">
+                  <UnderlineLink onClick={openCancel} arrow={false} className="min-h-11 self-start !text-sm sm:self-auto">
                     {t('wysGuest.cancel.open', 'Cancel my request')}
                   </UnderlineLink>
                 )}
@@ -357,11 +402,11 @@ export function GuestInvitationPage() {
 
             {guest.status === 'requested' && confirmCancel && (
               <div role="group" aria-labelledby="inv-cancel-title" className="rounded-field bg-page p-4 ring-1 ring-inset ring-rule sm:p-5">
-                <p id="inv-cancel-title" className="text-[15px] font-semibold leading-6 text-navy">{t('wysGuest.cancel.title', 'Cancel your request?')}</p>
+                <p id="inv-cancel-title" tabIndex={-1} className="scroll-mt-28 text-[15px] font-semibold leading-6 text-navy focus:outline-none">{t('wysGuest.cancel.title', 'Cancel your request?')}</p>
                 <p className="mt-1 text-sm leading-6 text-ink">
                   {t('wysGuest.cancel.body', 'Our team will no longer review it.')}{' '}
-                  {formV2 && !guest.is_plus_one
-                    ? t('wysGuest.cancel.again', 'If you change your mind, you can send a new request from the event page.')
+                  {guest.source === 'request' && !guest.is_plus_one
+                    ? t('wysGuest.cancel.again', 'If you change your mind, you can send it again from this page while requests are open.')
                     : t('wysGuest.cancel.againContact', 'If you change your mind, write to the M3 team.')}
                 </p>
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -402,11 +447,24 @@ export function GuestInvitationPage() {
               </>
             )}
 
-            {(guest.status === 'rejected' || guest.status === 'cancelled') && (
-              <p className="text-body text-ink">
-                {t('wysGuest.closed.text', 'This invitation is no longer active. For any question, contact')}{' '}
-                <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false}>{M3_PUBLIC_EMAIL}</UnderlineLink>.
-              </p>
+            {/* wys_status_edit: a request its author cancelled from this page can be sent again. */}
+            {guest.status === 'cancelled' && req && req.status === 'cancelled' && req.can_restore ? (
+              <>
+                <p className="text-body text-ink">{t('wysGuest.restore.text', 'You cancelled your request. Changed your mind? You can send it again: our team will review it as before.')}</p>
+                <Button variant="ctaOutline" size="sm" disabled={reqBusy} arrow={false} roll={false} onClick={() => void doRestore()} className="w-full sm:w-auto">
+                  {reqBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />}
+                  {t('wysGuest.restore.open', 'Send my request again')}
+                </Button>
+                {restoreError && <FieldError>{restoreError}</FieldError>}
+              </>
+            ) : (guest.status === 'rejected' || guest.status === 'cancelled') && (
+              <>
+                <p className="text-body text-ink">
+                  {t('wysGuest.closed.text', 'This invitation is no longer active. For any question, contact')}{' '}
+                  <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false}>{M3_PUBLIC_EMAIL}</UnderlineLink>.
+                </p>
+                {restoreError && <FieldError>{restoreError}</FieldError>}
+              </>
             )}
 
             {error && <FieldError>{error}</FieldError>}
@@ -449,7 +507,7 @@ export function GuestInvitationPage() {
           <section aria-labelledby="inv-edit" className="rounded-card bg-white p-6 ring-1 ring-inset ring-rule sm:p-8">
             <div className="flex items-center gap-3">
               <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Pencil className="h-5 w-5" /></span>
-              <h2 id="inv-edit" className="text-card-title text-navy">{t('wysGuest.edit.title', 'Edit my request')}</h2>
+              <h2 id="inv-edit" tabIndex={-1} className="scroll-mt-28 text-card-title text-navy focus:outline-none">{t('wysGuest.edit.title', 'Edit my request')}</h2>
             </div>
             <form onSubmit={saveEdit} className="mt-5 space-y-5">
               <div className="rounded-field bg-page px-4 py-3 text-sm leading-6 text-ink">
@@ -491,25 +549,43 @@ export function GuestInvitationPage() {
           </section>
         )}
 
-        {/* wys_status_edit, signed in: keep this invitation (or request) in the account. */}
-        {req && user && !req.linked && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
+        {/* wys_status_edit, signed in: keep this invitation (or request) in the account. The server
+            decides (can_attach): never a confirmed place for another address (its link is also the
+            door QR), never someone else's row for a staff account. Another address: the card says
+            where the link was sent and the button asks for the explicit go-ahead. */}
+        {req && user && myEventsShowsIt && req.can_attach && !req.linked && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
           <section aria-labelledby="inv-account" className="rounded-card bg-white p-6 ring-1 ring-inset ring-rule sm:p-8">
             <div className="flex items-center gap-3">
               <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Link2 className="h-5 w-5" /></span>
               <h2 id="inv-account" className="text-card-title text-navy">{t('wysGuest.account.title', 'Keep it in your account')}</h2>
             </div>
-            <p className="mt-3 text-sm leading-6 text-ink">
-              {guest.status === 'requested'
-                ? t('wysGuest.account.bodyRequest', 'Add this request to the account you are signed in with, to find it in My events.')
-                : t('wysGuest.account.body', 'Add this invitation to the account you are signed in with, to find it in My events.')}
-            </p>
+            {req.same_email ? (
+              <p className="mt-3 text-sm leading-6 text-ink">
+                {guest.status === 'requested'
+                  ? t('wysGuest.account.bodyRequest', 'Add this request to the account you are signed in with, to find it in My events.')
+                  : t('wysGuest.account.body', 'Add this invitation to the account you are signed in with, to find it in My events.')}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-ink [overflow-wrap:anywhere]">
+                {guest.status === 'requested'
+                  ? t('wysGuest.account.otherBodyRequest', {
+                    sent: req.email_masked || '', account: user.email || '',
+                    defaultValue: 'This request was made with the address {{sent}}. Add it to your account ({{account}}) anyway? It will then show in this account’s My events.',
+                  })
+                  : t('wysGuest.account.otherBody', {
+                    sent: req.email_masked || '', account: user.email || '',
+                    defaultValue: 'This invitation was sent to {{sent}}. Add it to your account ({{account}}) anyway? It will then show in this account’s My events.',
+                  })}
+              </p>
+            )}
             {attachError && <FieldError className="mt-3">{attachError}</FieldError>}
             <Button variant="ctaNavy" size="sm" className="mt-4 w-full sm:w-auto" onClick={() => void doAttach()} disabled={reqBusy} arrow={!reqBusy} roll={!reqBusy}>
-              {reqBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysGuest.account.add', 'Add to my account')}</> : t('wysGuest.account.add', 'Add to my account')}
+              {reqBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              {req.same_email ? t('wysGuest.account.add', 'Add to my account') : t('wysGuest.account.addAnyway', 'Yes, add it to my account')}
             </Button>
           </section>
         )}
-        {req && user && req.linked_to_me && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
+        {req && user && myEventsShowsIt && req.linked_to_me && ['requested', 'invited', 'confirmed'].includes(guest.status) && (
           <p className="flex flex-wrap items-center justify-center gap-x-2 text-center text-sm leading-6 text-meta">
             <Link2 className="h-4 w-4 shrink-0" aria-hidden="true" />
             {guest.status === 'requested'

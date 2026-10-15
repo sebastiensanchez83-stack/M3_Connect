@@ -453,14 +453,17 @@ export function GuestEventPage({ slug }: { slug: string }) {
                   <div className="space-y-2"><Label htmlFor="ln">{t('wysPage.form.lastName', 'Last name')} {star}</Label><Input id="ln" required value={form.last_name} onChange={set('last_name')} autoComplete="family-name" /></div>
                 </div>
                 {lockedEmail ? (
-                  // Parity form, signed in: the account's address, read-only (kept in the tab order, so it is read out).
+                  // Parity form, signed in: the account's address, read-only. Shown as text that
+                  // wraps (a long address stays whole at 375 px); kept in the tab order as a
+                  // read-only textbox, so it is read out. The request is sent with lockedEmail.
                   <div className="space-y-2">
-                    <Label htmlFor="em">{t('wysPage.form.email', 'E-mail')} {star}</Label>
-                    <div className="relative">
-                      <Input id="em" type="email" required readOnly aria-readonly="true" value={lockedEmail} autoComplete="email" aria-describedby="em-hint" className="bg-page pr-11 text-ink" />
-                      <Lock className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
+                    <Label id="em-label">{t('wysPage.form.email', 'E-mail')} {star}</Label>
+                    <div id="em" role="textbox" aria-readonly="true" tabIndex={0} aria-labelledby="em-label" aria-describedby="em-hint"
+                      className="flex min-h-12 items-center gap-3 rounded-field border border-checkbox bg-page px-4 py-[11px] text-base leading-6 text-ink focus-visible:shadow-focus focus-visible:outline-none">
+                      <span className="min-w-0 flex-1 break-all">{lockedEmail}</span>
+                      <Lock className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
                     </div>
-                    <p id="em-hint" className="text-[13px] leading-5 text-meta">{t('wysPage.form.emailLocked', 'You are signed in: we send your request with your account e-mail.')}</p>
+                    <p id="em-hint" className="text-[13px] leading-5 text-meta">{t('wysPage.form.emailLocked', 'You’re signed in, so we’ll use your account e-mail. To use another address, sign out first.')}</p>
                   </div>
                 ) : (
                   <div className="space-y-2"><Label htmlFor="em">{t('wysPage.form.email', 'E-mail')} {star}</Label><Input id="em" type="email" required value={form.email} onChange={set('email')} autoComplete="email" /></div>

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { readRegistrationFlags } from '@/lib/flags';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -14,6 +15,10 @@ import { supabase } from '@/lib/supabase';
  *   screen, at most once every 30 seconds;
  * - when a screen asks for it (refresh(), e.g. the dashboard's Refresh button).
  * null = unknown (function not deployed yet, not staff, or an error): no badge.
+ *
+ * With registration_flags.review_queue on, the figure is the v2 list's total
+ * (admin_review_queue_counts().total: every tab, as /admin/review v2 shows it);
+ * if that function is not installed yet, the v1 count as before.
  */
 
 export const REVIEW_QUEUE_EVENT = 'smc:review-queue-changed';
@@ -45,9 +50,19 @@ export function useReviewCountSource(enabled: boolean, uid: string | undefined, 
 
   const fetchCount = useCallback(() => {
     lastFetch.current = Date.now();
-    supabase.rpc('admin_review_queue_count').then(({ data, error }) => {
+    void (async () => {
+      const flags = await readRegistrationFlags();
+      if (flags?.review_queue) {
+        const { data, error } = await supabase.rpc('admin_review_queue_counts');
+        const total = !error && data && typeof data === 'object' ? (data as { total?: unknown }).total : undefined;
+        if (typeof total === 'number') {
+          if (mounted.current) setCount(total);
+          return;
+        }
+      }
+      const { data, error } = await supabase.rpc('admin_review_queue_count');
       if (mounted.current) setCount(!error && typeof data === 'number' ? data : null);
-    });
+    })();
   }, []);
 
   const active = enabled && !!uid;

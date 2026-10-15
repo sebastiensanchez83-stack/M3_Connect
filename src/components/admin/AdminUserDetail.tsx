@@ -24,6 +24,9 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { useRegistrationFlags } from '@/lib/flags';
+import { ValidatePersonDialog } from './ValidatePersonDialog';
+import type { PersonAction } from './review/reviewApi';
 import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminProfile } from './types';
@@ -65,6 +68,11 @@ export function AdminUserDetail() {
   const [adminNotes, setAdminNotes] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
+  // Review list v2 (registration_flags.review_queue): Approve, Reject and Ask go through M3's
+  // validation window (admin_validate_person: company, type, reason, e-mail). Off = as before.
+  const { flags: regFlags } = useRegistrationFlags();
+  const validationV2 = regFlags.review_queue;
+  const [validating, setValidating] = useState<PersonAction | null>(null);
 
   // Tier management
   const [updatingTier, setUpdatingTier] = useState(false);
@@ -799,7 +807,7 @@ export function AdminUserDetail() {
           <div className="flex flex-wrap gap-2">
             {user.access_status !== 'verified' && (
               <Button
-                onClick={handleApprove}
+                onClick={validationV2 ? () => setValidating('validate') : handleApprove}
                 disabled={saving}
                 className="gap-1.5"
               >
@@ -807,8 +815,13 @@ export function AdminUserDetail() {
                 Approve
               </Button>
             )}
+            {validationV2 && user.access_status !== 'verified' && user.persona !== 'admin' && user.persona !== 'moderator' && (
+              <Button variant="outline" onClick={() => setValidating('ask')} className="gap-1.5">
+                Ask for a detail
+              </Button>
+            )}
             {user.access_status !== 'rejected' && !showRejectForm && (
-              <Button variant="destructive" onClick={() => setShowRejectForm(true)} className="gap-1.5">
+              <Button variant="destructive" onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
                 Reject
               </Button>
             )}
@@ -819,6 +832,16 @@ export function AdminUserDetail() {
             )}
             {/* Payment pending button removed — member tier is free */}
           </div>
+
+          {validating && id && (
+            <ValidatePersonDialog
+              open
+              onOpenChange={(o) => { if (!o) setValidating(null); }}
+              userId={id}
+              initialAction={validating}
+              onDone={() => { loadUser(id); }}
+            />
+          )}
 
           {/* Reject form */}
           {showRejectForm && (

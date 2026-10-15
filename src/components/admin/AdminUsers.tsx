@@ -22,6 +22,9 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendNotification } from '@/lib/notifications';
+import { useRegistrationFlags } from '@/lib/flags';
+import { ValidatePersonDialog } from './ValidatePersonDialog';
+import type { PersonAction } from './review/reviewApi';
 import { AdminContextBanner } from './AdminContextBanner';
 import {
   AdminPageHeader, AdminFilterBar, AdminTableCard, AdminKpiCard, AdminLoading, AdminStatusPill, AdminEmpty,
@@ -70,6 +73,11 @@ export function AdminUsers() {
   const [invitePartnerForm, setInvitePartnerForm] = useState({ email: '', firstName: '' });
   const [sendingPartnerInvite, setSendingPartnerInvite] = useState(false);
   const [changingPersona, setChangingPersona] = useState(false);
+  // Review list v2 (registration_flags.review_queue): Verified / Rejected go through M3's
+  // validation window (admin_validate_person). Off = the direct updates below, as before.
+  const { flags: regFlags } = useRegistrationFlags();
+  const validationV2 = regFlags.review_queue;
+  const [validating, setValidating] = useState<{ userId: string; action: PersonAction } | null>(null);
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -225,6 +233,10 @@ export function AdminUsers() {
     toast({ title: 'User rejected — email notification sent' }); setRejectingUserId(null); loadUsers();
   };
   const updateUserStatus = async (userId: string, newStatus: string) => {
+    if (validationV2 && (newStatus === 'verified' || newStatus === 'rejected')) {
+      setValidating({ userId, action: newStatus === 'verified' ? 'validate' : 'reject' });
+      return;
+    }
     if (newStatus === 'verified') {
       await approveUser(userId);
       return;
@@ -612,6 +624,17 @@ export function AdminUsers() {
         {filteredUsers.length === 0 && <tr><td colSpan={8}><AdminEmpty icon={UserCheck} title={t('admin.userDetail.noUsersFound', 'No users found')} /></td></tr>}
       </tbody></table></AdminTableCard>
 
+
+      {/* ─── M3's validation window (review list v2) ─── */}
+      {validating && (
+        <ValidatePersonDialog
+          open
+          onOpenChange={(o) => { if (!o) setValidating(null); }}
+          userId={validating.userId}
+          initialAction={validating.action}
+          onDone={() => { loadUsers(); }}
+        />
+      )}
 
       {/* ─── Reject Dialog ─── */}
       <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>

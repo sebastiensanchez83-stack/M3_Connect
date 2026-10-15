@@ -208,7 +208,7 @@ declare
   v_md5 text;
   v_row record;
 begin
-  if to_regprocedure('public.org_invitation_resolve(text)') is not null then
+  if to_regprocedure('public.company_search(text,integer)') is not null then
     raise exception 'org_invitations_expiry DOWN: run the down of 20261012113000_signup_identity_orgs first';
   end if;
   for v_row in

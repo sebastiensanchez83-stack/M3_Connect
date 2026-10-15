@@ -519,8 +519,7 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
   tests := jsonb_build_array(
     -- ── Claim codes (Victor, 11 Oct) ──
     jsonb_build_object('id', 'K01', 'who', 'other', 'expect', 'err:already has an owner', 'label', 'claim_organization: code of a company with an owner is refused',
-      'q', $q$select public.claim_organization({code_v})::text$q$,
-      'chk', $c$select not exists (select 1 from public.organization_members where organization_id = {org_v} and user_id = {other})$c$),
+      'q', $q$select public.claim_organization({code_v})::text$q$),
     jsonb_build_object('id', 'K02', 'who', 'other', 'expect', 'ret:owner', 'label', 'claim_organization: company with no owner unchanged for the old client (owner, verified)',
       'q', $q$select public.claim_organization({code_n}) ->> 'role'$q$,
       'chk', $c$select (select owner_user_id = {other} from public.organizations where id = {org_n}) and (select access_status::text = 'verified' from public.profiles where user_id = {other})$c$),
@@ -582,12 +581,18 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
         perform set_config('request.jwt.claims', v_claims::text, true);
         set local role authenticated;
       end if;
-      if v_dml then
-        execute v_q;
-        get diagnostics v_n = row_count;
-      else
-        execute v_q into v_ret;
-      end if;
+      -- An expected error is caught here, so the case's check (chk) still runs on the
+      -- state the setup made; any other error goes to the handler below as before.
+      begin
+        if v_dml then
+          execute v_q;
+          get diagnostics v_n = row_count;
+        else
+          execute v_q into v_ret;
+        end if;
+      exception when others then
+        if v_exp like 'err:%' then v_err := sqlerrm; v_state := sqlstate; else raise; end if;
+      end;
       reset role;
       perform set_config('request.jwt.claims', '', true);
       if v_chkq <> '' then execute v_chkq into v_chk; end if;

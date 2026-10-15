@@ -935,12 +935,18 @@ select pg_temp.dr_org({org_p}, 'Dryrun Pending Docks', 'pending', null, null)$s$
         perform set_config('request.jwt.claims', v_claims::text, true);
         set local role authenticated;
       end if;
-      if v_dml then
-        execute v_q;
-        get diagnostics v_n = row_count;
-      else
-        execute v_q into v_ret;
-      end if;
+      -- An expected error is caught here, so the case's check (chk) still runs on the
+      -- state the setup made; any other error goes to the handler below as before.
+      begin
+        if v_dml then
+          execute v_q;
+          get diagnostics v_n = row_count;
+        else
+          execute v_q into v_ret;
+        end if;
+      exception when others then
+        if v_exp like 'err:%' then v_err := sqlerrm; v_state := sqlstate; else raise; end if;
+      end;
       reset role;
       perform set_config('request.jwt.claims', '', true);
       if v_chkq <> '' then execute v_chkq into v_chk; end if;

@@ -18,11 +18,17 @@
 --       reject also takes an 'invited' row: the invitation is WITHDRAWN ('cancelled',
 --         cancelled_at, review_log 'invitation_withdrawn'), and its status links are revoked.
 --       The result lists them apart ('accepted_for_them', 'withdrawn'): the caller words the
---       e-mail (the editor sends none for a withdrawal unless asked). Everything else unchanged.
+--       e-mail (the editor sends none for a withdrawal unless asked).
+--       org_action {mode: 'create'} needs a company type (marina, partner, media_partner,
+--       developer, investor): provision-person creates a VERIFIED company, never an untyped one
+--       (spec §3.9; fixer, 15 Oct). Everything else unchanged.
 --  2. gl_invite_v2(...) (service role: the registration function, after its own staff check;
 --     the actor is checked again here). 'invited' rows, source 'invitation', at most 500 per call,
 --     an address already on the event is skipped ('already'). M3's choice for the person
 --     (validate_person, org_action) and the author are kept on the review_log row 'invited'.
+--     An invitation holds a seat: over the event's or the type's capacity it is refused
+--     ('capacity' / 'ticket_capacity' with held, capacity, adding) unless p_force (staff chose
+--     to go over), as guest-list's invite and gl_decide_v2 do (fixer, 15 Oct).
 --     A real (not hidden) event takes invitations only once its registration switch is on
 --     (onsite_v2 / webinar_v2: before that the e-mails would point at pages the live site does
 --     not have). A hidden test event takes at most 10 test addresses (@m3monaco.com,
@@ -51,7 +57,7 @@ begin
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p where p.oid = to_regprocedure('public.gl_decide_v2(uuid,uuid[],text,uuid,jsonb,boolean,boolean,text,text)');
-  if v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' and v_md5 is distinct from 'ad3db18f38b1509741b80c6e7014b0a0' then
+  if v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' and v_md5 is distinct from '75171c1bfeaf87e4409f915b11ee211c' then
     raise exception 'onsite_invitations: gl_decide_v2 changed (md5 %); rebuild this migration from pg_get_functiondef', v_md5;
   end if;
 end
@@ -114,7 +120,9 @@ begin
     exception when others then
       return jsonb_build_object('ok', false, 'error', 'bad_org_action');
     end;
-  elsif v_mode = 'create' and coalesce(btrim(p_org_action ->> 'name'), '') = '' then
+  elsif v_mode = 'create' and (coalesce(btrim(p_org_action ->> 'name'), '') = ''
+                               or coalesce(p_org_action ->> 'type', '') not in ('marina', 'partner', 'media_partner', 'developer', 'investor')) then
+    -- A company M3 creates is verified: never without a name, never untyped (spec §3.9).
     return jsonb_build_object('ok', false, 'error', 'bad_org_action');
   end if;
   if p_decision = 'request_info' and v_info is null then
@@ -231,6 +239,8 @@ end
 $function$;
 
 -- ---- 2. gl_invite_v2: M3 invites people (service role) --------------------------------------
+-- (The 7-argument draft of this function was never applied; dropped so a re-run never leaves two.)
+drop function if exists public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text);
 create or replace function public.gl_invite_v2(
   p_gl_event_id uuid,
   p_people jsonb,
@@ -238,7 +248,8 @@ create or replace function public.gl_invite_v2(
   p_actor uuid default null,
   p_validate_person boolean default true,
   p_org_action jsonb default '{"mode": "none"}'::jsonb,
-  p_message text default null)
+  p_message text default null,
+  p_force boolean default false)
 returns jsonb
 language plpgsql
 volatile
@@ -255,6 +266,10 @@ declare
   v_message text := nullif(left(btrim(coalesce(p_message, '')), 1000), '');
   v_validate boolean := coalesce(p_validate_person, true);
   v_flag text;
+  c_email_re constant text := '^[^[:space:]@,;<>"()]+@[^[:space:]@,;<>"()]+\.[^[:space:]@,;<>"()]{2,}$';
+  v_adding integer;
+  v_held integer;
+  v_tcap integer;
   x jsonb;
   v_email text;
   v_local text;
@@ -290,7 +305,8 @@ begin
     exception when others then
       return jsonb_build_object('ok', false, 'error', 'bad_org_action');
     end;
-  elsif v_mode = 'create' and coalesce(btrim(p_org_action ->> 'name'), '') = '' then
+  elsif v_mode = 'create' and (coalesce(btrim(p_org_action ->> 'name'), '') = ''
+                               or coalesce(p_org_action ->> 'type', '') not in ('marina', 'partner', 'media_partner', 'developer', 'investor')) then
     return jsonb_build_object('ok', false, 'error', 'bad_org_action');
   end if;
 
@@ -345,9 +361,33 @@ begin
     end loop;
   end if;
 
+  -- Capacity (spec 4.1: seats held = confirmed + invited + approved; the event row is locked
+  -- above): the new addresses, each counted once. p_force = staff chose to go over.
+  if not coalesce(p_force, false) then
+    select count(distinct q.addr)::integer into v_adding
+      from (select lower(btrim(coalesce(case when jsonb_typeof(pe.val) = 'object' then pe.val ->> 'email' end, ''))) as addr
+              from jsonb_array_elements(p_people) as pe(val)) q
+     where length(q.addr) <= 254 and q.addr ~ c_email_re
+       and not exists (select 1 from public.gl_guest g where g.event_id = ev.id and lower(g.email) = q.addr);
+    if v_adding > 0 then
+      v_held := public.gl_seats_held(ev.id);
+      if ev.capacity is not null and v_held + v_adding > ev.capacity then
+        return jsonb_build_object('ok', false, 'error', 'capacity', 'held', v_held, 'capacity', ev.capacity, 'adding', v_adding);
+      end if;
+      select tk.capacity into v_tcap from public.gl_ticket tk where tk.event_id = ev.id and tk.key = v_ticket;
+      if v_ticket is not null and v_tcap is not null then
+        v_held := public.gl_seats_held(ev.id, v_ticket);
+        if v_held + v_adding > v_tcap then
+          return jsonb_build_object('ok', false, 'error', 'ticket_capacity', 'ticket_key', v_ticket,
+                                    'held', v_held, 'capacity', v_tcap, 'adding', v_adding);
+        end if;
+      end if;
+    end if;
+  end if;
+
   for x in select * from jsonb_array_elements(p_people) loop
     v_email := lower(btrim(coalesce(case when jsonb_typeof(x) = 'object' then x ->> 'email' end, '')));
-    if length(v_email) > 254 or v_email !~ '^[^[:space:]@,;<>"()]+@[^[:space:]@,;<>"()]+\.[^[:space:]@,;<>"()]{2,}$' then
+    if length(v_email) > 254 or v_email !~ c_email_re then
       v_invalid := v_invalid || to_jsonb(left(coalesce(case when jsonb_typeof(x) = 'object' then x ->> 'email' end, ''), 254));
       continue;
     end if;
@@ -373,7 +413,8 @@ begin
     insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
     values ('registration', v_id, 'invited', null,
             jsonb_strip_nulls(jsonb_build_object('gl_event_id', ev.id, 'ticket_key', v_ticket,
-              'validate_person', v_validate, 'org_action', p_org_action, 'message', v_message)),
+              'validate_person', v_validate, 'org_action', p_org_action, 'message', v_message,
+              'forced', case when coalesce(p_force, false) then true end)),
             p_actor);
     v_invited := v_invited || jsonb_build_object('guest_id', v_id, 'email', v_email);
   end loop;
@@ -465,12 +506,12 @@ $function$;
 
 revoke all on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) from public, anon, authenticated;
 grant execute on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) to service_role;
-revoke all on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) from public, anon, authenticated;
-grant execute on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) to service_role;
+revoke all on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) from public, anon, authenticated;
+grant execute on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) to service_role;
 revoke all on function public.gl_respond_invitation_v2(uuid, boolean) from public, anon, authenticated;
 grant execute on function public.gl_respond_invitation_v2(uuid, boolean) to service_role;
 
-comment on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) is 'Phase 3 (integration): M3 invites people to a core_v2 event (invited rows); M3''s choice for the person is kept on review_log ''invited''. Service role (registration function).';
+comment on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) is 'Phase 3 (integration): M3 invites people to a core_v2 event (invited rows; an invitation holds a seat: capacity / ticket_capacity unless p_force); M3''s choice for the person is kept on review_log ''invited''. Service role (registration function).';
 comment on function public.gl_respond_invitation_v2(uuid, boolean) is 'Phase 3 (integration): the invited person accepts (confirmed; M3''s recorded choice lands on the provisioning job) or declines. Service role, after the status token.';
 
 -- ---- 4. The registration switches: verified admins only ------------------------------------

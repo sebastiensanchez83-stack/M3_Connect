@@ -1297,16 +1297,20 @@ const pieces = (parts: Array<[number, string, string?]>) =>
   parts.filter(([n]) => n > 0).map(([n, one, many]) => plural(n, one, many)).join(", ");
 
 /**
- * The tabs of the review queue (/admin/review, spec §8.1), counted from the tables (the
- * queue's RPC is staff-only and this job runs as the service role):
+ * The tabs of the review queue (/admin/review, spec §8.1). Counts and oldest dates come from the
+ * queue itself, admin_review_queue_counts() (part 3, 20261016091000; the service role may call
+ * it), so the digest announces exactly what the page lists: no hidden test or canary-% event, a
+ * pending company and its pending owner as ONE card, the legacy drafts v2 lists, claims and
+ * join requests; the FYI tabs (team joins, duplicates) as the page shows them until marked seen.
+ * The Retro-review tab (a one-time list) is not counted.
+ * Before part 3 is applied (a forced canary run), the tables are counted instead:
  *   People & companies   pending people who sent their profile (not drafts, not staff),
- *                        pending companies (not archived or merged), company claims
- *                        (organization_invitations claim_requested: M3 decides each);
- *   Event registrations  gl_guest requested (to review) and needs_info (waiting for an
- *                        answer), every event, wys26 and plus-ones included;
+ *                        pending companies (not archived or merged), company claims;
+ *   Event registrations  gl_guest requested on the events the queue lists;
  *   Team joins           FYI: invitations and join requests accepted in the last 24 hours;
  *   Duplicates           FYI: companies sharing a normalised name.
- * The Retro-review tab (a one-time list) is not counted here.
+ * Either way, Event registrations are also listed event by event (requested, and needs_info
+ * waiting for an answer), hidden test events and canary-% events left out as in the queue.
  */
 async function collectDigest(): Promise<DigestData> {
   const now = Date.now();
@@ -1315,30 +1319,49 @@ async function collectDigest(): Promise<DigestData> {
   const oldestOf = (dates: unknown[]) => dates.reduce<number>((m, x) => Math.max(m, daysSince(x, now)), 0);
   const d: DigestData = { tabs: [], registrations: [], provisioning: { failed: 0, queued: 0 }, emails: { gaveUp: 0, gaveUpRecent: 0, held: 0 } };
 
+  // The queue's own counts: {total, people, registrations, team_joins, duplicates, retro, content, oldest: {<tab>: ts}}.
+  const { data: qc, error: qcErr } = await db.rpc("admin_review_queue_counts");
+  if (qcErr) console.error("registration-cron: admin_review_queue_counts unreadable, the digest counts the tables", qcErr.message);
+  const q = !qcErr && qc && typeof qc === "object" && !Array.isArray(qc) ? (qc as Json) : null;
+  const qOldest: Json = q && q.oldest && typeof q.oldest === "object" && !Array.isArray(q.oldest) ? q.oldest : {};
+  const qCount = (tab: string) => Math.max(0, Math.floor(Number(q?.[tab]) || 0));
+  const qDays = (tab: string) => (qOldest[tab] ? daysSince(qOldest[tab], now) : 0);
+
   // People & companies.
-  const { data: people, error: pErr } = await db.from("profiles").select("created_at")
-    .eq("access_status", "pending").neq("onboarding_status", "draft").not("persona", "in", "(admin,moderator)").limit(5000);
-  if (pErr) throw new Error(`digest people: ${pErr.message}`);
-  const { data: orgRows, error: oErr } = await db.from("organizations").select("id, name, access_status, created_at").limit(5000);
-  if (oErr) throw new Error(`digest companies: ${oErr.message}`);
-  // archived_at / duplicate_of come with the Phase 3 database lane: absent columns = nothing hidden.
-  const hidden = new Set<string>();
-  const { data: gone, error: goneErr } = await db.from("organizations").select("id")
-    .or("archived_at.not.is.null,duplicate_of.not.is.null").limit(5000);
-  if (!goneErr) for (const o of (gone as Json[] | null) || []) hidden.add(String(o.id));
-  const orgs = ((orgRows as Json[] | null) || []).filter((o) => !hidden.has(String(o.id)));
-  const pendingOrgs = orgs.filter((o) => o.access_status === "pending");
   const { data: claims, error: cErr } = await db.from("organization_invitations").select("created_at").eq("status", "claim_requested").limit(5000);
   if (cErr) throw new Error(`digest claims: ${cErr.message}`);
-  const ppl = (people as Json[] | null) || [];
   const cl = (claims as Json[] | null) || [];
-  d.tabs.push({
-    label: "People & companies",
-    count: ppl.length + pendingOrgs.length + cl.length,
-    oldestDays: oldestOf([...ppl, ...pendingOrgs, ...cl].map((x) => x.created_at)),
-    detail: pieces([[ppl.length, "person", "people"], [pendingOrgs.length, "company", "companies"], [cl.length, "company claim"]]),
-    url: review,
-  });
+  let orgs: Json[] = [];
+  if (q) {
+    d.tabs.push({
+      label: "People & companies",
+      count: qCount("people"),
+      oldestDays: qDays("people"),
+      detail: cl.length ? `including ${plural(cl.length, "company claim")}` : "",
+      url: review,
+    });
+  } else {
+    const { data: people, error: pErr } = await db.from("profiles").select("created_at")
+      .eq("access_status", "pending").neq("onboarding_status", "draft").not("persona", "in", "(admin,moderator)").limit(5000);
+    if (pErr) throw new Error(`digest people: ${pErr.message}`);
+    const { data: orgRows, error: oErr } = await db.from("organizations").select("id, name, access_status, created_at").limit(5000);
+    if (oErr) throw new Error(`digest companies: ${oErr.message}`);
+    // archived_at / duplicate_of come with part 1: absent columns = nothing hidden.
+    const hidden = new Set<string>();
+    const { data: gone, error: goneErr } = await db.from("organizations").select("id")
+      .or("archived_at.not.is.null,duplicate_of.not.is.null").limit(5000);
+    if (!goneErr) for (const o of (gone as Json[] | null) || []) hidden.add(String(o.id));
+    orgs = ((orgRows as Json[] | null) || []).filter((o) => !hidden.has(String(o.id)));
+    const pendingOrgs = orgs.filter((o) => o.access_status === "pending");
+    const ppl = (people as Json[] | null) || [];
+    d.tabs.push({
+      label: "People & companies",
+      count: ppl.length + pendingOrgs.length + cl.length,
+      oldestDays: oldestOf([...ppl, ...pendingOrgs, ...cl].map((x) => x.created_at)),
+      detail: pieces([[ppl.length, "person", "people"], [pendingOrgs.length, "company", "companies"], [cl.length, "company claim"]]),
+      url: review,
+    });
+  }
 
   // Event registrations, event by event.
   const { data: regs, error: rErr } = await db.from("gl_guest").select("event_id, status, created_at").in("status", ["requested", "needs_info"]).limit(5000);
@@ -1352,8 +1375,11 @@ async function collectDigest(): Promise<DigestData> {
     byEvent.set(r.event_id, e);
   }
   if (byEvent.size) {
-    const { data: evs } = await db.from("gl_event").select("id, slug, title, engine, legacy_event_id").in("id", [...byEvent.keys()]);
+    const { data: evs, error: eErr } = await db.from("gl_event").select("id, slug, title, engine, legacy_event_id, hidden").in("id", [...byEvent.keys()]);
+    if (eErr) console.error("registration-cron: digest events unreadable", eErr.message);
     for (const ev of (evs as Json[] | null) || []) {
+      // The queue never lists a hidden test event or a canary-% event: nor does the digest.
+      if (ev.hidden === true || String(ev.slug || "").startsWith("canary-")) continue;
       const e = byEvent.get(ev.id)!;
       d.registrations.push({
         title: clean(ev.title, 200),
@@ -1361,7 +1387,9 @@ async function collectDigest(): Promise<DigestData> {
         requested: e.requested,
         needs_info: e.needs_info,
         oldestDays: daysSince(e.oldest, now),
-        url: ev.engine === "guest_list_v1" || !ev.legacy_event_id ? `${SITE_URL}/admin/guest-list/${ev.slug}` : `${SITE_URL}/admin/events/${ev.legacy_event_id}`,
+        // As the queue's cards: the guest list, the catalogue event's editor, else the events list.
+        url: ev.engine === "guest_list_v1" ? `${SITE_URL}/admin/guest-list/${ev.slug}`
+          : ev.legacy_event_id ? `${SITE_URL}/admin/events/${ev.legacy_event_id}` : `${SITE_URL}/admin/events`,
       });
     }
     d.registrations.sort((a, b) => b.oldestDays - a.oldestDays);
@@ -1370,18 +1398,27 @@ async function collectDigest(): Promise<DigestData> {
   const needsInfo = d.registrations.reduce((n, r) => n + r.needs_info, 0);
   d.tabs.push({
     label: "Event registrations",
-    count: requested,
-    oldestDays: d.registrations.length ? Math.max(...d.registrations.map((r) => r.oldestDays)) : 0,
+    count: q ? qCount("registrations") : requested,
+    oldestDays: q ? qDays("registrations") : d.registrations.length ? Math.max(...d.registrations.map((r) => r.oldestDays)) : 0,
     detail: [d.registrations.length ? `${plural(d.registrations.length, "event")}` : "", needsInfo ? `${needsInfo} waiting for an answer` : ""].filter(Boolean).join(", "),
     url: review,
   });
 
-  // Team joins (FYI).
-  const { count: joins } = await db.from("organization_invitations").select("id", { count: "exact", head: true })
-    .eq("status", "accepted").gte("updated_at", since24h);
-  d.tabs.push({ label: "Team joins", count: joins || 0, oldestDays: null, detail: "", url: review, fyi: "new in the last 24 hours" });
+  // Team joins and Duplicates (FYI): the queue's cards still to look at.
+  if (q) {
+    d.tabs.push({ label: "Team joins", count: qCount("team_joins"), oldestDays: null, detail: "", url: review, fyi: "to look at" });
+    d.tabs.push({ label: "Duplicates", count: qCount("duplicates"), oldestDays: null, detail: "", url: review, fyi: "to check" });
+  } else {
+    const { count: joins } = await db.from("organization_invitations").select("id", { count: "exact", head: true })
+      .eq("status", "accepted").gte("updated_at", since24h);
+    d.tabs.push({ label: "Team joins", count: joins || 0, oldestDays: null, detail: "", url: review, fyi: "new in the last 24 hours" });
+    pushTableDuplicates(d, orgs, review);
+  }
+  return withAttention(d, since24h);
+}
 
-  // Duplicates (FYI): companies sharing a normalised name.
+/** Duplicates counted from the tables (before part 3): companies sharing a normalised name. */
+function pushTableDuplicates(d: DigestData, orgs: Json[], review: string) {
   const groups = new Map<string, string[]>();
   for (const o of orgs) {
     const k = normOrgName(o.name);
@@ -1397,8 +1434,10 @@ async function collectDigest(): Promise<DigestData> {
     url: review,
     fyi: "to check",
   });
+}
 
-  // Needs attention.
+/** Needs attention: account creation and the notification outbox. */
+async function withAttention(d: DigestData, since24h: string): Promise<DigestData> {
   const { count: failed } = await db.from("account_provision_job").select("id", { count: "exact", head: true }).eq("status", "failed");
   const { count: queued } = await db.from("account_provision_job").select("id", { count: "exact", head: true }).eq("status", "queued");
   d.provisioning = { failed: failed || 0, queued: queued || 0 };

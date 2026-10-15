@@ -3,7 +3,7 @@
 -- written by admins only). NOT A MIGRATION. ONE query text, ONE execute_sql call, BEFORE that file
 -- is applied (any order with parts 1-4). A snapshot, the migration verbatim, then cases on test
 -- events (rolled back; nothing is e-mailed: no edge function is called). Ends with
--- RAISE EXCEPTION 'DRYRUN ...'. Expected: "30 PASS, 0 FAIL".
+-- RAISE EXCEPTION 'DRYRUN ...'. Expected: "35 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -47,11 +47,17 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 --       reject also takes an 'invited' row: the invitation is WITHDRAWN ('cancelled',
 --         cancelled_at, review_log 'invitation_withdrawn'), and its status links are revoked.
 --       The result lists them apart ('accepted_for_them', 'withdrawn'): the caller words the
---       e-mail (the editor sends none for a withdrawal unless asked). Everything else unchanged.
+--       e-mail (the editor sends none for a withdrawal unless asked).
+--       org_action {mode: 'create'} needs a company type (marina, partner, media_partner,
+--       developer, investor): provision-person creates a VERIFIED company, never an untyped one
+--       (spec §3.9; fixer, 15 Oct). Everything else unchanged.
 --  2. gl_invite_v2(...) (service role: the registration function, after its own staff check;
 --     the actor is checked again here). 'invited' rows, source 'invitation', at most 500 per call,
 --     an address already on the event is skipped ('already'). M3's choice for the person
 --     (validate_person, org_action) and the author are kept on the review_log row 'invited'.
+--     An invitation holds a seat: over the event's or the type's capacity it is refused
+--     ('capacity' / 'ticket_capacity' with held, capacity, adding) unless p_force (staff chose
+--     to go over), as guest-list's invite and gl_decide_v2 do (fixer, 15 Oct).
 --     A real (not hidden) event takes invitations only once its registration switch is on
 --     (onsite_v2 / webinar_v2: before that the e-mails would point at pages the live site does
 --     not have). A hidden test event takes at most 10 test addresses (@m3monaco.com,
@@ -80,7 +86,7 @@ begin
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p where p.oid = to_regprocedure('public.gl_decide_v2(uuid,uuid[],text,uuid,jsonb,boolean,boolean,text,text)');
-  if v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' and v_md5 is distinct from 'ad3db18f38b1509741b80c6e7014b0a0' then
+  if v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' and v_md5 is distinct from '75171c1bfeaf87e4409f915b11ee211c' then
     raise exception 'onsite_invitations: gl_decide_v2 changed (md5 %); rebuild this migration from pg_get_functiondef', v_md5;
   end if;
 end
@@ -143,7 +149,9 @@ begin
     exception when others then
       return jsonb_build_object('ok', false, 'error', 'bad_org_action');
     end;
-  elsif v_mode = 'create' and coalesce(btrim(p_org_action ->> 'name'), '') = '' then
+  elsif v_mode = 'create' and (coalesce(btrim(p_org_action ->> 'name'), '') = ''
+                               or coalesce(p_org_action ->> 'type', '') not in ('marina', 'partner', 'media_partner', 'developer', 'investor')) then
+    -- A company M3 creates is verified: never without a name, never untyped (spec §3.9).
     return jsonb_build_object('ok', false, 'error', 'bad_org_action');
   end if;
   if p_decision = 'request_info' and v_info is null then
@@ -260,6 +268,8 @@ end
 $function$;
 
 -- ---- 2. gl_invite_v2: M3 invites people (service role) --------------------------------------
+-- (The 7-argument draft of this function was never applied; dropped so a re-run never leaves two.)
+drop function if exists public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text);
 create or replace function public.gl_invite_v2(
   p_gl_event_id uuid,
   p_people jsonb,
@@ -267,7 +277,8 @@ create or replace function public.gl_invite_v2(
   p_actor uuid default null,
   p_validate_person boolean default true,
   p_org_action jsonb default '{"mode": "none"}'::jsonb,
-  p_message text default null)
+  p_message text default null,
+  p_force boolean default false)
 returns jsonb
 language plpgsql
 volatile
@@ -284,6 +295,10 @@ declare
   v_message text := nullif(left(btrim(coalesce(p_message, '')), 1000), '');
   v_validate boolean := coalesce(p_validate_person, true);
   v_flag text;
+  c_email_re constant text := '^[^[:space:]@,;<>"()]+@[^[:space:]@,;<>"()]+\.[^[:space:]@,;<>"()]{2,}$';
+  v_adding integer;
+  v_held integer;
+  v_tcap integer;
   x jsonb;
   v_email text;
   v_local text;
@@ -319,7 +334,8 @@ begin
     exception when others then
       return jsonb_build_object('ok', false, 'error', 'bad_org_action');
     end;
-  elsif v_mode = 'create' and coalesce(btrim(p_org_action ->> 'name'), '') = '' then
+  elsif v_mode = 'create' and (coalesce(btrim(p_org_action ->> 'name'), '') = ''
+                               or coalesce(p_org_action ->> 'type', '') not in ('marina', 'partner', 'media_partner', 'developer', 'investor')) then
     return jsonb_build_object('ok', false, 'error', 'bad_org_action');
   end if;
 
@@ -374,9 +390,33 @@ begin
     end loop;
   end if;
 
+  -- Capacity (spec 4.1: seats held = confirmed + invited + approved; the event row is locked
+  -- above): the new addresses, each counted once. p_force = staff chose to go over.
+  if not coalesce(p_force, false) then
+    select count(distinct q.addr)::integer into v_adding
+      from (select lower(btrim(coalesce(case when jsonb_typeof(pe.val) = 'object' then pe.val ->> 'email' end, ''))) as addr
+              from jsonb_array_elements(p_people) as pe(val)) q
+     where length(q.addr) <= 254 and q.addr ~ c_email_re
+       and not exists (select 1 from public.gl_guest g where g.event_id = ev.id and lower(g.email) = q.addr);
+    if v_adding > 0 then
+      v_held := public.gl_seats_held(ev.id);
+      if ev.capacity is not null and v_held + v_adding > ev.capacity then
+        return jsonb_build_object('ok', false, 'error', 'capacity', 'held', v_held, 'capacity', ev.capacity, 'adding', v_adding);
+      end if;
+      select tk.capacity into v_tcap from public.gl_ticket tk where tk.event_id = ev.id and tk.key = v_ticket;
+      if v_ticket is not null and v_tcap is not null then
+        v_held := public.gl_seats_held(ev.id, v_ticket);
+        if v_held + v_adding > v_tcap then
+          return jsonb_build_object('ok', false, 'error', 'ticket_capacity', 'ticket_key', v_ticket,
+                                    'held', v_held, 'capacity', v_tcap, 'adding', v_adding);
+        end if;
+      end if;
+    end if;
+  end if;
+
   for x in select * from jsonb_array_elements(p_people) loop
     v_email := lower(btrim(coalesce(case when jsonb_typeof(x) = 'object' then x ->> 'email' end, '')));
-    if length(v_email) > 254 or v_email !~ '^[^[:space:]@,;<>"()]+@[^[:space:]@,;<>"()]+\.[^[:space:]@,;<>"()]{2,}$' then
+    if length(v_email) > 254 or v_email !~ c_email_re then
       v_invalid := v_invalid || to_jsonb(left(coalesce(case when jsonb_typeof(x) = 'object' then x ->> 'email' end, ''), 254));
       continue;
     end if;
@@ -402,7 +442,8 @@ begin
     insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
     values ('registration', v_id, 'invited', null,
             jsonb_strip_nulls(jsonb_build_object('gl_event_id', ev.id, 'ticket_key', v_ticket,
-              'validate_person', v_validate, 'org_action', p_org_action, 'message', v_message)),
+              'validate_person', v_validate, 'org_action', p_org_action, 'message', v_message,
+              'forced', case when coalesce(p_force, false) then true end)),
             p_actor);
     v_invited := v_invited || jsonb_build_object('guest_id', v_id, 'email', v_email);
   end loop;
@@ -494,12 +535,12 @@ $function$;
 
 revoke all on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) from public, anon, authenticated;
 grant execute on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) to service_role;
-revoke all on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) from public, anon, authenticated;
-grant execute on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) to service_role;
+revoke all on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) from public, anon, authenticated;
+grant execute on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) to service_role;
 revoke all on function public.gl_respond_invitation_v2(uuid, boolean) from public, anon, authenticated;
 grant execute on function public.gl_respond_invitation_v2(uuid, boolean) to service_role;
 
-comment on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text) is 'Phase 3 (integration): M3 invites people to a core_v2 event (invited rows); M3''s choice for the person is kept on review_log ''invited''. Service role (registration function).';
+comment on function public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean) is 'Phase 3 (integration): M3 invites people to a core_v2 event (invited rows; an invitation holds a seat: capacity / ticket_capacity unless p_force); M3''s choice for the person is kept on review_log ''invited''. Service role (registration function).';
 comment on function public.gl_respond_invitation_v2(uuid, boolean) is 'Phase 3 (integration): the invited person accepts (confirmed; M3''s recorded choice lands on the provisioning job) or declines. Service role, after the status token.';
 
 -- ---- 4. The registration switches: verified admins only ------------------------------------
@@ -551,7 +592,7 @@ begin
     'g1', gen_random_uuid(), 'gi', gen_random_uuid(), 'gc', gen_random_uuid(), 'gv', gen_random_uuid(), 'r8', r8,
     'e_adm', 'dryrun-adm-' || r8 || '@example.invalid', 'e_adm_tag', 'dryrun-adm-' || r8 || '+t1@example.invalid',
     'e_mem', 'dryrun-mem-' || r8 || '@example.invalid', 'e_mod', 'dryrun-mod-' || r8 || '@example.invalid',
-    'e_g1', 'dryrun-g1-' || r8 || '@example.invalid', 'e_i', 'dryrun-inv-' || r8 || '@example.invalid',
+    'e_g1', 'dryrun-g1-' || r8 || '@m3monaco.com', 'e_i', 'dryrun-inv-' || r8 || '@example.invalid',
     'e_t', 'dryrun-' || r8 || '@m3monaco.com', 'e_out', 'dryrun-out-' || r8 || '@example.com');
   -- Three staff / member accounts; a hidden core_v2 on-site test event (ev: two types, VIP for
   -- 1, one request g1), a real one (ev2), a guest-list event (ev1) with one request (gv).
@@ -571,21 +612,21 @@ values ({gi}, {ev}, 'invitation', 'invited', 'Ina', 'Vited', {e_i}, 'vip', now()
   tests := jsonb_build_array(
     jsonb_build_object('id', 'S01', 'who', 'postgres', 'bare', true, 'expect', 'ret:0', 'label', 'the migration changes no row (SM26, WYS, jobs, tokens, settings) and no other policy',
       'q', $q$select count(*)::text from ((select * from _dr_before except select * from pg_temp.dr_snap()) union all (select * from pg_temp.dr_snap() except select * from _dr_before)) d$q$),
-    jsonb_build_object('id', 'S02', 'who', 'postgres', 'bare', true, 'expect', 'ret:ad3db18f38b1509741b80c6e7014b0a0,2b703289c9efeac68b96c23564eff50a,c6580c9b0b66c5cde88774b7bd5b4d15', 'label', 'stored bodies = this file (gl_decide_v2, gl_invite_v2, gl_respond_invitation_v2)',
+    jsonb_build_object('id', 'S02', 'who', 'postgres', 'bare', true, 'expect', 'ret:75171c1bfeaf87e4409f915b11ee211c,abe4f10d74f0f10f67edd23622b74e7b,c6580c9b0b66c5cde88774b7bd5b4d15', 'label', 'stored bodies = this file (gl_decide_v2, gl_invite_v2, gl_respond_invitation_v2)',
       'q', $q$select string_agg(md5(replace(p.prosrc, chr(13), '')), ',' order by p.proname collate "C") from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('gl_decide_v2', 'gl_invite_v2', 'gl_respond_invitation_v2')$q$),
     jsonb_build_object('id', 'S03', 'who', 'postgres', 'bare', true, 'expect', 'ret:false/false/false/false/true/true/true', 'label', 'the three functions: service role only (not members, not visitors)',
-      'q', $q$select concat_ws('/', has_function_privilege('authenticated', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text)', 'execute')::text,
-                has_function_privilege('anon', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text)', 'execute')::text,
+      'q', $q$select concat_ws('/', has_function_privilege('authenticated', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text,boolean)', 'execute')::text,
+                has_function_privilege('anon', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text,boolean)', 'execute')::text,
                 has_function_privilege('authenticated', 'public.gl_respond_invitation_v2(uuid,boolean)', 'execute')::text,
                 has_function_privilege('authenticated', 'public.gl_decide_v2(uuid,uuid[],text,uuid,jsonb,boolean,boolean,text,text)', 'execute')::text,
-                has_function_privilege('service_role', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text)', 'execute')::text,
+                has_function_privilege('service_role', 'public.gl_invite_v2(uuid,jsonb,text,uuid,boolean,jsonb,text,boolean)', 'execute')::text,
                 has_function_privilege('service_role', 'public.gl_respond_invitation_v2(uuid,boolean)', 'execute')::text,
                 has_function_privilege('service_role', 'public.gl_decide_v2(uuid,uuid[],text,uuid,jsonb,boolean,boolean,text,text)', 'execute')::text)$q$),
     -- gl_invite_v2
-    jsonb_build_object('id', 'I01', 'who', 'service', 'expect', 'ret:2', 'label', 'hidden test: M3 and own (+tag) addresses invited as VIP; M3''s choice kept on review_log ''invited''',
-      'q', $q$select jsonb_array_length(public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t}, 'first_name', 'Tess', 'last_name', 'Ter', 'company', 'M3'), jsonb_build_object('email', {e_adm_tag})), 'vip', {adm}, true, '{"mode": "none"}', 'Welcome') -> 'invited')::text$q$,
+    jsonb_build_object('id', 'I01', 'who', 'service', 'expect', 'ret:2', 'label', 'hidden test: M3 and own (+tag) addresses invited as VIP (1 place: forced); M3''s choice kept on review_log ''invited''',
+      'q', $q$select jsonb_array_length(public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t}, 'first_name', 'Tess', 'last_name', 'Ter', 'company', 'M3'), jsonb_build_object('email', {e_adm_tag})), 'vip', {adm}, true, '{"mode": "none"}', 'Welcome', true) -> 'invited')::text$q$,
       'chk', $c$select count(*) = 2 and bool_and(g.invited_at is not null and g.ticket_key = 'vip' and g.source = 'invitation' and g.checkin_token is null)
-                 and count(*) filter (where l.actor_id = {adm}::uuid and l.details ->> 'validate_person' = 'true' and l.details ->> 'message' = 'Welcome') = 2
+                 and count(*) filter (where l.actor_id = {adm}::uuid and l.details ->> 'validate_person' = 'true' and l.details ->> 'message' = 'Welcome' and l.details ->> 'forced' = 'true') = 2
                from public.gl_guest g join public.review_log l on l.subject_id = g.id and l.action = 'invited'
               where g.event_id = {ev} and g.status = 'invited'$c$),
     jsonb_build_object('id', 'I02', 'who', 'service', 'expect', 'ret:test_addresses_only/test_addresses_only', 'label', 'hidden test: an outside address, or more than 10 people, is refused',
@@ -617,6 +658,19 @@ values ({gi}, {ev}, 'invitation', 'invited', 'Ina', 'Vited', {e_i}, 'vip', now()
       'q', $q$select public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t})), 'vip', {adm}) ->> 'error'$q$),
     jsonb_build_object('id', 'I09', 'who', 'mem', 'expect', 'err:permission denied', 'label', 'a signed-in member cannot call it',
       'q', $q$select public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t})), 'vip', {mem})::text$q$),
+    jsonb_build_object('id', 'I10', 'who', 'service', 'expect', 'ret:ticket_capacity/0/1/2', 'label', 'an invitation holds a seat: two people into the VIP type of 1 place is refused (held/capacity/adding), nothing written',
+      'q', $q$select concat_ws('/', r ->> 'error', r ->> 'held', r ->> 'capacity', r ->> 'adding') from (select public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t}), jsonb_build_object('email', {e_adm_tag})), 'vip', {adm}) as r) x$q$,
+      'chk', $c$select not exists (select 1 from public.gl_guest where event_id = {ev} and status = 'invited')$c$),
+    jsonb_build_object('id', 'I11', 'who', 'service', 'expect', 'ret:capacity/0/1/2', 'label', 'the event''s capacity too; an address already on the event does not count',
+      'setup', $s$update public.gl_event set capacity = 1 where id = {ev}$s$,
+      'q', $q$select concat_ws('/', r ->> 'error', r ->> 'held', r ->> 'capacity', r ->> 'adding') from (select public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_g1}), jsonb_build_object('email', {e_t}), jsonb_build_object('email', {e_adm_tag})), 'attendee', {adm}) as r) x$q$),
+    jsonb_build_object('id', 'I12', 'who', 'service', 'expect', 'ret:2', 'label', 'p_force: staff go over the capacity, logged forced',
+      'setup', $s$update public.gl_event set capacity = 1 where id = {ev}$s$,
+      'q', $q$select jsonb_array_length(public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t}), jsonb_build_object('email', {e_adm_tag})), 'attendee', {adm}, p_force := true) -> 'invited')::text$q$,
+      'chk', $c$select count(*) = 2 from public.review_log l join public.gl_guest g on g.id = l.subject_id where g.event_id = {ev} and l.action = 'invited' and l.details ->> 'forced' = 'true'$c$),
+    jsonb_build_object('id', 'I13', 'who', 'service', 'expect', 'ret:bad_org_action/bad_org_action', 'label', 'a company to create needs a company type (none; not a company type)',
+      'q', $q$select concat_ws('/', public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t})), 'vip', {adm}, true, '{"mode": "create", "name": "Dryrun Co"}') ->> 'error',
+                public.gl_invite_v2({ev}, jsonb_build_array(jsonb_build_object('email', {e_t})), 'vip', {adm}, true, '{"mode": "create", "name": "Dryrun Co", "type": "admin"}') ->> 'error')$q$),
     -- gl_decide_v2
     jsonb_build_object('id', 'D01', 'who', 'service', 'expect', 'ret:["<gi>"]', 'label', 'approve an invited person (they said yes by phone): confirmed, pass minted, logged accepted_for_them',
       'setup', $s$<inv>$s$,
@@ -648,6 +702,10 @@ values ({gi}, {ev}, 'invitation', 'invited', 'Ina', 'Vited', {e_i}, 'vip', now()
       'chk', $c$select status = 'invited' from public.gl_guest where id = {gi}$c$),
     jsonb_build_object('id', 'D07', 'who', 'service', 'expect', 'ret:wrong_engine', 'label', 'a guest-list (WYS) event is still refused',
       'q', $q$select public.gl_decide_v2({ev1}, array[{gv}::uuid], 'approve', {adm}) ->> 'error'$q$),
+    jsonb_build_object('id', 'D08', 'who', 'service', 'expect', 'ret:bad_org_action/true', 'label', 'a company to create needs a type; with one, the job gets it',
+      'q', $q$select concat_ws('/', public.gl_decide_v2({ev}, array[{g1}::uuid], 'approve', {adm}, '{"mode": "create", "name": "Dryrun Co"}') ->> 'error',
+                public.gl_decide_v2({ev}, array[{g1}::uuid], 'approve', {adm}, '{"mode": "create", "name": "Dryrun Co", "type": "marina"}') ->> 'ok')$q$,
+      'chk', $c$select exists (select 1 from public.account_provision_job j where j.source_id = {g1} and j.org_action ->> 'type' = 'marina')$c$),
     -- gl_respond_invitation_v2
     jsonb_build_object('id', 'R01', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'the person accepts: confirmed, pass minted; the job gets M3''s recorded choice and author',
       'setup', $s$<inv>; insert into public.review_log (subject_type, subject_id, action, details, actor_id) values ('registration', {gi}, 'invited', '{"validate_person": true, "org_action": {"mode": "none"}}', {adm})$s$,

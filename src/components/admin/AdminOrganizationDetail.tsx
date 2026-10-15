@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SM26SectorSuggestions } from '@/components/admin/SM26SectorSuggestions';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import {
   ArrowLeft, Save, Loader2, Building2, Globe, MapPin, Users,
   ExternalLink, RefreshCw, Anchor, Copy, CheckCircle, Shield,
-  KeyRound, Send,
+  KeyRound, Send, Archive, ArchiveRestore,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
-import { AdminDetailHeader, AdminStatus, AdminStatusPill, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { AdminDetailHeader, AdminStatus, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { archiveOrg, markDuplicateOrg, reviewErrorText } from './review/reviewApi';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
@@ -88,6 +89,13 @@ interface MarinaDetails {
 const ORG_COLUMNS =
   'id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner';
 
+/** organizations.archived_at / duplicate_of (migration 20261016090000) and the survivor's name. */
+interface Listing {
+  archived_at: string | null;
+  duplicate_of: string | null;
+  survivor: { id: string; name: string } | null;
+}
+
 const STATUS_OPTIONS = ['verified', 'pending', 'rejected', 'suspended'];
 // organizations.onboarding_status is plain text (no enum, no check). These are
 // the values the app actually writes; it matters because an organization only
@@ -136,11 +144,50 @@ export function AdminOrganizationDetail() {
   const [claimCodeReady, setClaimCodeReady] = useState(false);
   const [featured, setFeatured] = useState(false);
   const [mediaPartner, setMediaPartner] = useState(false);
+  // Listing (registration Phase 3): archived, or marked as a duplicate, by M3 from the review
+  // queue. Read apart from ORG_COLUMNS: before migration 20261016090000 the two columns do not
+  // exist, the read fails and the block stays hidden (the rest of the page is unaffected).
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [listingBusy, setListingBusy] = useState(false);
 
   useEffect(() => { if (id) loadOrg(); }, [id]);
 
+  const loadListing = async (orgId: string) => {
+    const { data, error } = await supabase.from('organizations').select('archived_at, duplicate_of').eq('id', orgId).maybeSingle();
+    if (error || !data) { setListing(null); return; }
+    const row = data as { archived_at: string | null; duplicate_of: string | null };
+    let survivor: Listing['survivor'] = null;
+    if (row.duplicate_of) {
+      const { data: s } = await supabase.from('organizations').select('id, name').eq('id', row.duplicate_of).maybeSingle();
+      survivor = { id: row.duplicate_of, name: (s as { name?: string } | null)?.name || '' };
+    }
+    setListing({ archived_at: row.archived_at, duplicate_of: row.duplicate_of, survivor });
+  };
+
+  // admin_archive_org(false) / admin_mark_duplicate_org(null): verified admins, logged by the server.
+  const restoreListing = async (what: 'archive' | 'duplicate') => {
+    if (!org) return;
+    setListingBusy(true);
+    try {
+      if (what === 'archive') await archiveOrg(org.id, false);
+      else await markDuplicateOrg(org.id, null);
+      toast({
+        title: what === 'archive'
+          ? t('admin.orgListing.relisted', '{{name}} is listed again', { name: org.name })
+          : t('admin.orgListing.unmarked', '{{name}} is no longer marked as a duplicate', { name: org.name }),
+        description: t('admin.orgListing.shownAgain', 'It shows again in the directory, company search and matching.'),
+      });
+      await loadListing(org.id);
+    } catch (e) {
+      toast({ title: t('admin.orgListing.failed', 'Nothing was changed'), description: reviewErrorText(e, t), variant: 'destructive' });
+    }
+    setListingBusy(false);
+  };
+
   const loadOrg = async () => {
     setLoading(true);
+    setListing(null);
+    if (id) void loadListing(id);
     const [{ data: orgData }, { data: memberData }, { data: marinaData }, codeRes] = await Promise.all([
       supabase.from('organizations').select(ORG_COLUMNS).eq('id', id!).single(),
       supabase.from('organization_members').select('id, user_id, role, joined_at').eq('organization_id', id!),
@@ -384,6 +431,8 @@ export function AdminOrganizationDetail() {
             <Badge className={[tierColors?.bg || 'bg-gray-50', tierColors?.text || 'text-gray-700', 'border', tierColors?.border || 'border-gray-200', 'text-[11px]'].join(' ')}>
               {TIER_LABELS[org.tier as OrgTier] || org.tier}
             </Badge>
+            {listing?.archived_at && <AdminStatusPill icon={Archive}>{t('admin.orgListing.archivedPill', 'Archived')}</AdminStatusPill>}
+            {listing?.duplicate_of && <AdminStatusPill>{t('admin.orgListing.duplicatePill', 'Duplicate')}</AdminStatusPill>}
           </>
         }
         actions={
@@ -393,6 +442,42 @@ export function AdminOrganizationDetail() {
           </Button>
         }
       />
+
+      {/* Listing: archived or marked as a duplicate from the review queue; M3 can undo it here. */}
+      {listing && (listing.archived_at || listing.duplicate_of) && (
+        <div role="status" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-[14px] leading-5 text-navy">
+          {listing.archived_at && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                <span className="font-semibold">
+                  {t('admin.orgListing.archivedOn', 'Archived on {{date}}.', { date: new Date(listing.archived_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) })}
+                </span>{' '}
+                {t('admin.orgListing.archivedBody', 'Hidden from the directory, company search and matching; it gives no rights.')}
+              </p>
+              <Button variant="outline" size="sm" className={`${ADMIN_BTN} shrink-0 self-start sm:self-auto`} onClick={() => restoreListing('archive')} disabled={listingBusy}>
+                {listingBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArchiveRestore className="mr-2 h-4 w-4" />}
+                {t('admin.orgListing.relist', 'List again')}
+              </Button>
+            </div>
+          )}
+          {listing.duplicate_of && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="[overflow-wrap:anywhere]">
+                <span className="font-semibold">{t('admin.orgListing.duplicateOf', 'Marked as a duplicate of')}</span>{' '}
+                <Link to={`/admin/organizations/${listing.duplicate_of}`} className="font-semibold text-teal-text underline underline-offset-2 hover:text-navy">
+                  {listing.survivor?.name || t('admin.orgListing.anotherCompany', 'another company')}
+                </Link>
+                {'. '}
+                {t('admin.orgListing.duplicateBody', 'Hidden like an archived company until the two are merged.')}
+              </p>
+              <Button variant="outline" size="sm" className={`${ADMIN_BTN} shrink-0 self-start sm:self-auto`} onClick={() => restoreListing('duplicate')} disabled={listingBusy}>
+                {listingBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArchiveRestore className="mr-2 h-4 w-4" />}
+                {t('admin.orgListing.notDuplicate', 'Not a duplicate')}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SM26 event participation linked to this organization (single source: sm_registration) */}
       {id && <SM26ParticipationCard organizationId={id} companyName={org.name} variant="admin" hideWhenEmpty={false} />}

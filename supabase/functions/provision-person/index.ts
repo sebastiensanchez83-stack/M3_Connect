@@ -139,6 +139,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const ORG_TYPES = new Set(["marina", "partner", "media_partner", "investor", "developer"]);
+const ORG_CREATE_TYPE_ERROR = "org_action.create without a company type (marina, partner, media_partner, investor or developer)";
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = ["https://smartmarinaconnect.com", "https://www.smartmarinaconnect.com", "https://m3connect.netlify.app", "https://m3connectv2.netlify.app"];
@@ -678,7 +679,9 @@ async function applyOrgAction(job: Json, userId: string, created: boolean, event
   } else if (mode === "create") {
     const name = clean(oa.name, 160);
     if (!name) throw new Error("org_action.create without a name");
-    orgType = ORG_TYPES.has(String(oa.type)) ? String(oa.type) : null;
+    // A company M3 creates is VERIFIED: never untyped (spec §3.9; processJob checks it first).
+    if (!ORG_TYPES.has(String(oa.type))) throw new Error(ORG_CREATE_TYPE_ERROR);
+    orgType = String(oa.type);
     orgVerified = true;
     role = "owner";
     let inserted: string | null = null;
@@ -789,6 +792,11 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       }
     }
     if (!EMAIL_RE.test(email)) throw new Error("job without a valid e-mail");
+    // Checked before anything is written (no account, no link): a company M3 creates is
+    // verified, so it needs a type (gl_decide_v2 and gl_invite_v2 refuse it too). The job
+    // fails with the reason; staff fix its org_action and run it again.
+    const oa0 = obj(j.org_action);
+    if (String(oa0.mode || "none") === "create" && !ORG_TYPES.has(String(oa0.type))) throw new Error(ORG_CREATE_TYPE_ERROR);
     const { title: eventTitle, hidden } = await eventTitleOf(j);
     // Links: the live site, or REGISTRATION_SITE_URL for hidden test events only.
     const site = hidden ? REG_SITE : SITE_URL;

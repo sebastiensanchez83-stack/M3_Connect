@@ -243,28 +243,17 @@ function normaliseRow(raw: Record<string, unknown>): QueueRow | null {
   };
 }
 
-/** The v2 cards: admin_review_queue({}) (an object filter = the v2 list). */
+/**
+ * The v2 cards: admin_review_queue({}) (an object filter = the v2 list). The server leaves an
+ * archived pending company out of this list (review_queue_rows: p_v2 and archived_at is null),
+ * so "Archive…" clears the card without a second read here.
+ */
 export async function loadQueueV2(): Promise<QueueRow[]> {
   const { data, error } = await supabase.rpc('admin_review_queue', { p_filter: {} });
   if (error) throw fromPg(error);
-  const rows = ((Array.isArray(data) ? data : []) as Record<string, unknown>[])
+  return ((Array.isArray(data) ? data : []) as Record<string, unknown>[])
     .map(normaliseRow)
     .filter((r): r is QueueRow => !!r);
-  return dropArchivedCompanies(rows);
-}
-
-/**
- * The list's pending-company cards (kind 'company') do not leave out an ARCHIVED company
- * (review_queue_rows, 20261016091000, filters only the access status): archived ones are
- * dropped here, so "Archive…" clears the card. A failed read keeps every card.
- */
-async function dropArchivedCompanies(rows: QueueRow[]): Promise<QueueRow[]> {
-  const ids = rows.filter(r => r.kind === 'company').map(r => r.id);
-  if (!ids.length) return rows;
-  const { data, error } = await supabase.from('organizations').select('id').in('id', ids).not('archived_at', 'is', null);
-  if (error || !Array.isArray(data) || !data.length) return rows;
-  const archived = new Set((data as { id: string }[]).map(o => o.id));
-  return rows.filter(r => !(r.kind === 'company' && archived.has(r.id)));
 }
 
 /** Archives a company (or brings it back): admin_archive_org, logged by the server. */

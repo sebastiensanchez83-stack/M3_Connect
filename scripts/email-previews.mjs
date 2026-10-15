@@ -898,7 +898,11 @@ for (const it of items) {
   const ccs = src("claim-code-signup");
   if (!ccs.includes("This company already has an owner on Smart Marina Connect. Ask them to invite you to the team.")) fail("claim-code-signup: the owned-company refusal (same words as the database) is missing");
   const sm26 = src("sm26-attendee-invite");
-  if (!/access_status: isStaff \? "verified" : "pending"/.test(sm26)) fail("sm26-attendee-invite: the Q5 rule (staff = validated, others = pending) is missing");
+  // Q5 behind review_queue, as sponsor-invite (fixer, 15 Oct): non-staff = pending only while the flag is on.
+  if (!/access_status: newAccountPending \? "pending" : "verified"/.test(sm26) || !/if \(!isStaff\) \{\s*const q5 = await reviewQueueOn\(admin\);/.test(sm26)
+      || !sm26.includes("review_queue === true") || !/if \(q5 === null\) return json\(req, \{[^}]*\}, 503\)/.test(sm26)) {
+    fail("sm26-attendee-invite: the Q5 rule (non-staff = pending, only while registration_flags.review_queue is on; unreadable = 503) is missing");
+  }
   const sp = src("sponsor-invite");
   if (!/access_status: isStaff \? "verified" : "pending"/.test(sp) || !sp.includes("as_owner")) fail("sponsor-invite: the Q5 rule is missing");
   if (!sp.includes("review_queue === true") || !/if \(!q5\)/.test(sp)) fail("sponsor-invite: the Q5 rule must wait for registration_flags.review_queue (the July behaviour with the flag off)");

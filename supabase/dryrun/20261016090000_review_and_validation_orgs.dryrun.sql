@@ -2,7 +2,7 @@
 -- ONE query text, ONE execute_sql call, BEFORE that file is applied (Phases 1 and 2 applied).
 -- A snapshot, the migration verbatim, then cases run as anon / a member / an owner / a verified
 -- admin / the service role, each rolled back. Ends with RAISE EXCEPTION 'DRYRUN ...':
--- everything rolls back. Expected: "38 PASS, 0 FAIL".
+-- everything rolls back. Expected: "41 PASS, 0 FAIL".
 -- Locks: ACCESS EXCLUSIVE on organizations (new columns) and notification_outbox (CHECK)
 -- until the final rollback (seconds): run it off-peak.
 
@@ -46,8 +46,10 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 --     (admin_archive_org, admin_mark_duplicate_org). company_search and has_capability
 --     already leave such companies out (they read them through to_jsonb since Phase 2 / the
 --     rights shadow); org_match_candidates and org_public_member_counts too. The directory
---     pages of the redesign filter them once this is applied (contract §11.3); main shows
---     them as before (nothing is archived today).
+--     pages of the redesign filter them once this is applied (contract §11.6); main shows
+--     them as before (nothing is archived today). organizations has COLUMN-level SELECT
+--     grants for anon and authenticated (every column but claim_code): both columns are
+--     granted here, or any client read naming them would answer 42501 (fixer, 15 Oct).
 --  2. guard_org_sensitive_columns: a direct API write cannot change archived_at /
 --     duplicate_of (staff excepted), nor the TYPE of a company once it is verified (the
 --     owner could until now). Silently kept, like the other guarded columns: main's
@@ -123,6 +125,10 @@ $c$;
 create index if not exists organizations_duplicate_of_idx on public.organizations (duplicate_of) where duplicate_of is not null;
 comment on column public.organizations.archived_at is 'Phase 3: set by M3 (admin_archive_org). Hidden from the directory, company search and matching; no rights through it. Null = listed.';
 comment on column public.organizations.duplicate_of is 'Phase 3: set by M3 (admin_mark_duplicate_org): the company this one duplicates (the survivor; an SM26-linked company always survives). Hidden like archived_at until admin_merge_org (December).';
+-- Readable like the other listing columns (the table's SELECT is granted column by column, so
+-- a new column is unreadable for API roles until granted): the directory filters
+-- (.is('archived_at', null)) and the admin pages read them. Writes stay with the guard below.
+grant select (archived_at, duplicate_of) on public.organizations to anon, authenticated;
 
 -- ---- 2. Guards ------------------------------------------------------------------------
 create or replace function public.guard_org_sensitive_columns()
@@ -531,6 +537,13 @@ select pg_temp.dr_org({org_p}, {name_p}, 'pending', 'partner', {p1}, null)$s$;
                 has_function_privilege('authenticated', 'public.get_public_profiles(uuid[])', 'execute')::text,
                 has_function_privilege('anon', 'public.org_public_member_counts(uuid[])', 'execute')::text,
                 has_function_privilege('anon', 'public.admin_archive_org(uuid,boolean,text)', 'execute')::text)$q$),
+    jsonb_build_object('id', 'S04', 'who', 'postgres', 'bare', true, 'expect', 'ret:true/true/true/true/false/false', 'label', 'SELECT on the two new columns for anon and members (column grants, as the other listing columns); claim_code still not',
+      'q', $q$select concat_ws('/', has_column_privilege('anon', 'public.organizations', 'archived_at', 'select')::text,
+                has_column_privilege('anon', 'public.organizations', 'duplicate_of', 'select')::text,
+                has_column_privilege('authenticated', 'public.organizations', 'archived_at', 'select')::text,
+                has_column_privilege('authenticated', 'public.organizations', 'duplicate_of', 'select')::text,
+                has_column_privilege('anon', 'public.organizations', 'claim_code', 'select')::text,
+                has_column_privilege('authenticated', 'public.organizations', 'claim_code', 'select')::text)$q$),
     -- ── guard ──
     jsonb_build_object('id', 'G01', 'who', 'owner', 'expect', 'allow', 'label', 'TYPE LOCK: the owner of a verified company cannot change its type (kept, no error); other fields still save',
       'q', $q$update public.organizations set organization_type = 'partner', description = 'dry run' where id = {org_v}$q$,
@@ -620,7 +633,13 @@ select pg_temp.dr_org({org_p}, {name_p}, 'pending', 'partner', {p1}, null)$s$;
     jsonb_build_object('id', 'K03', 'who', 'anon', 'expect', 'rls', 'label', 'get_public_profiles: not for anon any more',
       'q', $q$select count(*)::text from public.get_public_profiles(array[{owner}]::uuid[])$q$),
     jsonb_build_object('id', 'K04', 'who', 'owner', 'expect', 'ret:1', 'label', 'get_public_profiles: signed-in callers as before',
-      'q', $q$select count(*)::text from public.get_public_profiles(array[{owner}]::uuid[])$q$)
+      'q', $q$select count(*)::text from public.get_public_profiles(array[{owner}]::uuid[])$q$),
+    jsonb_build_object('id', 'K05', 'who', 'anon', 'expect', 'ret:1', 'label', 'a visitor''s directory read filtering on the new columns works (no 42501)',
+      'q', $q$select count(*)::text from (select o.id, o.archived_at, o.duplicate_of from public.organizations o where o.id = {org_v} and o.archived_at is null and o.duplicate_of is null limit 1) x$q$),
+    jsonb_build_object('id', 'K06', 'who', 'owner', 'expect', 'ret:1/0', 'label', 'a member reads the new columns, and the filter leaves an archived company out',
+      'setup', $s$update public.organizations set archived_at = now() where id = {org_v}$s$,
+      'q', $q$select (select count(*) from public.organizations o where o.id = {org_v} and o.archived_at is not null)::text || '/'
+               || (select count(*) from public.organizations o where o.id = {org_v} and o.archived_at is null and o.duplicate_of is null)::text$q$)
   );
 
   -- Runner: setup s0 + setup (postgres), q as the caller (an expected error is caught around q

@@ -10,10 +10,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // Based on the DEPLOYED v4 (always 'collaborator'), not on the older repo copy
 // that made the invitee 'owner' when the company had none.
 //
-// Q5 rule (registration spec §4.7, Phase 3, 15 Oct 2026): a NEW account is validated
-// only when verified M3 staff invite; on a registration owner's or company member's
-// invitation it waits for M3's review (pending). An existing account is never promoted or
-// demoted, and an invitee is never made the company's owner. Nothing else changed.
+// Q5 rule (registration spec §4.7, Phase 3, 15 Oct 2026), applied only while
+// registration_flags.review_queue is JSON true (as in sponsor-invite: M3's review queue is
+// where the pending accounts it makes are decided): a NEW account is validated only when
+// verified M3 staff invite; on a registration owner's or company member's invitation it waits
+// for M3's review (pending). With the flag off, a new account is verified as before. The
+// switch is read for non-staff callers only (staff invitations are verified either way); an
+// unreadable switch refuses the request (503) before anything is created. An existing account
+// is never promoted or demoted, and an invitee is never made the company's owner. Nothing
+// else changed.
 //
 // Roster lock (audit S20). This function writes with the service role, so the
 // sm_attendee_guard trigger -- which enforces the admin-set roster deadline only
@@ -138,6 +143,15 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Q5 (see the header): only once M3's review queue is on, and only for non-staff callers.
+  // Read before anything is created: an unreadable switch is never taken for "off" (nor "on").
+  let newAccountPending = false;
+  if (!isStaff) {
+    const q5 = await reviewQueueOn(admin);
+    if (q5 === null) return json(req, { error: "Could not read the platform settings. Please try again in a minute." }, 503);
+    newAccountPending = q5;
+  }
+
   // Idempotent account: reuse the attendee's link, else create, else find by email.
   let userId = a.user_id || null;
   let createdAccount = false;
@@ -162,10 +176,10 @@ Deno.serve(async (req) => {
   // Only bootstrap the profile for a BRAND-NEW account — never demote an existing
   // marina/partner/etc. to 'individual'.
   if (createdAccount) {
-    // Q5 (see the header): validated on a staff invitation; otherwise pending M3's review
-    // (onboarding "submitted": it shows in the review queue).
+    // Q5 (see the header): pending M3's review on a non-staff invitation while review_queue is
+    // on (onboarding "submitted": it shows in the review queue); otherwise verified, as before.
     const { error: profErr } = await admin.from("profiles")
-      .update({ persona: "individual", access_status: isStaff ? "verified" : "pending", onboarding_status: isStaff ? "completed" : "submitted" })
+      .update({ persona: "individual", access_status: newAccountPending ? "pending" : "verified", onboarding_status: newAccountPending ? "submitted" : "completed" })
       .eq("user_id", userId);
     if (profErr) console.error("profile bootstrap failed", profErr);
   }
@@ -210,3 +224,15 @@ Deno.serve(async (req) => {
 
   return json(req, { ok: true, user_id: userId, created_account: createdAccount, emailed });
 });
+
+/** registration_flags.review_queue is JSON true; null = the settings cannot be read (as sponsor-invite). */
+// deno-lint-ignore no-explicit-any
+async function reviewQueueOn(admin: any): Promise<boolean | null> {
+  const { data, error } = await admin.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
+  if (error) {
+    console.error("registration_flags unreadable", error);
+    return null;
+  }
+  const v = (data as { value?: unknown } | null)?.value;
+  return !!v && typeof v === "object" && !Array.isArray(v) && (v as Record<string, unknown>).review_queue === true;
+}

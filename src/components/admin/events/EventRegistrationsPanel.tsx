@@ -308,6 +308,8 @@ export function EventRegistrationsPanel({
   const [infoText, setInfoText] = useState('');
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [overCapacity, setOverCapacity] = useState<{ held: number; capacity: number; adding: number; ticket?: string | null } | null>(null);
+  // The same for invitations (an invitation holds a place until the person answers).
+  const [inviteOver, setInviteOver] = useState<{ held: number; capacity: number; adding: number; ticket?: string | null } | null>(null);
   const [detail, setDetail] = useState<GuestRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   // review_log of the open registration: decisions and the person's answers.
@@ -822,11 +824,14 @@ export function EventRegistrationsPanel({
     setInviteTicket('');
     setInviteValidate(true);
     setInviteResult(null);
+    setInviteOver(null);
     setDialogError(null);
     setInviteOpen(true);
   };
 
-  const runInvite = async () => {
+  // force: staff chose to go over the number of places (an invitation holds a place until the
+  // person answers: gl_invite_v2 answers capacity / ticket_capacity otherwise).
+  const runInvite = async (force = false) => {
     if (!newInvites.length) {
       setDialogError(t('adminEvents.inv.nobody', 'No new address to invite. Paste one person per line.'));
       return;
@@ -850,7 +855,7 @@ export function EventRegistrationsPanel({
     // 100 people per call (the function's body limit); what is left stays in the dialog if a turn fails.
     for (let i = 0; i < newInvites.length; i += INVITE_CHUNK) {
       const chunk = newInvites.slice(i, i + INVITE_CHUNK);
-      const res = await registrationStaff<{ ok?: boolean; invited?: unknown; already?: unknown; sent?: number; failed?: number }>({
+      const res = await registrationStaff<{ ok?: boolean; invited?: unknown; already?: unknown; sent?: number; failed?: number; held?: number; capacity?: number; adding?: number; ticket_key?: string }>({
         action: 'invite',
         gl_event_id: glEventId,
         people: chunk,
@@ -859,6 +864,7 @@ export function EventRegistrationsPanel({
         // M3's decision on each person, recorded now and applied when they accept.
         validate_person: inviteValidate,
         org_action: { mode: 'none' },
+        force: force === true || undefined,
       });
       if (res.error || res.ok !== true) {
         setBusy(false);
@@ -869,7 +875,16 @@ export function EventRegistrationsPanel({
           toast({ title: t('adminEvents.inv.doneN', '{{n}} invited.', { n: total.invited }), description: t('adminEvents.inv.partial', 'The people still in the list are not invited yet.') });
           void load();
         }
-        setDialogError(staffErrorText(res.error, t));
+        if (res.error === 'capacity' || res.error === 'ticket_capacity') {
+          // Say it and offer to go ahead (as a confirmation over the number of places).
+          setDialogError(null);
+          setInviteOver({
+            held: Number(res.held ?? 0), capacity: Number(res.capacity ?? 0), adding: Number(res.adding ?? 0),
+            ticket: res.error === 'ticket_capacity' ? ticketLabel(res.ticket_key ?? null) || null : null,
+          });
+        } else {
+          setDialogError(staffErrorText(res.error, t));
+        }
         return;
       }
       total.invited += n(res.invited);
@@ -878,6 +893,7 @@ export function EventRegistrationsPanel({
       total.failed += Number(res.failed) || 0;
     }
     setBusy(false);
+    setInviteOver(null);
     setInviteResult(total);
     void load();
   };
@@ -954,8 +970,8 @@ export function EventRegistrationsPanel({
       ? t('adminEvents.regs.acceptForBody', 'For someone who accepted by phone or e-mail. They get the confirmation e-mail with their entry QR code, as if they had accepted themselves.')
       : onsite
       ? (accountTiming === 'after_event'
-        ? t('adminEvents.regs.approveBodyOnsiteAfter', 'They get a confirmation e-mail with their entry QR code. Their Smart Marina Connect account is prepared; the e-mail to choose its password goes after the event.')
-        : t('adminEvents.regs.approveBodyOnsite', 'They get a confirmation e-mail with their entry QR code. A few minutes later, a second e-mail lets them choose the password of their Smart Marina Connect account.'))
+        ? t('adminEvents.regs.approveBodyOnsiteAfter2', 'They get a confirmation e-mail with their entry QR code. Someone with no Smart Marina Connect account yet gets one; the e-mail to choose its password goes after the event.')
+        : t('adminEvents.regs.approveBodyOnsite2', 'They get a confirmation e-mail with their entry QR code. If they have no Smart Marina Connect account yet, a few minutes later a second e-mail lets them choose its password.'))
       : t('adminEvents.regs.approveBodyWebinar2', 'They get a confirmation e-mail with the calendar file and the join link (when it is set).'),
     reject: invitedOnly
       ? t('adminEvents.regs.withdrawBody', 'Their invitation link stops working and their place is freed. You choose whether they are told.')
@@ -1417,13 +1433,29 @@ export function EventRegistrationsPanel({
         error={acctError}
       />
 
+      {/* Invitations over the number of places: say it, offer to go ahead (back = the list). */}
+      <EditDialog
+        open={inviteOpen && !!inviteOver}
+        onOpenChange={(o) => { if (!o && !busy) setInviteOver(null); }}
+        title={t('adminEvents.regs.fullTitle', 'This goes over the number of places')}
+        description={inviteOver
+          ? (inviteOver.ticket
+            ? t('adminEvents.inv.fullBodyTicket', '{{held}} of the {{cap}} places for "{{ticket}}" are taken and you are inviting {{add}}. An invitation holds a place until the person answers. Invite anyway?', { held: inviteOver.held, cap: inviteOver.capacity, add: inviteOver.adding, ticket: inviteOver.ticket })
+            : t('adminEvents.inv.fullBody', '{{held}} of {{cap}} places are taken and you are inviting {{add}}. An invitation holds a place until the person answers. Invite anyway?', { held: inviteOver.held, cap: inviteOver.capacity, add: inviteOver.adding }))
+          : undefined}
+        onSave={() => runInvite(true)}
+        saveLabel={t('adminEvents.inv.inviteAnyway', 'Invite anyway')}
+        saving={busy}
+        error={dialogError}
+      />
+
       {/* Invitations (on-site): paste up to 500 people (10 M3 addresses on a hidden test). */}
       <EditDialog
-        open={inviteOpen}
+        open={inviteOpen && !inviteOver}
         onOpenChange={(o) => { if (!o && !busy) setInviteOpen(false); }}
         title={t('adminEvents.inv.title', 'Invite people')}
         description={inviteResult ? undefined : t('adminEvents.inv.body', 'Each person gets an e-mail inviting them to the event, with a button to accept or decline. Paste one person per line: an e-mail address, "First Last <e-mail>", or rows copied from a spreadsheet (first name, last name, e-mail, company).')}
-        onSave={inviteResult ? undefined : runInvite}
+        onSave={inviteResult ? undefined : () => runInvite(false)}
         quietClose={!!inviteResult}
         saveLabel={inviteResult ? t('adminEvents.done', 'Done') : newInvites.length
           ? (newInvites.length === 1 ? t('adminEvents.inv.goOne', 'Invite 1 person') : t('adminEvents.inv.go', 'Invite {{n}} people', { n: newInvites.length }))

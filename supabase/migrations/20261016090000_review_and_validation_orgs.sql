@@ -10,8 +10,10 @@
 --     (admin_archive_org, admin_mark_duplicate_org). company_search and has_capability
 --     already leave such companies out (they read them through to_jsonb since Phase 2 / the
 --     rights shadow); org_match_candidates and org_public_member_counts too. The directory
---     pages of the redesign filter them once this is applied (contract §11.3); main shows
---     them as before (nothing is archived today).
+--     pages of the redesign filter them once this is applied (contract §11.6); main shows
+--     them as before (nothing is archived today). organizations has COLUMN-level SELECT
+--     grants for anon and authenticated (every column but claim_code): both columns are
+--     granted here, or any client read naming them would answer 42501 (fixer, 15 Oct).
 --  2. guard_org_sensitive_columns: a direct API write cannot change archived_at /
 --     duplicate_of (staff excepted), nor the TYPE of a company once it is verified (the
 --     owner could until now). Silently kept, like the other guarded columns: main's
@@ -87,6 +89,10 @@ $c$;
 create index if not exists organizations_duplicate_of_idx on public.organizations (duplicate_of) where duplicate_of is not null;
 comment on column public.organizations.archived_at is 'Phase 3: set by M3 (admin_archive_org). Hidden from the directory, company search and matching; no rights through it. Null = listed.';
 comment on column public.organizations.duplicate_of is 'Phase 3: set by M3 (admin_mark_duplicate_org): the company this one duplicates (the survivor; an SM26-linked company always survives). Hidden like archived_at until admin_merge_org (December).';
+-- Readable like the other listing columns (the table's SELECT is granted column by column, so
+-- a new column is unreadable for API roles until granted): the directory filters
+-- (.is('archived_at', null)) and the admin pages read them. Writes stay with the guard below.
+grant select (archived_at, duplicate_of) on public.organizations to anon, authenticated;
 
 -- ---- 2. Guards ------------------------------------------------------------------------
 create or replace function public.guard_org_sensitive_columns()

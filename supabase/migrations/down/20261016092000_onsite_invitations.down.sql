@@ -15,7 +15,7 @@ declare
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p where p.oid = to_regprocedure('public.gl_decide_v2(uuid,uuid[],text,uuid,jsonb,boolean,boolean,text,text)');
-  if v_md5 is distinct from 'ad3db18f38b1509741b80c6e7014b0a0' and v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' then
+  if v_md5 is distinct from '75171c1bfeaf87e4409f915b11ee211c' and v_md5 is distinct from '0b3760d1af5422ea754c46ad50c529e7' then
     raise exception 'onsite_invitations down: gl_decide_v2 changed since (md5 %); rebuild this down', v_md5;
   end if;
 end
@@ -174,6 +174,7 @@ $function$;
 revoke all on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) from public, anon, authenticated;
 grant execute on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) to service_role;
 
+drop function if exists public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text, boolean);
 drop function if exists public.gl_invite_v2(uuid, jsonb, text, uuid, boolean, jsonb, text);
 drop function if exists public.gl_respond_invitation_v2(uuid, boolean);
 

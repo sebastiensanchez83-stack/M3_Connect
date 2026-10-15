@@ -3,7 +3,8 @@
 -- Puts back: the organization guard (production text, md5 1bb4a8fb...),
 -- the two-kind CHECK of notification_outbox (NOT VALID while decision e-mails exist), anon's
 -- EXECUTE on get_public_profiles, and drops the new functions and the two listing columns
--- (the archived / duplicate marks set by M3 in between are lost; review_log keeps them).
+-- with their SELECT grants (the archived / duplicate marks set by M3 in between are lost;
+-- review_log keeps them).
 -- Before this down, also revert the redesign's reads of the new columns (contract §11.6:
 -- .is('archived_at', null) / .is('duplicate_of', null) answer 400 once the columns are gone)
 -- and of org_public_member_counts; refused while held/directory_signed_in_only.sql is applied
@@ -87,6 +88,19 @@ end
 $v$;
 
 grant execute on function public.get_public_profiles(uuid[]) to public, anon;
+
+-- The column grants of 20261016090000 (dropping the columns would drop them too; said here so
+-- the down reads as the exact reverse).
+do $g$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'archived_at') then
+    revoke select (archived_at) on public.organizations from anon, authenticated;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'duplicate_of') then
+    revoke select (duplicate_of) on public.organizations from anon, authenticated;
+  end if;
+end
+$g$;
 
 drop index if exists public.organizations_duplicate_of_idx;
 alter table public.organizations drop constraint if exists organizations_duplicate_of_not_self;

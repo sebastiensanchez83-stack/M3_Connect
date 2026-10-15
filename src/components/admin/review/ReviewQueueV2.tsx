@@ -159,10 +159,11 @@ export function ReviewQueueV2() {
   const lastWindow = useRef<Exclude<DialogState, { mode: 'validate' }> | null>(null);
   // Decision e-mails leave only while outbox_sender is on: the toasts say where they wait.
   const senderOn = useOutboxSender();
-  // provisioning on: a confirmed WYS guest gets a second e-mail (their account) after the QR.
+  // provisioning on: a confirmed WYS guest with no account yet gets a second e-mail (their new
+  // account) after the QR; someone who already has an account gets the event added, no e-mail.
   const { flags: regFlags } = useRegistrationFlags();
   const accountMailNote = regFlags.provisioning
-    ? t('adminReview.v2.wysAccountMail', 'A minute or two later they get a second e-mail to choose the password of their Smart Marina Connect account.')
+    ? t('adminReview.v2.wysAccountMail2', 'If they have no Smart Marina Connect account yet, a minute or two later they get a second e-mail to choose its password.')
     : '';
 
   /* ─── loading ─── */
@@ -1066,7 +1067,7 @@ export function ReviewQueueV2() {
                 <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.onsite', 'On-site events: their accounts are made with no company; M3 can link the company later from the person\'s page.')}</p>
               )}
               {accountMailNote && shown.rows.some(isV1) && (
-                <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.wysAccount', 'World Yachting Summit guests: a minute or two after their entry pass, they get a second e-mail to choose the password of their Smart Marina Connect account.')}</p>
+                <p className="text-[13px] leading-5 text-meta">{t('adminReview.v2.bulk.wysAccount2', 'World Yachting Summit guests with no Smart Marina Connect account yet: a minute or two after their entry pass, they get a second e-mail to choose its password.')}</p>
               )}
             </WindowBody>
           )}

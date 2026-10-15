@@ -1,10 +1,10 @@
 -- DRY RUN 3 of 4 of supabase/migrations/20261016090500_review_and_validation_people.sql
--- (primary_domain, Not accepted, questions, the old Approve, the persona before / after the rights switch, repeated decisions).
+-- (primary_domain, Not accepted, questions, the persona before / after the rights switch, repeated decisions).
 -- NOT A MIGRATION. ONE query text, ONE execute_sql call, AFTER
 -- 20261016090000_review_and_validation_orgs is applied and BEFORE this one. The migration
 -- verbatim (dry run 1 compares the snapshot), then cases as anon / a member / a verified admin, each rolled
 -- back (flags are set inside the cases that need them, never left). Ends with RAISE EXCEPTION
--- 'DRYRUN ...'. Expected: "18 PASS, 0 FAIL".
+-- 'DRYRUN ...'. Expected: "14 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -37,7 +37,9 @@ set local statement_timeout = '120s';
 --    keeps the persona; a company step (create, link, claim) or "participant" sets the
 --    display persona, except that nothing but "participant" demotes to individual.
 --   admin_validate_person(user_id, decision)  validate | participant | reject | ask
---   admin_approve_person(user_id, notify)     the old "Approve" button through the RPC
+--     (the old Approve / Reject buttons of AdminUsers and AdminUserDetail keep their direct
+--     updates while review_queue is off, and open the validation window, i.e. this function,
+--     once it is on: contract §11.2; the draft admin_approve_person was dropped, fixer 15 Oct)
 --   admin_decide_claim(invitation_id, approve, note)
 --   admin_revoke_team_join(member_id, reset_person, note)   Team joins tab ("remove")
 --   admin_review_dismiss(kind, id, other_id, note)          FYI seen / keep / not a duplicate
@@ -419,49 +421,6 @@ begin
 end
 $function$;
 
--- The old "Approve" (AdminUsers / AdminUserDetail) through the RPC: the person, and the
--- company they OWN that is still pending (as the button did); no company otherwise. A
--- company with no type takes the person's persona when it is a company type (what they
--- declared in the old wizard); else type_required: the page opens the Validate dialog.
--- p_notify null = the default of admin_validate_person (notify_by_client while review_queue is off).
-create or replace function public.admin_approve_person(p_user_id uuid, p_notify boolean default null)
-returns jsonb
-language plpgsql
-volatile
-security definer
-set search_path = ''
-as $function$
-declare
-  v_org uuid;
-  v_otype text;
-  v_persona text;
-  v_link jsonb;
-begin
-  if not coalesce(public.is_admin(), false) then
-    raise exception using errcode = '42501', message = 'forbidden';
-  end if;
-  select m.organization_id, o.organization_type into v_org, v_otype
-    from public.organization_members m join public.organizations o on o.id = m.organization_id
-   where m.user_id = p_user_id and m.role = 'owner' and o.access_status = 'pending'
-     and o.archived_at is null and o.duplicate_of is null
-   order by m.joined_at asc nulls last, o.id limit 1;
-  if v_org is null then
-    v_link := jsonb_build_object('mode', 'none');
-  else
-    v_link := jsonb_build_object('mode', 'link', 'org_id', v_org);
-    if v_otype is null then
-      select pr.persona::text into v_persona from public.profiles pr where pr.user_id = p_user_id;
-      if v_persona in ('marina', 'partner', 'media_partner', 'developer', 'investor') then
-        v_link := v_link || jsonb_build_object('type', v_persona);
-      end if;
-    end if;
-  end if;
-  return public.admin_validate_person(p_user_id,
-    jsonb_build_object('action', 'validate', 'org', v_link)
-    || case when p_notify is null then '{}'::jsonb else jsonb_build_object('notify', p_notify) end);
-end
-$function$;
-
 -- A claim (organization_invitations.status 'claim_requested', filed by complete_signup_for).
 -- Approve: a verified, listed company with no owner gets the person as owner; the person is
 -- verified (Q3). Decline: the request is refused, the person stays as they are.
@@ -715,8 +674,6 @@ revoke all on function public.review_display_persona(uuid, uuid) from public, an
 revoke all on function public.review_skip_under_review_mail(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.admin_validate_person(uuid, jsonb) from public, anon;
 grant execute on function public.admin_validate_person(uuid, jsonb) to authenticated;
-revoke all on function public.admin_approve_person(uuid, boolean) from public, anon;
-grant execute on function public.admin_approve_person(uuid, boolean) to authenticated;
 revoke all on function public.admin_decide_claim(uuid, boolean, text) from public, anon;
 grant execute on function public.admin_decide_claim(uuid, boolean, text) to authenticated;
 revoke all on function public.admin_revoke_team_join(uuid, boolean, text) from public, anon;
@@ -725,7 +682,6 @@ revoke all on function public.admin_review_dismiss(text, uuid, uuid, text) from 
 grant execute on function public.admin_review_dismiss(text, uuid, uuid, text) to authenticated;
 
 comment on function public.admin_validate_person(uuid, jsonb) is 'Phase 3 (spec §4.6): {action: validate|participant|reject|ask, reason, notify (absent: queued when review_queue is on, else notify_by_client; ask always queued), org: {mode: none|link|create, org_id, type, name, website, country, as_owner, force_new}}. Verified admins only. One review_log row, at most one notification_outbox e-mail. See contract §11.2.';
-comment on function public.admin_approve_person(uuid, boolean) is 'Phase 3: the old Approve button through admin_validate_person (the person, plus the company they own that is still pending; an untyped one takes their company-type persona, else type_required). p_notify null = the default (notify_by_client while review_queue is off).';
 comment on function public.admin_decide_claim(uuid, boolean, text) is 'Phase 3 (Q3): approve or decline a claim_requested row. Approve needs a verified, listed company with no owner and the claimant (the account with that login address, proven, older than the claim): the person becomes its owner and is verified. Verified admins only.';
 comment on function public.admin_revoke_team_join(uuid, boolean, text) is 'Phase 3: remove a collaborator who joined through an invitation or a join request (Team joins tab); optionally send a verified person back to review; a persona that came from that company follows their other validated company (individual only once capabilities_enforced is on). Verified admins only.';
 comment on function public.admin_review_dismiss(text, uuid, uuid, text) is 'Phase 3: mark a queue card seen without change: team_join or join_request (fyi_seen), retro (retro_kept), duplicate_org / duplicate_person (not_duplicate). Verified admins only.';
@@ -820,26 +776,15 @@ values ('account_under_review', {p1}, {p1}, {p1}, 'account_under_review:' || {p1
       'q', $q$select public.admin_validate_person({p1}, jsonb_build_object('action', 'participant', 'org', jsonb_build_object('mode', 'link', 'org_id', {org_v})))::text$q$),
     jsonb_build_object('id', 'V22', 'who', 'admin', 'expect', 'err:bad_type', 'label', 'company types only',
       'q', $q$select public.admin_validate_person({p1}, '{"action": "validate", "org": {"mode": "create", "name": "x", "type": "admin"}}')::text$q$),
-    jsonb_build_object('id', 'V23', 'who', 'admin', 'expect', 'err:type_required', 'label', 'the old Approve, own pending company with no type and no company-type persona: type_required (the page opens Validate)',
-      'q', $q$select public.admin_approve_person({p1})::text$q$,
-      'chk', $c$select (select access_status = 'pending' and organization_type is null from public.organizations where id = {org_p}) and (select access_status::text = 'pending' from public.profiles where user_id = {p1})$c$),
-    jsonb_build_object('id', 'V24', 'who', 'admin', 'expect', 'ret:none/individual', 'label', 'the old Approve for someone with no company',
-      'q', $q$select coalesce(r ->> 'organization_id', 'none') || '/' || (r ->> 'persona') from (select public.admin_approve_person({p2}) as r) x$q$),
-    jsonb_build_object('id', 'V25', 'who', 'owner', 'expect', 'err:forbidden', 'label', 'a member cannot use the old Approve',
-      'q', $q$select public.admin_approve_person({p2})::text$q$),
-    jsonb_build_object('id', 'V31', 'who', 'admin', 'expect', 'ret:true/investor/verified', 'label', 'the old Approve: the own pending company with no type takes the declared persona (investor), verified with the person',
-      'setup', $s$update public.profiles set persona = 'investor' where user_id = {p1}$s$,
-      'q', $q$select (r ->> 'company_verified') || '/' || (r ->> 'persona') || '/' || (r ->> 'access_status') from (select public.admin_approve_person({p1}) as r) x$q$,
-      'chk', $c$select access_status = 'verified' and organization_type = 'investor' from public.organizations where id = {org_p}$c$),
-    jsonb_build_object('id', 'V32', 'who', 'admin', 'expect', 'ret:partner/true/true', 'label', 'the old Approve before the rights switch: a partner persona with no company is KEPT (no demotion); flags off: the page sends the e-mail',
+    jsonb_build_object('id', 'V32', 'who', 'admin', 'expect', 'ret:partner/true/true', 'label', 'validate with no company step before the rights switch: a partner persona with no company is KEPT (no demotion); flags off: the page sends the e-mail',
       'setup', $s$update public.profiles set persona = 'partner' where user_id = {p2};
 update public.platform_settings set value = value || '{"capabilities_enforced": false, "review_queue": false}'::jsonb where key = 'registration_flags'$s$,
-      'q', $q$select (r ->> 'persona') || '/' || (r ->> 'persona_kept') || '/' || (r ->> 'notify_by_client') from (select public.admin_approve_person({p2}) as r) x$q$,
+      'q', $q$select (r ->> 'persona') || '/' || (r ->> 'persona_kept') || '/' || (r ->> 'notify_by_client') from (select public.admin_validate_person({p2}, '{"action": "validate", "org": {"mode": "none"}}') as r) x$q$,
       'chk', $c$select (select persona::text = 'partner' and access_status::text = 'verified' from public.profiles where user_id = {p2}) and not exists (select 1 from public.notification_outbox where user_id = {p2})$c$),
     jsonb_build_object('id', 'V33', 'who', 'admin', 'expect', 'ret:individual', 'label', 'once the rights switch is on: no validated company = individual (display persona)',
       'setup', $s$update public.profiles set persona = 'partner' where user_id = {p2};
 update public.platform_settings set value = value || '{"capabilities_enforced": true}'::jsonb where key = 'registration_flags'$s$,
-      'q', $q$select public.admin_approve_person({p2}) ->> 'persona'$q$),
+      'q', $q$select public.admin_validate_person({p2}, '{"action": "validate", "org": {"mode": "none"}}') ->> 'persona'$q$),
     jsonb_build_object('id', 'V34', 'who', 'admin', 'expect', 'ret:individual/true', 'label', 'retro-review validate of a verified person whose persona differs: persona kept before the switch, no "approved" e-mail',
       'setup', $s$update public.profiles set persona = 'individual' where user_id = {owner};
 update public.platform_settings set value = value || '{"capabilities_enforced": false}'::jsonb where key = 'registration_flags'$s$,

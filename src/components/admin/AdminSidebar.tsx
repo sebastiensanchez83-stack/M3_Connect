@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck,
-  Scale, Activity, Upload, Newspaper, Mail, Archive, Inbox,
+  Scale, Activity, Upload, Newspaper, Mail, Archive, Inbox, ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -78,6 +78,8 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
       { to: '/admin/users', label: t('admin.users'), icon: <Users className={ICON} />, adminOnly: true },
       { to: '/admin/organizations', label: 'Organizations', icon: <Building2 className={ICON} />, adminOnly: true },
       { to: '/admin/partner-requests', label: 'B2B requests', icon: <Link2 className={ICON} />, adminOnly: true },
+      // Rights per company type (read-only): the table and what the switch would change.
+      { to: '/admin/rights', label: 'Rights', icon: <ShieldCheck className={ICON} />, adminOnly: true },
     ] },
     { key: 'marketplace', label: 'Marketplace', items: [
       { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className={ICON} />, adminOnly: true },

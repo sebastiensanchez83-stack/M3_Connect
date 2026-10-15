@@ -497,7 +497,9 @@ function EventDetailContent() {
   // card is ParticipateBlock: one block for every situation, driven by the
   // registration function. An event that function does not know keeps the card
   // below, unchanged; so does everything while the switches are off.
-  const { flags, ready: flagsReady } = useRegistrationFlags();
+  // `failed`: the switches could not be read, so they are not known to be off (the old
+  // card would be a guess for an event of the registration engine: see cardPending).
+  const { flags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
   const v2On = flagsReady && newEventPagesOn(flags);
   const participateEvent = useMemo<ParticipateEvent | null>(() => (event ? {
     id: event.id,
@@ -966,7 +968,7 @@ function EventDetailContent() {
   const v2View = v2On && !smRegisterPath && hasEngine ? participationView(participationModel, !!user) : null;
   const useBlock = !!v2View && v2View.k !== 'legacy';
   // Which card applies is not known yet: the switches, or (switched on) whether the event has an engine.
-  const cardPending = !smRegisterPath && glEvent !== 'none' && (!flagsReady || (v2On && glEvent === 'pending'));
+  const cardPending = !smRegisterPath && glEvent !== 'none' && (!flagsReady || flagsFailed || (v2On && glEvent === 'pending'));
   if (v2View && useBlock) barAction = participateBarAction(v2View, participationModel, t, scrollToPanel);
   if (cardPending) barAction = null;
   const showBar = !!barAction && !panelInView && !endInView;
@@ -1436,12 +1438,21 @@ function EventDetailContent() {
         />
       ) : cardPending ? (
         // Which card applies is known in a moment (the registration switches): a quiet placeholder meanwhile.
-        <div role="status" aria-label={t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
+        <div role={flagsFailed ? undefined : 'status'} aria-label={flagsFailed ? undefined : t('reg.loading', 'Loading')} className="space-y-4 rounded-card border border-rule bg-white p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-chip motion-reduce:animate-none" />
             <span className="h-5 w-1/2 animate-pulse rounded bg-chip motion-reduce:animate-none" />
           </div>
           <div className="h-12 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
+          {flagsFailed && (
+            // Read again when the tab regains focus, or now.
+            <p role="alert" className="text-[14px] leading-5 text-meta">
+              {t('reg.flagsFailed', 'This part of the page could not be loaded.')}{' '}
+              <button type="button" onClick={retryFlags} className="font-medium text-navy underline underline-offset-2 hover:no-underline">
+                {t('reg.tryAgain', 'Try again')}
+              </button>
+            </p>
+          )}
         </div>
       ) : (
         <div className="rounded-card border border-rule bg-white p-5 sm:p-6">

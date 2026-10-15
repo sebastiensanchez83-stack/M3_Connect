@@ -35,7 +35,7 @@ export function EventEditorRoute() {
   const { t } = useTranslation();
   const { id = '' } = useParams<{ id: string }>();
   const [params] = useSearchParams();
-  const { flags, ready } = useRegistrationFlags();
+  const { flags, ready, failed, retry: retryFlags } = useRegistrationFlags();
   const isNew = id === 'new';
   const type = params.get('type');
   const kind = type === 'on_site' ? 'onsite' : 'webinar';
@@ -64,6 +64,21 @@ export function EventEditorRoute() {
 
   if (isNew) {
     if (!forced && !ready) return <AdminLoading />;
+    // The switches could not be read (src/lib/flags.ts gives up after a few seconds):
+    // "off" would be a guess, and a webinar made in the old editor stays there for good.
+    if (!forced && failed) {
+      return (
+        <div className="mx-auto max-w-3xl">
+          <AdminDetailHeader back={{ to: '/admin/events', label: t('adminEvents.back', 'Events') }} title={t('adminEvents.newTitle', 'New event')} />
+          <Note tone="danger">
+            <span role="alert">{t('adminEvents.routeFlagsError', 'The registration settings could not be loaded, so the right editor cannot be chosen. Check your connection and try again.')}</span>
+          </Note>
+          <Button type="button" variant="outline" size="sm" className={`${ADMIN_BTN} mt-4`} onClick={retryFlags}>
+            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t('adminEvents.tryAgainBtn', 'Try again')}
+          </Button>
+        </div>
+      );
+    }
     const on = forced || (kind === 'webinar' ? flags.webinar_v2 : flags.onsite_v2);
     if (on) return <EventEditor key={`new:${kind}`} routeId="new" initialKind={kind} forced={forced} />;
     if (kind !== 'webinar') return legacy;

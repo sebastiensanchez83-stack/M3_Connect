@@ -178,6 +178,14 @@ export function MyRequests() {
     webinars: canCreate('request_webinar', createCtx),
   };
   const publishWhenVerified = t('accountArea.publishWhenVerified', 'You can publish once your organisation is verified');
+  // A close, reopen or delete that changed no row was refused (once the rights
+  // switch is on, only a company that may publish edits or reopens a need; its
+  // author can always close or delete it): say so instead of showing it done.
+  const notSaved = (message?: string) => toast({
+    title: t('accountArea.notSavedTitle', 'This change was not saved'),
+    description: message || t('accountArea.notSavedBody', 'Please refresh the page and try again, or contact the M3 team.'),
+    variant: 'destructive',
+  });
   const under10k = t('accountArea.budgetUnder10k', 'Under €10k');
   const langLabel = (code: string) => (code === 'EN' ? t('accountArea.lang.en', 'English') : t('accountArea.lang.fr', 'French'));
   const toggle = (kind: RequestKind) => setOpen((prev) => ({ ...prev, [kind]: !prev[kind] }));
@@ -288,7 +296,8 @@ export function MyRequests() {
                       )}
                       <Button variant="outline" size="sm" className={BTN_OUTLINE} onClick={async () => {
                         const newOpen = !rfp.is_open;
-                        await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
+                        const { data: changed, error } = await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id).select('id');
+                        if (error || !changed?.length) { notSaved(error?.message); return; }
                         setRfps((prev) => prev.map((r) => (r.id === rfp.id ? { ...r, is_open: newOpen } : r)));
                         toast({ title: newOpen ? t('accountArea.rfps.reopened', 'RFP reopened') : t('accountArea.rfps.closed', 'RFP closed') });
                       }}>
@@ -296,7 +305,8 @@ export function MyRequests() {
                       </Button>
                       <Button variant="ghost" size="sm" className={DANGER} onClick={async () => {
                         if (!confirm(t('accountArea.rfps.deleteConfirm', 'Delete this RFP?'))) return;
-                        await supabase.from('rfps').delete().eq('id', rfp.id);
+                        const { data: removed, error } = await supabase.from('rfps').delete().eq('id', rfp.id).select('id');
+                        if (error || !removed?.length) { notSaved(error?.message); return; }
                         setRfps((prev) => prev.filter((r) => r.id !== rfp.id));
                         toast({ title: t('accountArea.rfps.deleted', 'RFP deleted') });
                       }}>
@@ -346,7 +356,8 @@ export function MyRequests() {
                       )}
                       <Button variant="outline" size="sm" className={BTN_OUTLINE} onClick={async () => {
                         const newOpen = !c.is_open;
-                        await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
+                        const { data: changed, error } = await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id).select('id');
+                        if (error || !changed?.length) { notSaved(error?.message); return; }
                         setConsultations((prev) => prev.map((x) => (x.id === c.id ? { ...x, is_open: newOpen } : x)));
                         toast({ title: newOpen ? t('accountArea.consultations.reopened', 'Consultation reopened') : t('accountArea.consultations.closed', 'Consultation closed') });
                       }}>
@@ -354,7 +365,8 @@ export function MyRequests() {
                       </Button>
                       <Button variant="ghost" size="sm" className={DANGER} onClick={async () => {
                         if (!confirm(t('accountArea.consultations.deleteConfirm', 'Delete this consultation?'))) return;
-                        await supabase.from('consultations').delete().eq('id', c.id);
+                        const { data: removed, error } = await supabase.from('consultations').delete().eq('id', c.id).select('id');
+                        if (error || !removed?.length) { notSaved(error?.message); return; }
                         setConsultations((prev) => prev.filter((x) => x.id !== c.id));
                         toast({ title: t('accountArea.consultations.deleted', 'Consultation deleted') });
                       }}>
@@ -388,7 +400,7 @@ export function MyRequests() {
             body={t('accountArea.webinars.pendingBody', "You'll be able to propose webinars once your profile is verified by our team.")}
           />
         ) : webinars.length === 0 ? (
-          <MemberEmpty icon={Radio} className="py-8" title={t('accountArea.webinars.empty', 'No webinar requests submitted.')} body={mayPublish.webinars ? undefined : publishWhenVerified} />
+          <MemberEmpty icon={Radio} className="py-8" title={t('accountArea.webinars.empty', 'No webinar requests submitted.')} body={mayPublish.webinars ? undefined : t('accountArea.webinars.whenVerified', 'You can propose a webinar once the M3 team has verified your account.')} />
         ) : (
           <ul className="divide-y divide-rule">
             {webinars.map((req) => (
@@ -415,7 +427,8 @@ export function MyRequests() {
                         </Button>
                         <Button variant="ghost" size="sm" className={DANGER} onClick={async () => {
                           if (!confirm(t('accountArea.webinars.withdrawConfirm', 'Withdraw this webinar request?'))) return;
-                          await supabase.from('webinar_requests').delete().eq('id', req.id);
+                          const { data: removed, error } = await supabase.from('webinar_requests').delete().eq('id', req.id).select('id');
+                          if (error || !removed?.length) { notSaved(error?.message); return; }
                           setWebinars((prev) => prev.filter((r) => r.id !== req.id));
                           toast({ title: t('accountArea.webinars.deleted', 'Request deleted') });
                         }}>

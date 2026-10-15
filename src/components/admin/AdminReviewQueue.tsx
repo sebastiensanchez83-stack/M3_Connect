@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { readRegistrationFlags } from '@/lib/flags';
 import { guestList, partsLabel } from '@/lib/guestList';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -193,19 +194,12 @@ interface QueueSettings {
 
 const DEFAULT_SETTINGS: QueueSettings = { slaDays: 2, quickDecisions: false };
 
-function readSettings(rows: { key: string; value: unknown }[] | null): QueueSettings {
-  const out = { ...DEFAULT_SETTINGS };
-  for (const r of rows ?? []) {
-    if (r.key === 'review_sla_text' && typeof r.value === 'string') {
-      const m = /(\d+)\s*working\s*days?/i.exec(r.value);
-      const n = m ? Number(m[1]) : NaN;
-      if (Number.isInteger(n) && n >= 1 && n <= 30) out.slaDays = n;
-    }
-    if (r.key === 'registration_flags' && r.value && typeof r.value === 'object') {
-      out.quickDecisions = (r.value as Record<string, unknown>).review_queue === true;
-    }
-  }
-  return out;
+/** The promised delay from review_sla_text; the switch comes from src/lib/flags.ts (the one reader of registration_flags). */
+function readSlaDays(value: unknown): number {
+  if (typeof value !== 'string') return DEFAULT_SETTINGS.slaDays;
+  const m = /(\d+)\s*working\s*days?/i.exec(value);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 30 ? n : DEFAULT_SETTINGS.slaDays;
 }
 
 /** Past the promised delay: a person, company or event request waiting at least the SLA, in working days. */
@@ -576,12 +570,17 @@ export function AdminReviewQueue() {
 
   const load = useCallback(async () => {
     if (loadedOnce.current) setRefreshing(true);
-    const [{ data, error }, conf] = await Promise.all([
+    const [{ data, error }, sla, flags] = await Promise.all([
       supabase.rpc('admin_review_queue'),
-      // The promised delay and the queue switch; unreadable = 2 working days, quick decisions off.
-      supabase.from('platform_settings').select('key, value').in('key', ['review_sla_text', 'registration_flags']),
+      // The promised delay; unreadable = 2 working days.
+      supabase.from('platform_settings').select('value').eq('key', 'review_sla_text').maybeSingle(),
+      // The queue switch, fresh (staff just may have turned it on); unreadable = quick decisions off.
+      readRegistrationFlags(true),
     ]);
-    setSettings(conf.error ? DEFAULT_SETTINGS : readSettings(conf.data as { key: string; value: unknown }[] | null));
+    setSettings({
+      slaDays: sla.error ? DEFAULT_SETTINGS.slaDays : readSlaDays((sla.data as { value?: unknown } | null)?.value),
+      quickDecisions: flags?.review_queue === true,
+    });
     if (error) {
       const msg = error.message || '';
       const missing = error.code === 'PGRST202' || error.code === '42883'

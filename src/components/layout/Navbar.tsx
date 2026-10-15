@@ -86,7 +86,7 @@ function focusIsVisible(el: EventTarget | null): boolean {
  */
 export function Navbar() {
   const { t } = useTranslation();
-  const { user, profile, signOut, isVerified, isAdmin, isModerator, organization, organizations, setActiveOrganization } = useAuth();
+  const { user, profile, signOut, isVerified, isAdmin, isModerator, organization, organizations, setActiveOrganization, can, capabilitiesEnforced } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const navigate = useNavigate();
   const location = useLocation();
@@ -262,7 +262,10 @@ export function Navbar() {
   };
 
   // ---------------------------------------------------------------- capabilities
-  const isInvestor = profile?.persona === 'investor';
+  // Deal flow: the investor persona today; once the rights switch is on, the company
+  // type (members of a validated investor company, and staff) plus the verified
+  // SM26-confirmed investors (capability_person_grant), as the database.
+  const showDealFlow = capabilitiesEnforced ? isVerified && can('see_dealflow') : profile?.persona === 'investor';
   // A draft account (sign-up not finished): the dashboard, Create and the inbox
   // would all send it back to its registration, so the bar offers that instead.
   const isDraft = profile?.onboarding_status === 'draft';
@@ -290,7 +293,7 @@ export function Navbar() {
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user
-    ? [...MEMBER_NAV.filter((n) => member || n.href !== '/'), ...(isInvestor && member ? [DEAL_FLOW_ITEM] : [])]
+    ? [...MEMBER_NAV.filter((n) => member || n.href !== '/'), ...(showDealFlow && member ? [DEAL_FLOW_ITEM] : [])]
     : PUBLIC_NAV;
 
   const displayName = profile?.first_name && profile?.last_name

@@ -4,6 +4,7 @@ import {
   MessageSquare, Mic2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { capabilityGate } from '@/lib/capabilities';
 
 /**
  * The single source of truth for the platform's navigation.
@@ -226,12 +227,21 @@ export interface CreateContext {
  * Who may create what. Shared by the navbar's Create menu and the dashboard's
  * empty states, so the two can never offer different things. The routes keep
  * their own guards (ProtectedRoute) — this only decides what to show.
+ *
+ * Proposing a webinar is open to every person M3 verified, with or without a
+ * company (Victor, 9 Oct 2026), switch or not: every verified person has
+ * propose_webinar, so asking can() would only add a way to fail. Once the rights
+ * switch is on (registration_flags.capabilities_enforced, src/lib/capabilities.ts)
+ * the three needs follow the company type: "publish_needs" through any company of
+ * the person (the form then checks the company it publishes for). Until then,
+ * today's rule: a verified company, and a marina-like persona or a bought
+ * entitlement.
  */
 export function canCreate(capability: CreateCapability, ctx: CreateContext): boolean {
+  if (capability === 'request_webinar') return ctx.isVerified;
+  const gate = capabilityGate();
+  if (gate.enforced) return ctx.isVerified && gate.can('publish_needs');
   if (!ctx.isVerified || !ctx.orgVerified) return false;
-  // Proposing a webinar is open to every verified member; the three marina
-  // submissions need either a marina-like persona or a bought entitlement.
-  if (capability === 'request_webinar') return true;
   const isMarinaLike = ctx.persona === 'marina' || ctx.persona === 'developer';
   return isMarinaLike || ctx.isFeatureEnabled(capability);
 }

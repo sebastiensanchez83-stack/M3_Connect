@@ -26,7 +26,7 @@ export function SubmitProjectPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
-  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading, can, capabilitiesEnforced, capabilitiesReady } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -76,7 +76,14 @@ export function SubmitProjectPage() {
       });
   }, [id, user, navigate]);
 
-  const isVerifiedMarina = (profile?.persona === 'marina' || profile?.persona === 'developer') && isVerified && organization?.access_status === 'verified';
+  // Who may submit. Today: a verified marina or developer profile whose active
+  // company is verified. Once the rights switch is on (src/lib/capabilities.ts): the
+  // active company, which the project is filed under, must be a validated marina or
+  // developer of theirs (the database checks the same).
+  const isVerifiedMarina = capabilitiesEnforced
+    ? isVerified && can('publish_needs', organization?.id)
+    : (profile?.persona === 'marina' || profile?.persona === 'developer') && isVerified && organization?.access_status === 'verified';
+  const otherCompanyCan = capabilitiesEnforced && isVerified && can('publish_needs');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +147,7 @@ export function SubmitProjectPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  if (authLoading || loadingExisting) {
+  if (authLoading || loadingExisting || (!!user && !capabilitiesReady)) {
     return <PageLoader />;
   }
 
@@ -153,11 +160,15 @@ export function SubmitProjectPage() {
           // Only a marina whose account is verified but who has no organization yet has a profile to complete;
           // everyone else is waiting for a review, which the dashboard explains.
           profile?.persona === 'marina' && isVerified && !organization
-            ? <Button variant="ctaOnDark" onClick={() => navigate(accountHref('organization'))}>Complete your marina profile</Button>
-            : <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>View account status</Button>
+            ? <Button variant="ctaOnDark" onClick={() => navigate(accountHref('organization'))}>{t('submitProject.completeMarinaProfile', 'Complete your marina profile')}</Button>
+            : <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('common.viewAccountStatus', 'View account status')}</Button>
         )}
       >
-        <p>{t('submitProject.restrictedDesc')}</p>
+        <p>
+          {otherCompanyCan
+            ? t('rights.publish.switchCompany', 'Your active company cannot publish needs. Switch to your marina or developer company in the account menu, then come back.')
+            : t('submitProject.restrictedDesc')}
+        </p>
       </SubmitGuard>
     );
   }

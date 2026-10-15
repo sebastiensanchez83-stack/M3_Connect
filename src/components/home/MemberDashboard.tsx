@@ -101,7 +101,7 @@ function useColumns(): number {
 
 export default function MemberDashboard() {
   const { t, i18n } = useTranslation();
-  const { user, profile, organization, orgRole, isVerified } = useAuth();
+  const { user, profile, organization, orgRole, isVerified, can, capabilitiesEnforced } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -121,8 +121,11 @@ export default function MemberDashboard() {
   const isOwner = orgRole === 'owner';
   const isDemand = DEMAND_PERSONAS.includes(persona ?? '');
   const isSupply = SUPPLY_PERSONAS.includes(persona ?? '');
-  const isInvestor = persona === 'investor';
-  const canSeeOpportunities = isVerified && orgVerified;
+  // Today: the investor persona, and a verified company. Once the rights switch is on
+  // (src/lib/capabilities.ts): the company types, as the database (Deal flow also for
+  // the verified SM26-confirmed investors: capability_person_grant).
+  const showDealFlow = capabilitiesEnforced ? isVerified && can('see_dealflow') : persona === 'investor';
+  const canSeeOpportunities = capabilitiesEnforced ? isVerified && can('see_opportunities') : isVerified && orgVerified;
   const canProjects = isDemand || isFeatureEnabled('submit_project');
   const canRFPs = isDemand || isFeatureEnabled('submit_rfp');
   const canConsultations = isDemand || isFeatureEnabled('submit_consultation');
@@ -448,7 +451,7 @@ export default function MemberDashboard() {
         : t('dash.st.saved', { count: data.shortlistCount, defaultValue_one: '{{count}} company saved', defaultValue_other: '{{count}} companies saved' }),
     });
   }
-  if (isInvestor) {
+  if (showDealFlow) {
     tiles.push({ key: 'dealflow', to: '/investments', icon: TrendingUp, title: t('dash.tiles.dealflow', 'Deal flow'), tone: 'plain', status: t('dash.st.dealflow', 'Marina projects looking for investors') });
   }
   if (visible('sponsorship')) {
@@ -806,7 +809,7 @@ function Alerts({
           )}
           // The opportunities follow the person's approval (has_marketplace_access), not the company's.
           // "Such as": what opens depends on the profile (an investor never publishes a need).
-          body={t('dashboard.orgPendingSome', 'Some features, such as writing to other companies, publishing a need or proposing a webinar, open once your company is approved.')}
+          body={t('dashboard.orgPendingSomeNoWebinar', 'Some features, such as writing to other companies or publishing a need, open once your company is approved.')}
         />
       )}
       {incomplete && (

@@ -155,7 +155,9 @@ const invite = load("accept-invite", ["renderInviteLink", "signInviteToken", "re
   const ok = await checker.verifyUnsubToken(key, tok);
   if (!ok || ok.userId !== uid || ok.category !== "b2b") fail("unsubscribe token: a fresh token does not verify");
   const [body, sig] = tok.split(".");
-  const flipped = sig.slice(0, -2) + (sig.slice(-2) === "AA" ? "AB" : "AA");
+  // Change the FIRST character: all its 6 bits are signature bits. (The last base64url
+  // character also carries padding bits, so changing it can decode to the same bytes.)
+  const flipped = (sig[0] === "A" ? "B" : "A") + sig.slice(1);
   if (await checker.verifyUnsubToken(key, `${body}.${flipped}`)) fail("unsubscribe token: a tampered signature verifies");
   if (await checker.verifyUnsubToken("another-key", tok)) fail("unsubscribe token: a token verifies under another key");
   const forged = Buffer.from(JSON.stringify({ v: 1, u: "00000000-0000-4000-8000-000000000002", c: "all", iat: 1 })).toString("base64url");
@@ -711,7 +713,9 @@ for (const it of items) {
   if (t && (await invite.inviteTokenValid(key, t, "00000000-0000-4000-8000-0000000000e3", "sam.rivera@example.com"))) fail("invite token: verifies for another company");
   if (t && (await invite.inviteTokenValid("another-key", t, org, "sam.rivera@example.com"))) fail("invite token: verifies under another key");
   const [head, mac] = tok.split(".");
-  const flipped = `${head}.${mac.slice(0, -2)}${mac.slice(-2) === "AA" ? "AB" : "AA"}`;
+  // The first character, not the last: see the unsubscribe check above (the last one also
+  // carries padding bits, so roughly 1 run in 256 "tampered" a token into the same bytes).
+  const flipped = `${head}.${mac[0] === "A" ? "B" : "A"}${mac.slice(1)}`;
   const tf = invite.readInviteToken(flipped);
   if (tf && (await invite.inviteTokenValid(key, tf, org, "sam.rivera@example.com"))) fail("invite token: a tampered signature verifies");
   const other = await signer.signInviteToken(key, "00000000-0000-4000-8000-0000000000e4", org, "sam.rivera@example.com");

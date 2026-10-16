@@ -1,27 +1,20 @@
--- invitation_campaigns: step 1 (part 1 of 2) of the "Invitation campaigns" admin module
--- (ticket + letter PDFs, sent by e-mail, answers followed). NOT APPLIED. Apply only with
--- Victor's OK, after its dry run: supabase/dryrun/20261017090000_invitation_campaigns.dryrun.sql.
--- Then part 2: 20261017091000_invitation_guest_link.sql (its own dry run, after this one).
--- Down: supabase/migrations/down/20261017090000_invitation_campaigns.down.sql (part 2's down
--- first). Both downs are dry-run by supabase/dryrun/20261017091000_invitation_module.down.dryrun.sql.
--- Plan: "9 M3 Connect/Module invitations - etape 0 - plan.md" (16 Oct 2026).
+-- invitation_campaigns: step 1 (part 1 of 2) of the "Invitation campaigns" admin module.
+-- NOT APPLIED. Apply with Victor's OK, after the dry runs supabase/dryrun/20261017090000_*
+-- (this file, and its down). Then part 2: 20261017091000_invitation_guest_link.sql.
+-- Down: supabase/migrations/down/20261017090000_invitation_campaigns.down.sql (part 2's
+-- down first). Plan: "9 M3 Connect/Module invitations - etape 0 - plan.md" (16 Oct 2026).
 --
--- ADDITIVE ONLY. New: 3 tables (invitation_campaign, invitation_recipient, invitation_log),
--- 8 functions (invitation_norm, invitation_find_duplicates and 6 trigger functions), the
--- private bucket "invitation-files" and its 4 policies on storage.objects. Nothing existing
--- is redefined: no gl_* function, trigger or policy, no sm_* object, nothing of
--- organization_invitations / gl_invite_v2, none of the ops_health pinned functions.
--- New foreign keys point AT gl_event, gl_guest and profiles (ON DELETE SET NULL for the
--- last two, so a guest or account deletion elsewhere is never blocked by this module).
+-- ADDITIVE ONLY: 3 tables, 9 invitation_* functions, the private bucket "invitation-files"
+-- and its 4 policies on storage.objects. Nothing existing is redefined (no gl_*, sm_*,
+-- organization_invitations, gl_invite_v2 or ops_health-pinned object). New foreign keys
+-- point AT gl_event, gl_guest and profiles (ON DELETE SET NULL for the last two).
 --
 -- ONE LIST (Victor, 16 Oct): a campaign guest becomes an "invited" gl_guest row of the
--- campaign's guest-list event when the invitation goes out (part 2), so the token, the QR,
--- the door and the /wys26/guest page are the existing ones. Campaign statuses draft and
--- ready belong to staff; sent, accepted, declined and no_answer to the module's actions.
---
--- Access: verified admins and moderators only (public.is_moderator()), as gl_guest. The
--- service role (the step 4 edge function) is trusted. invitation_log is append-only for
--- everyone, owner and service role included; only the down script removes it.
+-- campaign's guest-list event when the invitation goes out (part 2): same token, QR, door
+-- and /wys26/guest page. Statuses draft and ready belong to staff; the link, sent and the
+-- answers to the module's functions and sender. Access: verified admins and moderators
+-- (public.is_moderator()); the service role (the step 4 sender) is trusted.
+-- invitation_log is append-only for everyone, owner included; only the down removes it.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -34,17 +27,35 @@ begin
   end if;
   if to_regclass('public.invitation_campaign') is not null or to_regclass('public.invitation_recipient') is not null
      or to_regclass('public.invitation_log') is not null
-     or exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'invitation\_%')
-     or exists (select 1 from storage.buckets b where b.id = 'invitation-files') then
+     or exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'invitation\_%') then
     raise exception 'invitation_campaigns: already applied (or a name is taken)';
+  end if;
+  -- A private invitation-files bucket kept by an earlier down (it held files) is reused.
+  if exists (select 1 from storage.buckets b where b.id = 'invitation-files' and b.public) then
+    raise exception 'invitation_campaigns: a PUBLIC bucket invitation-files exists';
   end if;
 end
 $pre$;
 
--- 1. Name keys for duplicate checks
--- Lower case, accents folded, punctuation dropped. A person's name also loses its leading
--- titles (H.E., Dr, Mr, Eng., Sheikh...); an organisation loses every space, so "ACME S.A."
--- and "Acme SA" meet.
+-- 1. Helpers
+-- invitation_trim: strips what JavaScript's trim() strips (guest-list v6 clean()): spaces,
+-- tabs, line breaks, no-break and other Unicode spaces, BOM. Text pasted from Excel reaches
+-- gl_guest as v6 would write it.
+create function public.invitation_trim(p_text text)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $f$
+  select regexp_replace(p_text,
+    '^[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$',
+    '', 'g')
+$f$;
+
+-- invitation_norm: name keys for duplicate checks. Lower case, accents folded, punctuation
+-- dropped. A person's name also loses its leading titles (H.E., Dr, Mr, Eng., Sheikh...);
+-- an organisation loses every space, so "ACME S.A." and "Acme SA" meet.
 create function public.invitation_norm(p_text text, p_person boolean default false)
 returns text
 language sql
@@ -69,12 +80,9 @@ as $f$
 $f$;
 
 -- 2. Tables
--- A campaign belongs to ONE guest-list event (gl_event; its public events row is
--- gl_event.legacy_event_id). settings: event facts (name, edition, date and place labels,
--- access, RSVP e-mail, hosts, website, contacts, letter place); texts: ticket, letter and
--- e-mail blocks with {{variables}}. Both are filled by the module (step 2 prefills the
--- first campaign from the kit's wys_dubai_2026_content.json); they live here, not in the
--- public repo, because the e-mail carries a signature and a phone number.
+-- A campaign belongs to ONE guest-list event (gl_event; its events row is
+-- gl_event.legacy_event_id). settings: event facts; texts: ticket, letter and e-mail
+-- blocks with {{variables}}. Kept here, not in the public repo (signature, phone number).
 create table public.invitation_campaign (
   id uuid primary key default gen_random_uuid(),
   gl_event_id uuid not null references public.gl_event(id),
@@ -82,7 +90,8 @@ create table public.invitation_campaign (
   ticket_style text not null default 'white' check (ticket_style in ('white', 'navy')),
   rsvp_deadline date,
   letter_date date,
-  -- Access given to the guest-list row: the campaign default, a guest may override it.
+  -- Access written on every guest-list row of the campaign. One value per campaign, no
+  -- per-guest override: the WYS 2026 ticket backgrounds print "Conference and Gala Dinner".
   conference boolean not null default true,
   gala boolean not null default true,
   sender_name text check (sender_name is null or length(sender_name) <= 120),
@@ -98,11 +107,8 @@ create table public.invitation_campaign (
 );
 create index invitation_campaign_event on public.invitation_campaign (gl_event_id);
 
--- One invited person of a campaign. status: draft and ready are set by staff; sent by the
--- sender (step 4); accepted, declined and no_answer only through invitation_set_answer
--- (or invitation_link_guest when it adopts a row that already answered). Names are capped
--- at gl_guest's own limits so linking never truncates. name_key / org_key are kept by
--- the trigger below.
+-- One invited person of a campaign. Names are capped at gl_guest's own limits so linking
+-- never truncates. name_key, org_key and profile_user_id are kept by the trigger below.
 create table public.invitation_recipient (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null references public.invitation_campaign(id) on delete cascade,
@@ -120,8 +126,6 @@ create table public.invitation_recipient (
   country text check (country is null or length(country) <= 80),
   notes text check (notes is null or length(notes) <= 2000),
   needs_check boolean not null default false,
-  conference boolean,
-  gala boolean,
   -- An account with this (proven) e-mail, if one exists. Never creates one.
   profile_user_id uuid references public.profiles(user_id) on delete set null,
   gl_guest_id uuid references public.gl_guest(id) on delete set null,
@@ -167,6 +171,9 @@ comment on table public.invitation_recipient is 'Invitation campaigns module: on
 comment on table public.invitation_log is 'Invitation campaigns module: append-only journal. Staff read and add; nobody updates or deletes.';
 
 -- 3. Triggers
+-- The journal's actor: the signed-in user, else the staff member the service role acts
+-- for (set as invitation.actor by part 2's functions).
+
 -- 3a. Tidy a guest row (definer: it reads auth.users for the e-mail proof).
 create function public.invitation_recipient_normalize()
 returns trigger
@@ -174,20 +181,18 @@ language plpgsql
 security definer
 set search_path = ''
 as $f$
-declare
-  v_match boolean;
 begin
-  new.email := nullif(lower(btrim(new.email)), '');
-  new.honorific := nullif(btrim(new.honorific), '');
-  new.first_name := nullif(btrim(new.first_name), '');
-  new.last_name := nullif(btrim(new.last_name), '');
-  new.name_on_ticket := btrim(new.name_on_ticket);
-  new.name_on_letter := nullif(btrim(new.name_on_letter), '');
-  new.greeting := nullif(btrim(new.greeting), '');
-  new.position := nullif(btrim(new.position), '');
-  new.organisation := nullif(btrim(new.organisation), '');
-  new.phone := nullif(btrim(new.phone), '');
-  new.country := nullif(btrim(new.country), '');
+  new.email := nullif(lower(public.invitation_trim(new.email)), '');
+  new.honorific := nullif(public.invitation_trim(new.honorific), '');
+  new.first_name := nullif(public.invitation_trim(new.first_name), '');
+  new.last_name := nullif(public.invitation_trim(new.last_name), '');
+  new.name_on_ticket := public.invitation_trim(new.name_on_ticket);
+  new.name_on_letter := nullif(public.invitation_trim(new.name_on_letter), '');
+  new.greeting := nullif(public.invitation_trim(new.greeting), '');
+  new.position := nullif(public.invitation_trim(new.position), '');
+  new.organisation := nullif(public.invitation_trim(new.organisation), '');
+  new.phone := nullif(public.invitation_trim(new.phone), '');
+  new.country := nullif(public.invitation_trim(new.country), '');
   new.name_key := public.invitation_norm(
     case when coalesce(new.first_name, '') || coalesce(new.last_name, '') <> ''
          then concat_ws(' ', new.first_name, new.last_name) else new.name_on_ticket end, true);
@@ -197,20 +202,17 @@ begin
     if new.notes ~* 'v.rifier|to (be )?check' then
       new.needs_check := true;
     end if;
-    v_match := true;
   else
     new.updated_at := now();
-    v_match := new.email is distinct from old.email;
   end if;
-  -- The account with this address, only when the address is proven (Confirm email is off:
-  -- anyone can sign up with someone else's address). Information only: nothing is linked.
-  if v_match then
-    new.profile_user_id := (
-      select p.user_id from public.profiles p join auth.users u on u.id = p.user_id
-       where new.email is not null and p.email_proven_at is not null
-         and lower(p.email) = new.email and lower(u.email) = new.email
-       order by p.user_id limit 1);
-  end if;
+  -- Always recomputed (a value typed by hand never sticks): the account with this address,
+  -- only when the address is proven (Confirm email is off: anyone can sign up with someone
+  -- else's address). Information only: nothing is linked.
+  new.profile_user_id := (
+    select p.user_id from public.profiles p join auth.users u on u.id = p.user_id
+     where new.email is not null and p.email_proven_at is not null
+       and lower(p.email) = new.email and lower(u.email) = new.email
+     order by p.user_id limit 1);
   return new;
 end
 $f$;
@@ -233,6 +235,8 @@ begin
       raise exception using errcode = '42501',
         message = 'invitation_recipient: a new guest starts as draft or ready, not linked, not sent';
     end if;
+    new.created_by := auth.uid();
+    new.created_at := now();
     return new;
   end if;
   if tg_op = 'DELETE' then
@@ -245,9 +249,12 @@ begin
   if new.campaign_id is distinct from old.campaign_id then
     raise exception using errcode = '42501', message = 'invitation_recipient: a guest cannot move to another campaign';
   end if;
-  if new.gl_guest_id is distinct from old.gl_guest_id
-     and not (new.gl_guest_id is null and old.status in ('draft', 'ready') and new.status in ('draft', 'ready')) then
-    raise exception using errcode = '42501', message = 'invitation_recipient: the guest-list link is set by invitation_link_guest only';
+  if new.created_by is distinct from old.created_by or new.created_at is distinct from old.created_at then
+    raise exception using errcode = '42501', message = 'invitation_recipient: created_by and created_at cannot change';
+  end if;
+  if new.gl_guest_id is distinct from old.gl_guest_id then
+    raise exception using errcode = '42501',
+      message = 'invitation_recipient: the guest-list link is set by invitation_link_guest and undone by invitation_unlink_guest only';
   end if;
   if new.status is distinct from old.status
      and not (old.status in ('draft', 'ready') and new.status in ('draft', 'ready')) then
@@ -272,33 +279,36 @@ language plpgsql
 security definer
 set search_path = ''
 as $f$
+declare
+  v_actor uuid := coalesce(auth.uid(), nullif(current_setting('invitation.actor', true), '')::uuid);
 begin
   if tg_op = 'INSERT' then
-    insert into public.invitation_log (campaign_id, recipient_id, action, payload)
-    values (new.campaign_id, new.id, 'recipient_added', jsonb_build_object('status', new.status));
+    insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+    values (new.campaign_id, new.id, 'recipient_added', v_actor, jsonb_build_object('status', new.status));
   elsif tg_op = 'DELETE' then
-    insert into public.invitation_log (campaign_id, recipient_id, action, payload)
-    values (old.campaign_id, old.id, 'recipient_deleted', jsonb_build_object('status', old.status, 'gl_guest_id', old.gl_guest_id));
+    insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+    values (old.campaign_id, old.id, 'recipient_deleted', v_actor, jsonb_build_object('status', old.status, 'gl_guest_id', old.gl_guest_id));
   else
     if new.status is distinct from old.status then
-      insert into public.invitation_log (campaign_id, recipient_id, action, payload)
-      values (new.campaign_id, new.id, 'status_changed', jsonb_build_object('from', old.status, 'to', new.status));
+      insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+      values (new.campaign_id, new.id, 'status_changed', v_actor, jsonb_build_object('from', old.status, 'to', new.status));
     end if;
     if new.gl_guest_id is distinct from old.gl_guest_id then
-      insert into public.invitation_log (campaign_id, recipient_id, action, payload)
-      values (new.campaign_id, new.id, 'guest_link_changed', jsonb_build_object('from', old.gl_guest_id, 'to', new.gl_guest_id));
+      insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+      values (new.campaign_id, new.id, 'guest_link_changed', v_actor, jsonb_build_object('from', old.gl_guest_id, 'to', new.gl_guest_id));
     end if;
     if new.email is distinct from old.email then
-      insert into public.invitation_log (campaign_id, recipient_id, action, payload)
-      values (new.campaign_id, new.id, 'email_changed', jsonb_build_object('had_email', old.email is not null, 'has_email', new.email is not null));
+      insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+      values (new.campaign_id, new.id, 'email_changed', v_actor,
+              jsonb_build_object('had_email', old.email is not null, 'has_email', new.email is not null));
     end if;
   end if;
   return null;
 end
 $f$;
 
--- 3d. Campaign: updated_at; no deleting a campaign that invited someone, no moving a
--- campaign with guests to another event (API roles; invoker).
+-- 3d. Campaign: updated_at; created_by and created_at kept; no deleting a campaign that
+-- invited someone, no moving a campaign with guests to another event (API roles; invoker).
 create function public.invitation_campaign_guard()
 returns trigger
 language plpgsql
@@ -312,6 +322,11 @@ begin
     if tg_op = 'DELETE' then return old; end if;
     return new;
   end if;
+  if tg_op = 'INSERT' then
+    new.created_by := auth.uid();
+    new.created_at := now();
+    return new;
+  end if;
   if tg_op = 'DELETE' then
     if exists (select 1 from public.invitation_recipient r
                 where r.campaign_id = old.id and (r.gl_guest_id is not null or r.status not in ('draft', 'ready'))) then
@@ -319,6 +334,9 @@ begin
         message = 'invitation_campaign: this campaign has invited guests; archive it instead of deleting it';
     end if;
     return old;
+  end if;
+  if new.created_by is distinct from old.created_by or new.created_at is distinct from old.created_at then
+    raise exception using errcode = '42501', message = 'invitation_campaign: created_by and created_at cannot change';
   end if;
   if new.gl_event_id is distinct from old.gl_event_id
      and exists (select 1 from public.invitation_recipient r where r.campaign_id = old.id) then
@@ -334,16 +352,18 @@ language plpgsql
 security definer
 set search_path = ''
 as $f$
+declare
+  v_actor uuid := coalesce(auth.uid(), nullif(current_setting('invitation.actor', true), '')::uuid);
 begin
   if tg_op = 'INSERT' then
-    insert into public.invitation_log (campaign_id, action, payload)
-    values (new.id, 'campaign_created', jsonb_build_object('gl_event_id', new.gl_event_id));
+    insert into public.invitation_log (campaign_id, action, actor_id, payload)
+    values (new.id, 'campaign_created', v_actor, jsonb_build_object('gl_event_id', new.gl_event_id));
   elsif tg_op = 'DELETE' then
-    insert into public.invitation_log (campaign_id, action, payload)
-    values (old.id, 'campaign_deleted', jsonb_build_object('gl_event_id', old.gl_event_id));
+    insert into public.invitation_log (campaign_id, action, actor_id, payload)
+    values (old.id, 'campaign_deleted', v_actor, jsonb_build_object('gl_event_id', old.gl_event_id));
   elsif new.archived_at is distinct from old.archived_at then
-    insert into public.invitation_log (campaign_id, action)
-    values (new.id, case when new.archived_at is null then 'campaign_restored' else 'campaign_archived' end);
+    insert into public.invitation_log (campaign_id, action, actor_id)
+    values (new.id, case when new.archived_at is null then 'campaign_restored' else 'campaign_archived' end, v_actor);
   end if;
   return null;
 end
@@ -366,7 +386,7 @@ create trigger invitation_recipient_b_guard before insert or update or delete on
   for each row execute function public.invitation_recipient_guard();
 create trigger invitation_recipient_c_log after insert or update or delete on public.invitation_recipient
   for each row execute function public.invitation_recipient_log();
-create trigger invitation_campaign_a_guard before update or delete on public.invitation_campaign
+create trigger invitation_campaign_a_guard before insert or update or delete on public.invitation_campaign
   for each row execute function public.invitation_campaign_guard();
 create trigger invitation_campaign_b_log after insert or update or delete on public.invitation_campaign
   for each row execute function public.invitation_campaign_log();
@@ -389,12 +409,15 @@ create policy invitation_log_staff_read on public.invitation_log for select to a
 create policy invitation_log_staff_add on public.invitation_log for insert to authenticated
   with check ((select public.is_moderator()) and actor_id is not distinct from (select auth.uid()));
 
+-- Table rights: the project's default grants everything to anon, authenticated and
+-- service_role. TRUNCATE would bypass RLS and the row triggers.
 revoke all on table public.invitation_campaign, public.invitation_recipient, public.invitation_log from anon;
-revoke update, delete, truncate on table public.invitation_log from authenticated, service_role;
+revoke truncate, references, trigger on table public.invitation_campaign, public.invitation_recipient
+  from authenticated, service_role;
+revoke update, delete, truncate, references, trigger on table public.invitation_log from authenticated, service_role;
 
--- 5. Duplicates: same e-mail or same name, across the campaigns of one event and the
--- event's guest list. Shown to staff, who decide; nothing is merged. match_on: email,
--- name_org (same name and organisation) or name (same name only).
+-- 5. Duplicates: same e-mail or same name, across the event's campaigns and guest list.
+-- Staff decide; nothing is merged. match_on: email, name_org or name.
 create function public.invitation_find_duplicates(p_campaign_id uuid, p_recipient_id uuid default null)
 returns table (recipient_id uuid, match_on text, other_kind text, other_id uuid, other_campaign_id uuid,
                other_label text, other_status text)
@@ -451,8 +474,10 @@ $f$;
 
 -- 6. Function privileges
 revoke all on function public.invitation_norm(text, boolean) from public, anon;
+revoke all on function public.invitation_trim(text) from public, anon;
 revoke all on function public.invitation_find_duplicates(uuid, uuid) from public, anon;
 grant execute on function public.invitation_norm(text, boolean) to authenticated, service_role;
+grant execute on function public.invitation_trim(text) to authenticated, service_role;
 grant execute on function public.invitation_find_duplicates(uuid, uuid) to authenticated, service_role;
 -- Trigger functions are never called directly.
 revoke all on function public.invitation_recipient_normalize() from public, anon, authenticated;
@@ -462,14 +487,16 @@ revoke all on function public.invitation_campaign_guard() from public, anon, aut
 revoke all on function public.invitation_campaign_log() from public, anon, authenticated;
 revoke all on function public.invitation_log_append_only() from public, anon, authenticated;
 
--- 7. Private storage: generated PDFs, and private letterhead images
--- Paths: <campaign id>/<recipient id>/ticket.pdf and letter.pdf; letterhead/signature.png
--- (the handwritten signature used by the SM26 letters, uploaded once by hand). Staff
--- read them through short-lived signed URLs. NOT event-media: Yacht Club partners read
--- part of that bucket. Creating these policies locks storage.objects until commit.
+-- 7. Private storage: <campaign id>/<recipient id>/ticket.pdf and letter.pdf, and
+-- letterhead/signature.png (the SM26 letters' signature, uploaded once by hand). Staff
+-- read them through signed URLs. NOT event-media: SM26 partners read part of it. A
+-- private bucket kept by an earlier down is reused, files included. The policies lock
+-- storage.objects until commit.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('invitation-files', 'invitation-files', false, 26214400,
-        array['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
+        array['application/pdf', 'image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 create policy invitation_files_staff_select on storage.objects for select to authenticated
   using (bucket_id = 'invitation-files' and (select public.is_moderator()));

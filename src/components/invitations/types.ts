@@ -12,7 +12,9 @@
  * screens read gl_guest.status through gl_guest_id, not only `status` here.
  *
  * Tables are staff only (verified admins and moderators, RLS). The journal
- * (invitation_log) is append-only.
+ * (invitation_log) is append-only. invitation_link_guest is called by the sender only
+ * (service role, acting for a verified staff member through p_actor), in the same action
+ * as the invitation e-mail, so no guest-list row is ever created without its e-mail.
  */
 
 /** Ticket background: white page with a navy stub, or the reverse. */
@@ -100,7 +102,10 @@ export interface InvitationCampaign {
   rsvp_deadline: string | null;
   /** ISO date shown on the letter. */
   letter_date: string | null;
-  /** Access given on the guest list; a guest may override it. At least one is true. */
+  /**
+   * Access written on every guest-list row of the campaign; at least one is true. One value
+   * per campaign: the WYS 2026 ticket backgrounds print "Conference and Gala Dinner".
+   */
   conference: boolean;
   gala: boolean;
   sender_name: string | null;
@@ -141,10 +146,7 @@ export interface InvitationRecipient {
   notes: string | null;
   /** Set on insert when the notes say "a verifier" / "to check"; staff clear it. */
   needs_check: boolean;
-  /** Null: the campaign's access. */
-  conference: boolean | null;
-  gala: boolean | null;
-  /** An existing account with this proven address. Information only, never created. */
+  /** An existing account with this proven address, kept by the database. Information only, never created. */
   profile_user_id: string | null;
   /** The guest-list row, once invitation_link_guest has run. */
   gl_guest_id: string | null;
@@ -170,7 +172,7 @@ export interface InvitationRecipient {
 export type InvitationRecipientInsert = Pick<InvitationRecipient, 'campaign_id' | 'name_on_ticket'> &
   Partial<Pick<InvitationRecipient, 'id' | 'sort_order' | 'honorific' | 'first_name' | 'last_name' | 'name_on_letter'
     | 'greeting' | 'position' | 'organisation' | 'email' | 'phone' | 'country' | 'notes' | 'needs_check'
-    | 'conference' | 'gala' | 'generated_at' | 'ticket_pdf_path' | 'letter_pdf_path'>> & {
+    | 'generated_at' | 'ticket_pdf_path' | 'letter_pdf_path'>> & {
     status?: 'draft' | 'ready';
   };
 export type InvitationRecipientUpdate = Partial<Omit<InvitationRecipientInsert, 'id' | 'campaign_id'>>;
@@ -207,10 +209,15 @@ export interface InvitationDuplicate {
 export type InvitationGuestStatus = 'requested' | 'invited' | 'confirmed' | 'declined' | 'rejected' | 'cancelled';
 
 export type InvitationLinkGuestError =
-  | 'recipient_not_found' | 'campaign_archived' | 'engine_not_supported' | 'no_email' | 'missing_name' | 'no_part'
-  | 'guest_linked_elsewhere' | 'already_on_list' | 'not_adoptable' | 'capacity';
+  | 'recipient_not_found' | 'bad_status' | 'campaign_archived' | 'engine_not_supported' | 'no_email' | 'missing_name'
+  | 'guest_linked_elsewhere' | 'already_on_list' | 'pending_request' | 'not_adoptable' | 'capacity';
 
-/** invitation_link_guest(p_recipient_id, p_force?, p_adopt?): puts the guest on the guest list. No e-mail. */
+/**
+ * invitation_link_guest(p_recipient_id, p_force?, p_adopt?, p_actor): puts a draft or ready
+ * guest on the guest list as guest-list v6 "invite" does. No e-mail. SERVICE ROLE ONLY (the
+ * sender), with p_actor = the verified staff member. A pending public request is never
+ * adopted ('pending_request'): staff handle it in "WYS 2026".
+ */
 export type InvitationLinkGuestResult =
   | {
       ok: true;
@@ -219,11 +226,12 @@ export type InvitationLinkGuestResult =
       created: boolean;
       adopted: boolean;
       already_linked?: true;
-      previous_status?: InvitationGuestStatus;
     }
   | {
       ok: false;
       error: InvitationLinkGuestError;
+      /** The campaign status, with 'bad_status'. */
+      status?: InvitationRecipientStatus;
       guest_id?: string;
       guest_status?: InvitationGuestStatus;
       guest_source?: 'request' | 'invitation' | 'plus_one';
@@ -236,7 +244,20 @@ export type InvitationLinkGuestResult =
 export type InvitationAnswer = 'accepted' | 'declined' | 'no_answer';
 
 /**
- * invitation_set_answer(p_recipient_id, p_answer, p_force?). After an accepted answer
+ * invitation_unlink_guest(p_recipient_id, p_actor?): undoes a link whose invitation never
+ * went out (draft or ready guest, row created by the module, still invited, no e-mail
+ * logged). The guest-list row is cancelled as v6 "cancel" does and stays on the list.
+ * Staff call it directly; the service role passes p_actor.
+ */
+export type InvitationUnlinkGuestResult =
+  | { ok: true; guest_id: string; guest_status: 'cancelled' }
+  | { ok: false; error: 'recipient_not_found' | 'not_linked' | 'bad_status' | 'not_undoable';
+      status?: InvitationRecipientStatus; guest_id?: string; guest_status?: InvitationGuestStatus;
+      guest_source?: 'request' | 'invitation' | 'plus_one' };
+
+/**
+ * invitation_set_answer(p_recipient_id, p_answer, p_force?, p_actor?). Staff call it
+ * directly; the service role passes p_actor (a verified staff member). After an accepted answer
  * with pass_needed, send the entry pass with the guest-list function's existing
  * "resend" action (guestList({ action: 'resend', slug, guest_id })).
  */

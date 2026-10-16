@@ -14,6 +14,11 @@ interface Edition {
   updated_at: string;
 }
 
+const editorialSanitizer = {
+  ALLOWED_TAGS: ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'a', 'br', 'blockquote', 'hr'],
+  ALLOWED_ATTR: ['href', 'title'],
+};
+
 /** Independent save: editing an edition never rewrites the source resource. */
 export function ResourceM3EditionEditor({ resourceId }: { resourceId: string }) {
   const [html, setHtml] = useState('');
@@ -42,12 +47,12 @@ export function ResourceM3EditionEditor({ resourceId }: { resourceId: string }) 
     return () => { cancelled = true; };
   }, [resourceId]);
 
-  const dirty = html !== (saved?.content_html ?? '') || ready !== (saved?.is_ready ?? false);
+  // TipTap adds link/editor attributes again after a successful save. Compare
+  // the same persisted representation so these do not produce a false dirty state.
+  const cleanHtml = DOMPurify.sanitize(html, editorialSanitizer);
+  const dirty = cleanHtml !== (saved?.content_html ?? '') || ready !== (saved?.is_ready ?? false);
   async function save() {
-    const content = DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'a', 'br', 'blockquote', 'hr'],
-      ALLOWED_ATTR: ['href', 'title'],
-    });
+    const content = cleanHtml;
     const plain = DOMPurify.sanitize(content, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }).replace(/&nbsp;/g, ' ').trim();
     if (ready && !plain) {
       toast({ title: 'Add the M3 editorial text before marking it ready.', variant: 'destructive' });

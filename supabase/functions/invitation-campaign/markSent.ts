@@ -22,6 +22,12 @@
 //     error cleared, journal line 'invitation_sent'. Its message_id is "hand:<channel>", so
 //     the channel is recorded in that same transaction. A 'sent_by_hand' journal line adds
 //     the date given by staff.
+//     gl_email_log cannot tell a hand-sent invitation from a platform e-mail (same kind
+//     'invitation', the guest's address): the monitor only needs the line. Anything that
+//     reports what was e-mailed must read the channel from invitation_log (invitationChannels).
+//   - a platform send that may have gone out (send_uncertain, sent_not_recorded) can be
+//     recorded as the platform's e-mail, channel "platform" (message_id PLATFORM_RECORDED), and
+//     only such a guest; sent_not_recorded is always recorded so, since that e-mail went out.
 // If recording fails, the link made here is undone (invitation_unlink_guest or
 // invitation_unadopt_request): no guest-list row stays "invited" without its log line.
 // Nothing is e-mailed here. The entry pass still goes when staff mark the guest Accepted.
@@ -29,8 +35,15 @@
 /** The SM26 channels (src/components/admin/types.ts SM26_INVITE_CHANNELS), without "Letter drawn here". */
 export const INVITATION_HAND_CHANNELS = ["email", "post", "phone", "in_person", "third_party"] as const;
 export type InvitationHandChannel = (typeof INVITATION_HAND_CHANNELS)[number];
+/**
+ * What staff may record: one of the SM26 channels, or "platform" for a platform e-mail that went
+ * out but was not recorded (only for a guest whose send was interrupted, see markSentOne).
+ */
+export type InvitationMarkChannel = InvitationHandChannel | "platform";
 /** invitation_mark_sent's message_id for an invitation sent by hand: "hand:post". */
 export const INVITATION_HAND_PREFIX = "hand:";
+/** invitation_mark_sent's message_id for a platform e-mail recorded with "Mark as sent" (Tracking shows it as the platform's). */
+export const PLATFORM_RECORDED = "platform:recorded_by_staff";
 /** Guests per "mark_sent" call (no e-mail goes out, but each guest takes a few database calls). */
 export const MARK_SENT_BATCH_MAX = 25;
 /** How far back a date may go (a list recorded late), in days. */
@@ -40,7 +53,7 @@ export const MARK_SENT_MAX_AGE_DAYS = 400;
 export type MarkRow = Record<string, any>;
 
 export type HandSentInput =
-  | { ok: true; channel: InvitationHandChannel; sentOn: string | null }
+  | { ok: true; channel: InvitationMarkChannel; sentOn: string | null }
   | { ok: false; error: "bad_channel" | "bad_date" | "future_date" | "too_old" };
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -53,15 +66,15 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
  */
 export function parseHandSent(channel: unknown, sentOn: unknown, now: Date): HandSentInput {
   const ch = typeof channel === "string" ? channel.trim() : "";
-  if (!(INVITATION_HAND_CHANNELS as readonly string[]).includes(ch)) return { ok: false, error: "bad_channel" };
-  if (sentOn === null || sentOn === undefined || sentOn === "") return { ok: true, channel: ch as InvitationHandChannel, sentOn: null };
+  if (ch !== "platform" && !(INVITATION_HAND_CHANNELS as readonly string[]).includes(ch)) return { ok: false, error: "bad_channel" };
+  if (sentOn === null || sentOn === undefined || sentOn === "") return { ok: true, channel: ch as InvitationMarkChannel, sentOn: null };
   if (typeof sentOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(sentOn)) return { ok: false, error: "bad_date" };
   const d = new Date(`${sentOn}T12:00:00Z`);
   // 2026-02-30 rolls over to 2 March: only a real day comes back unchanged.
   if (Number.isNaN(d.getTime()) || isoDay(d) !== sentOn) return { ok: false, error: "bad_date" };
   if (sentOn > isoDay(new Date(now.getTime() + 86_400_000))) return { ok: false, error: "future_date" };
   if (sentOn < isoDay(new Date(now.getTime() - MARK_SENT_MAX_AGE_DAYS * 86_400_000))) return { ok: false, error: "too_old" };
-  return { ok: true, channel: ch as InvitationHandChannel, sentOn };
+  return { ok: true, channel: ch as InvitationMarkChannel, sentOn };
 }
 
 /** What index.ts gives: its sender helpers, on the real database. */
@@ -87,7 +100,8 @@ export interface MarkSentDeps {
 export interface MarkSentOptions {
   /** The verified staff member (p_actor). */
   actor: string;
-  channel: InvitationHandChannel;
+  /** "platform" is refused (platform_not_sent) unless this guest's platform send may have gone out. */
+  channel: InvitationMarkChannel;
   /** YYYY-MM-DD given by staff, or null for now. */
   sentOn: string | null;
   /** Staff chose, in the Guests tab, to adopt this guest's pending /wys26 request. */
@@ -107,7 +121,8 @@ export interface MarkResult {
   guest_id?: string;
   adopted?: "request";
   status?: string;
-  channel?: InvitationHandChannel;
+  /** The channel recorded: "platform" for a platform e-mail that went out (always so for sent_not_recorded). */
+  channel?: InvitationMarkChannel;
 }
 
 /** A last send that may have gone out keeps its mark until something replaces it (sendOne's rule). */
@@ -125,6 +140,10 @@ export async function markSentOne(deps: MarkSentDeps, seen: MarkRow, o: MarkSent
   const leave = async (res: MarkResult): Promise<MarkResult> => { await deps.unlock(id, at); return res; };
   const keep = r.gl_guest_id && MAY_HAVE_GONE.includes(r.send_error) ? String(r.send_error) : null;
   if (!r.email) return await leave({ id, outcome: "blocked", code: "no_email" });
+  // "Platform e-mail" only records a platform send that may have gone out. One that certainly
+  // went out (sent_not_recorded) is recorded as the platform's, whatever channel was chosen.
+  if (o.channel === "platform" && !keep) return await leave({ id, outcome: "blocked", code: "platform_not_sent" });
+  const channel: InvitationMarkChannel = keep === "sent_not_recorded" ? "platform" : o.channel;
 
   let undo: "invitation_unlink_guest" | "invitation_unadopt_request" | null = null;
   let guestId = "";
@@ -184,7 +203,8 @@ export async function markSentOne(deps: MarkSentDeps, seen: MarkRow, o: MarkSent
     let markError = "";
     try {
       marked = await deps.rpc("invitation_mark_sent", {
-        p_recipient_id: id, p_actor: o.actor, p_resend: false, p_message_id: `${INVITATION_HAND_PREFIX}${o.channel}`,
+        p_recipient_id: id, p_actor: o.actor, p_resend: false,
+        p_message_id: channel === "platform" ? PLATFORM_RECORDED : `${INVITATION_HAND_PREFIX}${channel}`,
       });
     } catch (e) {
       markError = e instanceof Error ? e.message.slice(0, 200) : "error";
@@ -195,10 +215,11 @@ export async function markSentOne(deps: MarkSentDeps, seen: MarkRow, o: MarkSent
 
     const dateSaved = o.sentOn ? await deps.setSentAt(id, `${o.sentOn}T12:00:00.000Z`) : true;
     await deps.journal(id, "sent_by_hand", {
-      guest_id: guestId, channel: o.channel, sent_on: o.sentOn, adopted: adopted || null, date_saved: dateSaved,
+      guest_id: guestId, channel, sent_on: o.sentOn, adopted: adopted || null, date_saved: dateSaved,
+      ...(channel !== o.channel ? { chosen: o.channel } : {}), ...(keep ? { after: keep } : {}),
     });
     return {
-      id, outcome: "sent", guest_id: guestId, status: String(marked.status || "sent"), channel: o.channel,
+      id, outcome: "sent", guest_id: guestId, status: String(marked.status || "sent"), channel,
       ...(adopted ? { adopted } : {}), ...(dateSaved ? {} : { detail: "date_not_saved" }),
     };
   } catch (e) {

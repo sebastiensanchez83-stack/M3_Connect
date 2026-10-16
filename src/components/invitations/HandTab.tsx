@@ -12,7 +12,7 @@ import { todayIso } from './lib/render';
 import { saveBlob } from './lib/sheets';
 import {
   INVITATION_HAND_CHANNELS, MARK_SENT_BATCH_MAX, invitationCampaign, invitationChannelLabel, invitationSendLabel,
-  type InvitationHandChannel, type InvitationMarkItem,
+  type InvitationHandChannel, type InvitationMarkChannel, type InvitationMarkItem,
 } from './sendApi';
 import { SectionTitle, StatusChip } from './ui';
 
@@ -25,8 +25,14 @@ import { SectionTitle, StatusChip } from './ui';
  */
 
 const toSend = (g: GuestRow) => g.status === 'draft' || g.status === 'ready' || g.status === 'not_sent';
-/** A platform send that was interrupted and may have gone out. */
-const mayHaveGone = (g: GuestRow) => !!g.r.gl_guest_id && (g.r.send_error === 'send_uncertain' || g.r.send_error === 'sent_not_recorded');
+type Gone = 'send_uncertain' | 'sent_not_recorded';
+/**
+ * A platform send that was interrupted and may have gone out (send_uncertain), or that went out
+ * without being recorded (sent_not_recorded). Never in a bulk mark: one by one, after checking.
+ */
+const goneKind = (g: GuestRow): Gone | null =>
+  g.r.gl_guest_id && (g.r.send_error === 'send_uncertain' || g.r.send_error === 'sent_not_recorded') ? g.r.send_error : null;
+const mayHaveGone = (g: GuestRow) => goneKind(g) !== null;
 /** Why "Mark as sent" is not offered for this guest yet (they are fixed in the Guests tab). */
 const markBlock = (g: GuestRow): string | null =>
   !g.r.email ? 'Type the e-mail address first (Guests tab): the guest list and the entry pass need it.'
@@ -61,7 +67,7 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
   const [markIds, setMarkIds] = useState<string[] | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
-  const [lastRun, setLastRun] = useState<{ channel: InvitationHandChannel; sentOn: string | null } | null>(null);
+  const [lastRun, setLastRun] = useState<{ channel: InvitationMarkChannel; sentOn: string | null } | null>(null);
 
   const todo = useMemo(() => rows.filter(toSend), [rows]);
   const byId = useMemo(() => new Map(rows.map(g => [g.r.id, g])), [rows]);
@@ -73,7 +79,10 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
   const toggle = (id: string) => setPicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allPicked = todo.length > 0 && todo.every(g => picked.has(g.r.id));
   const pickedRows = todo.filter(g => picked.has(g.r.id));
-  const markable = pickedRows.filter(g => !markBlock(g));
+  // As "Send from the platform" leaves them out of its selection: a send that may have gone out
+  // is marked one by one, from its own line, after checking the Resend log.
+  const markable = pickedRows.filter(g => !markBlock(g) && !mayHaveGone(g));
+  const goneN = pickedRows.filter(g => !markBlock(g) && mayHaveGone(g)).length;
 
   const downloadOne = async (g: GuestRow) => {
     setPdfBusy(g.r.id);
@@ -103,7 +112,7 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
   };
 
   /** "mark_sent", 25 guests per call, again with "remaining" until it is empty. */
-  const runMark = async (ids: string[], channel: InvitationHandChannel, sentOn: string | null, force = false) => {
+  const runMark = async (ids: string[], channel: InvitationMarkChannel, sentOn: string | null, force = false) => {
     const out: Line[] = [];
     let left = ids;
     setLines([]);
@@ -128,7 +137,10 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
         out.push({
           id, outcome: x.outcome, code: x.code,
           message: x.outcome === 'sent'
-            ? [x.adopted === 'request' ? 'request adopted' : '', x.detail === 'date_not_saved' ? invitationSendLabel('date_not_saved') : ''].filter(Boolean).join(', ') || undefined
+            ? [
+              x.channel === 'platform' && channel !== 'platform' ? 'recorded as the platform e-mail, which went out' : '',
+              x.adopted === 'request' ? 'request adopted' : '', x.detail === 'date_not_saved' ? invitationSendLabel('date_not_saved') : '',
+            ].filter(Boolean).join(', ') || undefined
             : why,
         });
       }
@@ -151,6 +163,7 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
 
   const capacityBlocked = lines.filter(l => l.outcome === 'blocked' && l.code === 'capacity').map(l => l.id);
   const emailGuest = emailId ? byId.get(emailId) || null : null;
+  const markOne = markIds?.length === 1 ? byId.get(markIds[0]) || null : null;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -173,7 +186,8 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
           <Button size="sm" disabled={!markable.length || !!running} onClick={() => setMarkIds(markable.map(g => g.r.id))}>
             <MailCheck className="h-4 w-4 mr-1" /> Mark {markable.length} as sent
           </Button>
-          {markable.length < pickedRows.length && <span className="text-xs text-amber-800">{pickedRows.length - markable.length} not markable yet (see their line)</span>}
+          {pickedRows.length - markable.length - goneN > 0 && <span className="text-xs text-amber-800">{pickedRows.length - markable.length - goneN} not markable yet (see their line)</span>}
+          {goneN > 0 && <span className="text-xs text-amber-800">{goneN} may already have had the platform e-mail: mark {goneN === 1 ? 'it' : 'them'} one by one, from {goneN === 1 ? 'its' : 'their'} line</span>}
           <button type="button" className="ml-auto text-xs text-gray-500 underline" onClick={() => setPicked(new Set())}>Clear</button>
         </div>
       )}
@@ -210,7 +224,8 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
                       <div className="text-xs text-gray-500 break-all">{[g.r.organisation, g.r.email || 'no e-mail address'].filter(Boolean).join(' · ')}</div>
                       {block && <div className="mt-0.5 text-xs text-amber-800 flex gap-1"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />{block}</div>}
                       {g.request && g.adopt && <div className="mt-0.5 text-xs text-purple-800">Request from /wys26 adopted: marking it invites that same guest-list row.</div>}
-                      {mayHaveGone(g) && <div className="mt-0.5 text-xs text-amber-800">A platform send was interrupted and may have gone: check the Resend log before sending it yourself.</div>}
+                      {goneKind(g) === 'send_uncertain' && <div className="mt-0.5 text-xs text-amber-800">A platform send was interrupted and may have gone. Check the Resend log first: if the e-mail is there, "Mark as sent" with "Platform e-mail" records it; if not, send it yourself.</div>}
+                      {goneKind(g) === 'sent_not_recorded' && <div className="mt-0.5 text-xs text-amber-800">The platform e-mail went out but was not recorded: do not send it again. "Mark as sent" only records it, as the platform e-mail.</div>}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5 pl-6 md:pl-0">
@@ -259,6 +274,7 @@ export function HandTab({ campaign, rows, event, guests, reload, onTracking }: {
         onDownload={downloadOne} busy={!!emailGuest && pdfBusy === emailGuest.r.id}
         onMark={emailGuest && !markBlock(emailGuest) ? () => { const id = emailGuest.r.id; setEmailId(null); setMarkIds([id]); } : null} />
       <MarkDialog ids={markIds} nameOf={nameOf} eventTitle={event?.title || 'event'} onClose={() => setMarkIds(null)}
+        gone={markOne ? goneKind(markOne) : null}
         onConfirm={(channel, sentOn) => { const ids = markIds || []; setMarkIds(null); if (ids.length) runMark(ids, channel, sentOn); }} />
     </div>
   );
@@ -314,18 +330,22 @@ function EmailDialog({ campaign, g, onClose, onDownload, busy, onMark }: {
 
 /* ─── How and when it went ─── */
 
-function MarkDialog({ ids, nameOf, eventTitle, onClose, onConfirm }: {
-  ids: string[] | null; nameOf: (id: string) => string; eventTitle: string; onClose: () => void;
-  onConfirm: (channel: InvitationHandChannel, sentOn: string | null) => void;
+function MarkDialog({ ids, nameOf, eventTitle, gone, onClose, onConfirm }: {
+  ids: string[] | null; nameOf: (id: string) => string; eventTitle: string;
+  /** The one guest marked here had a platform send interrupted (it may have gone, or went out unrecorded). */
+  gone: Gone | null;
+  onClose: () => void;
+  onConfirm: (channel: InvitationMarkChannel, sentOn: string | null) => void;
 }) {
-  const [channel, setChannel] = useState<InvitationHandChannel>('email');
+  const [channel, setChannel] = useState<InvitationMarkChannel>('email');
   const [date, setDate] = useState(todayIso());
-  useEffect(() => { if (ids) { setChannel(lastChannel()); setDate(todayIso()); } }, [ids]);
+  useEffect(() => { if (ids) { setChannel(gone === 'sent_not_recorded' ? 'platform' : lastChannel()); setDate(todayIso()); } }, [ids, gone]);
   const today = todayIso();
   const n = ids?.length || 0;
   const bad = !!date && date > today;
+  const channels: InvitationMarkChannel[] = gone === 'sent_not_recorded' ? ['platform'] : gone ? ['platform', ...INVITATION_HAND_CHANNELS] : [...INVITATION_HAND_CHANNELS];
   const confirm = () => {
-    try { localStorage.setItem(CHANNEL_KEY, channel); } catch { /* private window */ }
+    if (channel !== 'platform') { try { localStorage.setItem(CHANNEL_KEY, channel); } catch { /* private window */ } }
     onConfirm(channel, !date || date === today ? null : date);
   };
   const names = (ids || []).slice(0, 6).map(nameOf);
@@ -336,9 +356,16 @@ function MarkDialog({ ids, nameOf, eventTitle, onClose, onConfirm }: {
         <div className="space-y-3 text-sm">
           <p className="text-gray-600">Nothing is e-mailed by the platform. {n === 1 ? 'The guest joins' : 'Each guest joins'} the {eventTitle} guest list as invited (same QR and door as every guest) and the reply is followed in Tracking.</p>
           {n > 1 && <p className="text-gray-700 break-words">{names.join(', ')}{n > names.length ? `, and ${n - names.length} more` : ''}.</p>}
+          {gone === 'send_uncertain' && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">A platform send of this invitation was interrupted and may have gone. Look in the Resend log first: if the e-mail is there, choose "Platform e-mail" (do not send it again); if not, choose how you sent it.</p>
+          )}
+          {gone === 'sent_not_recorded' && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">The platform e-mail of this invitation went out but was not recorded. This only records it, as the platform e-mail: do not send it again.</p>
+          )}
           <label className="block"><span className="block text-xs font-medium text-gray-600 mb-1">How it went</span>
-            <select className="border rounded-md h-10 px-2 bg-white w-full" value={channel} onChange={e => setChannel(e.target.value as InvitationHandChannel)}>
-              {INVITATION_HAND_CHANNELS.map(c => <option key={c} value={c}>{invitationChannelLabel(c)}</option>)}
+            <select className="border rounded-md h-10 px-2 bg-white w-full disabled:opacity-70" value={channel} disabled={channels.length === 1}
+              onChange={e => setChannel(e.target.value as InvitationMarkChannel)}>
+              {channels.map(c => <option key={c} value={c}>{c === 'platform' ? 'Platform e-mail (it went out)' : invitationChannelLabel(c)}</option>)}
             </select>
           </label>
           <label className="block"><span className="block text-xs font-medium text-gray-600 mb-1">Sent on</span>

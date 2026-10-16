@@ -54,8 +54,9 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
   };
   const onSm26 = path.startsWith('/admin/sm26');
   // ---- WYS 2026 (guest-list event): Guest list and its Invitations, like the Smart 26 sub-tabs ----
-  const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations') || path.startsWith('/admin/invitations');
-  const onWys = path.startsWith('/admin/guest-list/wys26') || wysInvitations;
+  // /admin/invitations (every campaign, any event) is not WYS 2026's: it highlights nothing.
+  const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations');
+  const onWys = path.startsWith('/admin/guest-list/wys26');
   const wysChildren: (NavItem & { active: boolean })[] = [
     { to: '/admin/guest-list/wys26', label: 'Guest list', icon: <ClipboardList className="h-4 w-4" />, active: onWys && !wysInvitations },
     { to: '/admin/guest-list/wys26/invitations', label: 'Invitations', icon: <Mail className="h-4 w-4" />, active: wysInvitations },

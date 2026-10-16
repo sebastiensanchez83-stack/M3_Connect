@@ -195,7 +195,8 @@ const NOW = new Date('2026-10-16T09:00:00Z');
 eq('mark_sent: channel and empty date (now)', M.parseHandSent('post', '', NOW), { ok: true, channel: 'post', sentOn: null });
 eq('mark_sent: a past date kept', M.parseHandSent('email', '2026-10-09', NOW), { ok: true, channel: 'email', sentOn: '2026-10-09' });
 eq('mark_sent: tomorrow (time zones) accepted', M.parseHandSent('phone', '2026-10-17', NOW).ok, true);
-eq('mark_sent: refusals', ['platform', 'letter', ''].map(c => M.parseHandSent(c, null, NOW).error).concat(
+eq('mark_sent: "platform" passes the parser (only a send that may have gone out takes it, see below)', M.parseHandSent('platform', null, NOW), { ok: true, channel: 'platform', sentOn: null });
+eq('mark_sent: refusals', ['platform_letter', 'letter', ''].map(c => M.parseHandSent(c, null, NOW).error).concat(
   ['2026-02-30', '16/10/2026', 42].map(d => M.parseHandSent('post', d, NOW).error), [M.parseHandSent('post', '2026-10-19', NOW).error, M.parseHandSent('post', '2024-01-01', NOW).error]),
   ['bad_channel', 'bad_channel', 'bad_channel', 'bad_date', 'bad_date', 'bad_date', 'future_date', 'too_old']);
 eq('mark_sent: the SM26 channels, without "Letter drawn here"', [...M.INVITATION_HAND_CHANNELS], ['email', 'post', 'phone', 'in_person', 'third_party']);
@@ -377,6 +378,28 @@ check('(an interrupted platform send leaves the monitor warning)', fdb.monitorMi
 res = await M.markSentOne(fdb.deps, fresh(fdb, 'r14'), opts({ channel: 'email' }));
 check('... marking it as sent records it: log line, monitor green, mark cleared', res.outcome === 'sent' && fdb.logLines('r14') === 1
   && fdb.monitorMissing() === 0 && fdb.recipients[3].send_error === null, JSON.stringify(res));
+// "Platform e-mail" only records a platform send that may have gone out.
+fdb.add('r15');
+res = await M.markSentOne(fdb.deps, fresh(fdb, 'r15'), opts({ channel: 'platform' }));
+const r15 = fdb.recipients.find(r => r.id === 'r15');
+check('"Platform e-mail" for a guest the platform never sent: blocked, nothing linked, lock released', res.outcome === 'blocked' && res.code === 'platform_not_sent'
+  && !r15.gl_guest_id && !r15.sending_at && r15.status === 'ready' && fdb.logLines('r15') === 0, JSON.stringify(res));
+fdb.guests.push({ id: 'g-unsure2', email: 'unsure2@example.com', status: 'invited', source: 'invitation' });
+fdb.add('r16', { email: 'unsure2@example.com', gl_guest_id: 'g-unsure2', send_error: 'send_uncertain' });
+res = await M.markSentOne(fdb.deps, fresh(fdb, 'r16'), opts({ channel: 'platform' }));
+check('An interrupted send found in the Resend log: recorded as the platform e-mail, one log line', res.outcome === 'sent' && res.channel === 'platform' && fdb.logLines('r16') === 1
+  && fdb.journal.some(l => l.recipient_id === 'r16' && l.action === 'invitation_sent' && l.payload.message_id === M.PLATFORM_RECORDED), JSON.stringify(res));
+// Sent but not recorded: the platform e-mail went out, so it is recorded as the platform's whatever is chosen.
+fdb.guests.push({ id: 'g-gone', email: 'gone@example.com', status: 'invited', source: 'invitation' });
+fdb.add('r17', { email: 'gone@example.com', gl_guest_id: 'g-gone', send_error: 'sent_not_recorded' });
+check('(an e-mail sent but not recorded leaves the monitor warning)', fdb.monitorMissing() === 1);
+res = await M.markSentOne(fdb.deps, fresh(fdb, 'r17'), opts({ channel: 'post' }));
+const j17 = fdb.journal.find(l => l.recipient_id === 'r17' && l.action === 'sent_by_hand');
+check('Sent but not recorded: recorded as the platform e-mail, the choice kept in the journal, monitor green', res.outcome === 'sent' && res.channel === 'platform'
+  && fdb.logLines('r17') === 1 && j17?.payload.channel === 'platform' && j17?.payload.chosen === 'post' && j17?.payload.after === 'sent_not_recorded'
+  && fdb.monitorMissing() === 0, JSON.stringify([res, j17]));
+const recorded = M.invitationChannels(fdb.journal.filter(l => l.action === 'invitation_sent' || l.action === 'sent_by_hand'));
+eq('Tracking shows them as the platform e-mail; a hand mark stays by hand', [recorded.get('r16'), recorded.get('r17'), recorded.get('r14'), recorded.get('r12')], ['platform', 'platform', 'email', 'in_person']);
 const chans = M.invitationChannels([
   { recipient_id: 'a', action: 'invitation_sent', payload: { resend: false, message_id: 're_123' } },
   { recipient_id: 'a', action: 'invitation_sent', payload: { resend: true, message_id: 're_456' } },

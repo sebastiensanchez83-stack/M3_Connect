@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CalendarDays, ChevronRight, Loader2, Mail, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import type { InvitationCampaign, InvitationCampaignSettings, InvitationDuplicate, InvitationRecipient, InvitationRecipientUpdate } from './types';
 import {
   campaignCounts, createCampaign, deleteRecipients, emailLog, eventGuests, findDuplicates, getCampaign, listCampaigns, listEvents,
@@ -56,27 +57,39 @@ export function AdminEventInvitations() {
 /** The preset a new campaign of this event starts from. */
 const presetFor = (slug: string) => PRESETS.find(p => p.key === (slug === 'wys26' ? 'wys-dubai-2026' : 'blank')) || PRESETS[0];
 
+/**
+ * The event and its campaigns. Loaded when the page opens (and again by `load`, after a campaign
+ * was created or deleted), NOT on every navigation: a tab switch only changes ?tab=, and a
+ * reload there could swap the open campaign for an error box. A refresh that fails keeps what
+ * is on screen and says so in a toast.
+ */
 function useEventCampaigns(slug: string) {
-  const location = useLocation();
   const [state, setState] = useState<{ event: GlEventLite | null; campaigns: InvitationCampaign[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loaded = useRef<string | null>(null);
   const load = useCallback(async () => {
     try {
       const [events, campaigns] = await Promise.all([listEvents(), listCampaigns()]);
       const event = events.find(e => e.slug === slug) || null;
       setState({ event, campaigns: event ? campaigns.filter(c => c.gl_event_id === event.id) : [] });
       setError(null);
-    } catch (e) { setError((e as Error).message); setState({ event: null, campaigns: [] }); }
+      loaded.current = slug;
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (loaded.current === slug) { toast({ title: 'The invitations could not be refreshed', description: msg, variant: 'destructive' }); return; }
+      setError(msg); setState({ event: null, campaigns: [] });
+    }
   }, [slug]);
-  // location.key: coming back here after a campaign was deleted reloads the list.
-  useEffect(() => { load(); }, [load, location.key]);
+  useEffect(() => { load(); }, [load]);
   return { state, error, load };
 }
 
 function EventCrumb({ slug, title, campaign }: { slug: string; title: string; campaign?: { id: string; name: string } }) {
+  // The event's guest list is admin-only (AdminOnlyGuard): a moderator gets its name, not a link.
+  const { isAdmin } = useAuth();
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-gray-500 pl-10 md:pl-0 min-h-[36px]">
-      <Link to={`/admin/guest-list/${slug}`} className="hover:text-primary">{title}</Link>
+      {isAdmin ? <Link to={`/admin/guest-list/${slug}`} className="hover:text-primary">{title}</Link> : <span>{title}</span>}
       <ChevronRight className="h-3.5 w-3.5" />
       {campaign ? <Link to={`/admin/guest-list/${slug}/invitations`} className="hover:text-primary">Invitations</Link>
         : <span className="inline-flex items-center gap-1 text-gray-700"><Mail className="h-4 w-4" /> Invitations</span>}
@@ -107,7 +120,7 @@ function EventInvitationsLanding() {
   // One campaign for the event: open it directly, as SM26 opens its invitations.
   if (active.length === 1) {
     const c = active[0];
-    return <CampaignPage key={c.id} campaignId={c.id} back={<EventCrumb slug={slug} title={title} />} listPath={`/admin/guest-list/${slug}/invitations`} />;
+    return <CampaignPage key={c.id} campaignId={c.id} back={<EventCrumb slug={slug} title={title} />} listPath={`/admin/guest-list/${slug}/invitations`} onDeleted={load} />;
   }
   const start = async () => {
     const p = presetFor(slug);
@@ -158,11 +171,24 @@ function EventInvitationsLanding() {
 
 function EventCampaignRoute() {
   const { slug = '', campaignId = '' } = useParams();
-  const { state } = useEventCampaigns(slug);
-  const title = state?.event?.title || slug.toUpperCase();
-  const c = state?.campaigns.find(x => x.id === campaignId);
+  const { state, error } = useEventCampaigns(slug);
+  if (!state) return <div className="flex justify-center py-20"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
+  const title = state.event?.title || slug.toUpperCase();
+  const c = state.campaigns.find(x => x.id === campaignId.toLowerCase());
+  if (error || !c) {
+    // Only this event's campaigns show under its name (a campaign of another event would look like one of WYS 2026's).
+    return (
+      <div className="space-y-3 max-w-3xl">
+        <EventCrumb slug={slug} title={title} />
+        <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {error ? `The invitations could not be loaded: ${error}`
+            : <>This is not a campaign of {title} (or it was deleted). <Link to={`/admin/guest-list/${slug}/invitations`} className="underline">Back to the invitations of {title}</Link>.</>}
+        </p>
+      </div>
+    );
+  }
   return <CampaignPage key={campaignId} campaignId={campaignId} listPath={`/admin/guest-list/${slug}/invitations`}
-    back={<EventCrumb slug={slug} title={title} campaign={{ id: campaignId, name: c?.name || 'Campaign' }} />} />;
+    back={<EventCrumb slug={slug} title={title} campaign={{ id: c.id, name: c.name }} />} />;
 }
 
 const notInstalled = (m: string) => /invitation_(campaign|recipient)|does not exist|schema cache/i.test(m);
@@ -299,9 +325,10 @@ const TABS: { key: Tab; label: string }[] = [
 
 /**
  * One campaign. back: the link above the header (the campaigns list, or the event's
- * breadcrumb); listPath: where to go once the campaign is deleted.
+ * breadcrumb); listPath: where to go once the campaign is deleted; onDeleted: then called
+ * (listPath may be the page already open, which reloads its list).
  */
-function CampaignPage({ campaignId, back, listPath }: { campaignId: string; back: ReactNode; listPath: string }) {
+function CampaignPage({ campaignId, back, listPath, onDeleted }: { campaignId: string; back: ReactNode; listPath: string; onDeleted?: () => void }) {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find(t => t.key === params.get('tab'))?.key || 'guests') as Tab;
   const setTab = (t: Tab) => setParams(p => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
@@ -441,7 +468,7 @@ function CampaignPage({ campaignId, back, listPath }: { campaignId: string; back
       {tab === 'send' && <SendTab campaign={campaign} rows={rows} event={event} selectedId={selectedId} reload={reload} />}
       {tab === 'tracking' && <TrackingTab campaign={campaign} rows={rows} event={event} guests={guests} reload={reload} />}
       {tab === 'settings' && (
-        <SettingsTab campaign={campaign} events={events} hasGuests={rows.length > 0} invitedAny={invitedAny} onSaved={setCampaign} listPath={listPath} />
+        <SettingsTab campaign={campaign} events={events} hasGuests={rows.length > 0} invitedAny={invitedAny} onSaved={setCampaign} listPath={listPath} onDeleted={onDeleted} />
       )}
     </div>
   );

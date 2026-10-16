@@ -28,9 +28,9 @@ export {
 } from '../../../supabase/functions/invitation-campaign/render.ts';
 export {
   INVITATION_HAND_CHANNELS, INVITATION_HAND_PREFIX, MARK_SENT_BATCH_MAX, invitationChannels,
-  type InvitationHandChannel,
+  type InvitationHandChannel, type InvitationMarkChannel,
 } from '../../../supabase/functions/invitation-campaign/markSent.ts';
-import type { InvitationHandChannel } from '../../../supabase/functions/invitation-campaign/markSent.ts';
+import type { InvitationMarkChannel } from '../../../supabase/functions/invitation-campaign/markSent.ts';
 import { SM26_INVITE_CHANNELS } from '@/components/admin/types';
 
 export const INVITATION_SEND_BATCH = 10;
@@ -100,6 +100,13 @@ export const INVITATION_SEND_LABELS: Record<string, string> = {
   too_old: 'The date is more than a year ago.',
   mark_failed: 'Not recorded. Reload the page to see where this guest stands, then try again.',
   date_not_saved: "Marked as sent, but with today's date: the date given was not saved.",
+  platform_not_sent: 'The platform never sent this invitation: choose how it went out.',
+  // A guest linked by an earlier attempt whose guest-list row changed in WYS 2026 since.
+  guest_requested: "Back to a pending request on the event's guest list (WYS 2026): handle it there.",
+  guest_declined: "Declined on the event's guest list (WYS 2026): not invited again.",
+  guest_rejected: "Refused on the event's guest list (WYS 2026): not invited from here.",
+  guest_cancelled: "Cancelled on the event's guest list (WYS 2026): not invited from here.",
+  guest_missing: 'Its guest-list row no longer exists: reload the page, then try again.',
   // Request-level answers of the function.
   test_only_to_yourself: 'A test goes only to your own address.',
   no_address_for_you: 'Your account has no e-mail address for the test.',
@@ -113,7 +120,10 @@ export const INVITATION_SEND_LABELS: Record<string, string> = {
   network: 'The server could not be reached.',
 };
 export const invitationSendLabel = (code?: string | null) =>
-  !code ? '' : INVITATION_SEND_LABELS[code] || (code.startsWith('resend_') ? `The e-mail service refused it (${code.slice(7)}).` : code);
+  !code ? '' : INVITATION_SEND_LABELS[code]
+    || (code.startsWith('resend_') ? `The e-mail service refused it (${code.slice(7)}).`
+      : code.startsWith('guest_') ? `On the event's guest list as ${code.slice(6).replace(/_/g, ' ')} (WYS 2026): not invited from here.`
+      : code);
 
 export interface InvitationTestResult {
   ok: boolean; error?: string; to: string; from: string; reply_to: string; subject: string;
@@ -198,7 +208,8 @@ export interface InvitationMarkItem {
   guest_id?: string;
   adopted?: 'request';
   status?: string;
-  channel?: InvitationHandChannel;
+  /** The channel recorded ("platform" for a platform e-mail that went out but was not recorded). */
+  channel?: InvitationMarkChannel;
 }
 
 export interface InvitationMarkResult {
@@ -216,7 +227,8 @@ type Body =
   | { action: 'resend'; campaign_id: string; recipient_id: string }
   | { action: 'set_answer'; campaign_id: string; recipient_id: string; answer: 'accepted' | 'declined' | 'no_answer'; force?: boolean }
   /** sent_on: YYYY-MM-DD; omitted or null = now. adopt: as for send (pending /wys26 requests staff chose to adopt). */
-  | { action: 'mark_sent'; campaign_id: string; recipient_ids: string[]; channel: InvitationHandChannel; sent_on?: string | null;
+  /** channel "platform": only for a guest whose platform send was interrupted and did go out. */
+  | { action: 'mark_sent'; campaign_id: string; recipient_ids: string[]; channel: InvitationMarkChannel; sent_on?: string | null;
       adopt?: string[]; force_capacity?: boolean };
 
 type Out<B extends Body> =

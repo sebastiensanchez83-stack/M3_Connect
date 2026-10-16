@@ -31,10 +31,12 @@ const toParas = (t: string) => t.split(/\n\s*\n/).map(s => s.replace(/\s*\n\s*/g
 const lines = (list: string[] | undefined) => (list || []).join('\n');
 const toLines = (t: string) => t.split('\n').map(s => s.trim()).filter(Boolean);
 
-export function SettingsTab({ campaign, events, hasGuests, invitedAny, onSaved, listPath = '/admin/invitations' }: {
+export function SettingsTab({ campaign, events, hasGuests, invitedAny, onSaved, listPath = '/admin/invitations', onDeleted }: {
   campaign: InvitationCampaign; events: GlEventLite[]; hasGuests: boolean; invitedAny: boolean; onSaved: (c: InvitationCampaign) => void;
   /** Where to go once the campaign is deleted. */
   listPath?: string;
+  /** Called once the campaign is deleted (listPath may be the page already open, which then reloads its list). */
+  onDeleted?: () => void;
 }) {
   const navigate = useNavigate();
   const [f, setF] = useState<Form>(() => toForm(campaign));
@@ -100,7 +102,7 @@ export function SettingsTab({ campaign, events, hasGuests, invitedAny, onSaved, 
 
   const remove = async () => {
     if (!confirm(`Delete the campaign "${campaign.name}" and its guests? This cannot be undone.`)) return;
-    try { await deleteCampaign(campaign.id); toast({ title: 'Campaign deleted' }); navigate(listPath); }
+    try { await deleteCampaign(campaign.id); toast({ title: 'Campaign deleted' }); navigate(listPath); onDeleted?.(); }
     catch (e) { toast({ title: 'Not deleted', description: (e as Error).message, variant: 'destructive' }); }
   };
 

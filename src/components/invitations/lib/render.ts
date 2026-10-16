@@ -5,19 +5,27 @@
  * "Your " (Victor, 16 Oct: "Your Excellency," without "Dear").
  * In the letter, **bold** prints in Montserrat SemiBold and *italic* (conference
  * titles) in Pagella Italic, as in the kit.
- * Pure functions: the e-mail preview shown to staff is built here.
+ * Pure functions. The E-MAIL is rendered by the sender's own module
+ * (supabase/functions/invitation-campaign/render.ts), imported here, so the preview staff
+ * see is exactly what the guest receives; the ticket and the letter use fill() below.
+ * Both sides know the same variable names.
  */
 import type { InvitationCampaign, InvitationRecipient } from '../types';
 import { clean } from './norm';
+import {
+  INVITATION_JOIN_LINE_DEFAULT, invitationAttachmentNames, invitationSender, renderInvitationEmail,
+} from '../../../../supabase/functions/invitation-campaign/render.ts';
 
 export const VARIABLES: { key: string; label: string }[] = [
   { key: 'greeting', label: 'What follows "Dear" (Mr Doe, Jane Doe, Your Excellency)' },
   { key: 'name', label: 'Name on the letter' },
   { key: 'name_on_ticket', label: 'Name on the ticket' },
+  { key: 'honorific', label: 'Title (Dr, Mr, H.E.)' },
   { key: 'first_name', label: 'First name' },
   { key: 'last_name', label: 'Surname' },
   { key: 'position', label: 'Job title' },
   { key: 'organisation', label: 'Organisation' },
+  { key: 'country', label: 'Country' },
   { key: 'event_name', label: 'Event name' },
   { key: 'edition', label: 'Edition' },
   { key: 'event_date', label: 'Event date' },
@@ -28,14 +36,22 @@ export const VARIABLES: { key: string; label: string }[] = [
   { key: 'rsvp_email', label: 'RSVP e-mail' },
   { key: 'hosts', label: 'Hosts' },
   { key: 'website', label: 'Website' },
+  { key: 'join_platform_line', label: 'E-mail only: the optional "join Smart Marina Connect" line (added at the end when not placed)' },
 ];
+/** Also accepted: {{date}}, the sender's other name for {{event_date}}. */
+const ALIASES = ['date'];
 
-type Guest = Pick<InvitationRecipient, 'greeting' | 'name_on_ticket' | 'name_on_letter' | 'first_name' | 'last_name' | 'position' | 'organisation'>;
+type Guest = Pick<InvitationRecipient, 'greeting' | 'name_on_ticket' | 'name_on_letter' | 'first_name' | 'last_name' | 'position' | 'organisation'>
+  & Partial<Pick<InvitationRecipient, 'honorific' | 'country'>>;
 
 export function variablesFor(c: Pick<InvitationCampaign, 'settings'>, g: Partial<Guest> | null): Record<string, string> {
   const s = c.settings || {};
   const ticket = clean(g?.name_on_ticket);
   return {
+    honorific: clean(g?.honorific),
+    country: clean(g?.country),
+    date: clean(s.date_label),
+    join_platform_line: '',
     greeting: clean(g?.greeting) || clean(g?.name_on_letter) || ticket || 'Guest',
     name: clean(g?.name_on_letter) || ticket,
     name_on_ticket: ticket,
@@ -66,7 +82,7 @@ export function fill(text: string | null | undefined, vars: Record<string, strin
 
 /** {{names}} used in a text that are not variables (shown as a warning in Settings). */
 export function unknownVariables(text: string | null | undefined): string[] {
-  const known = new Set(VARIABLES.map(v => v.key));
+  const known = new Set([...VARIABLES.map(v => v.key), ...ALIASES]);
   const out = new Set<string>();
   for (const m of (text || '').matchAll(/\{\{\s*([a-zA-Z_]+)\s*\}\}/g)) if (!known.has(m[1])) out.add(m[1]);
   return [...out];
@@ -91,23 +107,36 @@ export function parseMarkup(text: string): Run[] {
 
 export const stripMarkup = (t: string) => parseMarkup(t).map(r => r.text).join('');
 
-/** Default wording of the optional line inviting the guest to the platform (no account is created). */
-export const JOIN_PLATFORM_DEFAULT =
-  'You are also welcome to join Smart Marina Connect, the online meeting place of the marina and yachting community: smartmarinaconnect.com/join';
+/**
+ * Default wording of the optional line inviting the guest to the platform (no account is
+ * created): the sender's own default, so Settings and the function agree.
+ */
+export const JOIN_PLATFORM_DEFAULT = INVITATION_JOIN_LINE_DEFAULT;
 
-export interface EmailPreview { to: string; subject: string; body: string }
+export interface EmailPreview {
+  to: string; subject: string; body: string; from: string; replyTo: string;
+  attachments: { letter: string; ticket: string };
+  /** {{variables}} the sender does not know: it refuses to send such an e-mail. */
+  unknown: string[];
+}
+
+type EmailCampaign = Pick<InvitationCampaign, 'name' | 'rsvp_deadline' | 'sender_name' | 'sender_email' | 'reply_to' | 'settings' | 'texts'>;
 
 /**
- * The invitation e-mail as staff see it in the preview. The optional platform line is
- * added as a last paragraph when the campaign turns it on (texts.email.join_platform_line).
+ * The invitation e-mail as the guest receives it (plain-text part; the HTML part has the same
+ * paragraphs), rendered by the sender's module. The optional platform line is the last
+ * paragraph when the campaign turns it on (texts.email.join_platform_line).
  */
-export function emailFor(c: Pick<InvitationCampaign, 'settings' | 'texts'>, g: (Partial<Guest> & { email?: string | null }) | null): EmailPreview {
-  const vars = variablesFor(c, g);
-  const e = c.texts?.email || {};
-  let body = fill(e.body, vars).replace(/\r\n/g, '\n');
-  const join = clean(e.join_platform_line);
-  if (join) body = `${body.replace(/\s+$/, '')}\n\n${fill(join, vars)}`;
-  return { to: clean(g?.email), subject: fill(e.subject, vars), body };
+export function emailFor(c: EmailCampaign, g: (Partial<Guest> & { email?: string | null }) | null): EmailPreview {
+  type RC = Parameters<typeof renderInvitationEmail>[0];
+  const camp = c as unknown as RC;
+  const guest = g || {};
+  const mail = renderInvitationEmail(camp, guest);
+  const sender = invitationSender(camp);
+  return {
+    to: clean(g?.email), subject: mail.subject, body: mail.text.replace(/\n$/, ''), from: sender.from, replyTo: sender.replyTo,
+    attachments: invitationAttachmentNames(camp, guest), unknown: mail.unknown,
+  };
 }
 
 /** "2026-11-13" as "13 November 2026". */

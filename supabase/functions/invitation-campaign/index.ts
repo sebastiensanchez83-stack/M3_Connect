@@ -20,9 +20,11 @@ import {
 //   test         {campaign_id, recipient_id, to?}  one invitation, with that guest's real texts
 //                and PDFs, to the caller's OWN address ("to" only if it is the caller's), with
 //                "[Test] " before the subject. Never links, marks or logs the guest.
-//   preview_send {campaign_id, recipient_ids, adopt?}  what a send would do, nothing written:
-//                sendable, without e-mail, blocked (duplicates, pending request not adopted,
-//                address already on the list, capacity, PDFs missing...), seats left.
+//   preview_send {campaign_id, recipient_ids, adopt?, pdfs_on_send?}  what a send would do,
+//                nothing written: sendable, without e-mail, blocked (duplicates, pending request
+//                not adopted, address already on the list, capacity, PDFs missing...), seats
+//                left. pdfs_on_send: the screen uploads fresh PDFs right before each send, so
+//                files not there yet do not block (the admin screens always pass it).
 //   send         {campaign_id, recipient_ids, force_capacity?, adopt?: recipient_id[]}
 //                at most 10 guests per call (the rest come back in "remaining"), one e-mail
 //                each. IDEMPOTENT: only draft or ready guests not being sent are taken (a
@@ -43,7 +45,8 @@ import {
 // 'invitation' line the health monitor expects within 10 minutes, the guest "sent", and the
 // journal. A send Resend refuses is tried once more (429 and 5xx, network errors); if it
 // still fails, the link made by this send is undone (invitation_unlink_guest, or
-// invitation_unadopt_request) so no guest-list row stays "invited" without its e-mail. When
+// invitation_unadopt_request) so no guest-list row stays "invited" without its e-mail (the
+// next send re-opens that cancelled row with invitation_relink_guest, same token). When
 // the outcome is unknown (network error), the link stays and the guest gets the error
 // "send_uncertain": check the Resend log, then use resend if it did not go.
 //
@@ -279,6 +282,12 @@ async function sendOne(ctx: Ctx, r: Row, opts: { resend: boolean; adopt: boolean
       if (!link.ok && link.error === "pending_request" && opts.adopt) {
         link = await rpc("invitation_adopt_request", { p_recipient_id: r.id, p_force: opts.force, p_actor: ctx.uid });
         if (link.ok && link.adopted_request) { undo = "unadopt"; adopted = "request"; }
+      } else if (!link.ok && ["already_on_list", "not_adoptable"].includes(link.error)
+                 && link.guest_status === "cancelled" && link.guest_source === "invitation") {
+        // Most likely this guest's own row, cancelled by the undo of an earlier refused send
+        // (step 1 keeps it on the list): re-open it. The database checks it is that row.
+        const re = await rpc("invitation_relink_guest", { p_recipient_id: r.id, p_force: opts.force, p_actor: ctx.uid });
+        if (re.ok) { link = re; undo = "unlink"; } else if (re.error !== "not_relinkable") link = re;
       } else if (link.ok && link.created) {
         undo = "unlink";
       } else if (link.ok && link.adopted) {
@@ -339,7 +348,7 @@ async function sendOne(ctx: Ctx, r: Row, opts: { resend: boolean; adopt: boolean
 }
 
 // ─── Preview of a send (nothing written) ─────────────────────────────────
-async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>) {
+async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>, pdfsOnSend = false) {
   const rows = await loadRecipients(ctx.campaign.id, ids);
   const found = new Set(rows.map((r) => r.id));
   const emails = [...new Set(rows.map((r) => r.email).filter(Boolean))] as string[];
@@ -352,6 +361,13 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>) {
     for (const g of data || []) guests.set(String(g.email).toLowerCase(), g);
   }
   const guestIds = [...guests.values()].map((g) => g.id);
+  // Rows these guests unlinked after a refused send: "send" re-opens them (invitation_relink_guest).
+  const unlinked = new Set<string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await db.from("invitation_log").select("recipient_id, payload").eq("action", "guest_unlinked")
+      .in("recipient_id", ids.slice(i, i + 100));
+    for (const l of data || []) if (l?.payload?.guest_id) unlinked.add(`${l.recipient_id}:${l.payload.guest_id}`);
+  }
   const holder = new Map<string, string>();
   for (let i = 0; i < guestIds.length; i += 100) {
     const { data } = await db.from("invitation_recipient").select("id, gl_guest_id").in("gl_guest_id", guestIds.slice(i, i + 100));
@@ -389,7 +405,9 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>) {
     else if (!r.first_name || !r.last_name) { item.state = "blocked"; item.code = "missing_name"; }
     else if (dupEmail.has(r.id)) { item.state = "blocked"; item.code = "duplicate_email"; item.other_id = dupEmail.get(r.id); }
     else if (g && holder.has(g.id)) { item.state = "blocked"; item.code = "guest_linked_elsewhere"; item.other_id = holder.get(g.id); }
-    else if (g) {
+    else if (g && g.status === "cancelled" && g.source === "invitation" && unlinked.has(`${r.id}:${g.id}`)) {
+      item.code = "relink"; item.seat = true; // its own row, cancelled after a refused send
+    } else if (g) {
       item.guest_status = g.status; item.guest_source = g.source;
       if (g.status === "requested" && g.source === "request" && !g.plus_one_of) {
         item.can_adopt = "request";
@@ -412,6 +430,9 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>) {
       const mail = renderInvitationEmail(ctx.campaign as InvitationRenderCampaign, r as InvitationRenderRecipient);
       if (mail.empty) { item.state = "blocked"; item.code = "empty_email"; return; }
       if (mail.unknown.length) { item.state = "blocked"; item.code = "unresolved_variables"; item.detail = mail.unknown.join(" "); return; }
+      // The admin screen regenerates and uploads both PDFs right before each send: their absence
+      // now is not a block then ("send" still refuses a guest whose files are missing).
+      if (pdfsOnSend) return;
       const present = await folderFiles(ctx.campaign.id, r.id);
       const p = pdfPaths(ctx.campaign.id, r);
       if (!present.has(p.ticket) || !present.has(p.letter)) { item.state = "blocked"; item.code = "missing_pdfs"; return; }
@@ -538,7 +559,7 @@ Deno.serve(async (req) => {
     if (action === "preview_send") {
       const ids = uuids(body.recipient_ids).slice(0, PREVIEW_MAX);
       if (!ids.length) return json(req, { error: "recipient_ids required" }, 400);
-      return json(req, await previewSend(ctx, ids, new Set(uuids(body.adopt))));
+      return json(req, await previewSend(ctx, ids, new Set(uuids(body.adopt)), body.pdfs_on_send === true));
     }
 
     if (action === "send") {

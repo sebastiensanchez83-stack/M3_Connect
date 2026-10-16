@@ -7,10 +7,10 @@ import { supabase } from '@/lib/supabase';
  * The e-mail itself is built by render.ts, shared with the function, so the admin preview
  * shows exactly what the guest receives.
  *
- * Order for one wave: generate the PDFs in the browser and upload them to the private bucket
- * invitation-files as <campaign id>/<recipient id>/ticket.pdf and letter.pdf; "test" to
- * yourself; "preview_send" for the confirmation screen; then "send" 10 guests at a time
- * (call again with "remaining" until it is empty). A guest already sent is never sent again
+ * Order for one wave: "test" to yourself (PDFs of that guest uploaded first); "preview_send"
+ * with pdfs_on_send for the confirmation screen; then, 10 guests at a time, generate their PDFs
+ * in the browser, upload them to the private bucket invitation-files as
+ * <campaign id>/<recipient id>/ticket.pdf and letter.pdf, and "send" them. A guest already sent is never sent again
  * by "send"; "resend" is the explicit action.
  */
 
@@ -41,11 +41,11 @@ export type InvitationSendCode =
 
 /** English labels for the screens. */
 export const INVITATION_SEND_LABELS: Record<string, string> = {
-  already_sent: 'Already sent. Use "Resend invitation" to send it again.',
+  already_sent: 'Already sent. Use "Resend" in Tracking to send it again.',
   in_progress: 'Being sent right now.',
   in_progress_or_sent: 'Being sent right now, or already sent.',
   not_found: 'Not in this campaign.',
-  needs_explicit_resend: 'The last send may have gone out. Check, then use "Resend invitation" if it did not.',
+  needs_explicit_resend: 'The last send may have gone out. Check, then use "Resend" in Tracking if it did not.',
   not_sent_yet: 'Never sent: use Send.',
   no_email: 'No e-mail address.',
   missing_name: 'First and last name are needed for the guest list.',
@@ -69,6 +69,17 @@ export const INVITATION_SEND_LABELS: Record<string, string> = {
   sent_not_recorded: 'Sent, but not recorded. Do not send it again; tell the developer.',
   resend_unreachable: 'The e-mail service could not be reached.',
   error: 'Unexpected error.',
+  // Request-level answers of the function.
+  test_only_to_yourself: 'A test goes only to your own address.',
+  no_address_for_you: 'Your account has no e-mail address for the test.',
+  recipient_not_found: 'This guest is no longer in the campaign.',
+  campaign_not_found: 'Campaign not found.',
+  event_not_found: 'The campaign\'s event was not found.',
+  not_linked: 'Not on the guest list yet.',
+  not_relinkable: 'Cancelled on the guest list (WYS 2026): it is not re-opened from here.',
+  Unauthorized: 'Your session has expired: sign in again.',
+  Forbidden: 'Only verified admins and moderators can do this.',
+  network: 'The server could not be reached.',
 };
 export const invitationSendLabel = (code?: string | null) =>
   !code ? '' : INVITATION_SEND_LABELS[code] || (code.startsWith('resend_') ? `The e-mail service refused it (${code.slice(7)}).` : code);
@@ -81,7 +92,8 @@ export interface InvitationTestResult {
 export interface InvitationPreviewItem {
   id: string;
   state: 'sendable' | 'no_email' | 'blocked' | 'already_sent' | 'in_progress';
-  code?: InvitationSendCode | 'linked';
+  /** linked: still on the list after a failed send; relink: its own row, cancelled after a refused send, is re-opened. */
+  code?: InvitationSendCode | 'linked' | 'relink';
   detail?: string;
   /** What staff may choose to adopt for this guest (an existing guest-list row). */
   can_adopt?: 'request' | 'existing';
@@ -148,7 +160,8 @@ export interface InvitationAnswerResult {
 
 type Body =
   | { action: 'test'; campaign_id: string; recipient_id: string; to?: string }
-  | { action: 'preview_send'; campaign_id: string; recipient_ids: string[]; adopt?: string[] }
+  /** pdfs_on_send: the screen uploads fresh PDFs right before "send", so missing files do not block here. */
+  | { action: 'preview_send'; campaign_id: string; recipient_ids: string[]; adopt?: string[]; pdfs_on_send?: boolean }
   | { action: 'send'; campaign_id: string; recipient_ids: string[]; force_capacity?: boolean; adopt?: string[] }
   | { action: 'resend'; campaign_id: string; recipient_id: string }
   | { action: 'set_answer'; campaign_id: string; recipient_id: string; answer: 'accepted' | 'declined' | 'no_answer'; force?: boolean };

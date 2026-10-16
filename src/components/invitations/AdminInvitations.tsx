@@ -8,7 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import type { InvitationCampaign, InvitationCampaignSettings, InvitationDuplicate, InvitationRecipient, InvitationRecipientUpdate } from './types';
 import {
   campaignCounts, createCampaign, deleteRecipients, emailLog, eventGuests, findDuplicates, getCampaign, listCampaigns, listEvents,
-  listRecipients, updateCampaign, updateRecipient, type EmailLogLite, type GlEventLite, type GlGuestLite,
+  listRecipients, unlinkedRows, updateCampaign, updateRecipient, type EmailLogLite, type GlEventLite, type GlGuestLite,
 } from './lib/api';
 import { buildRows, daysUntil } from './lib/model';
 import { PRESETS } from './lib/presets';
@@ -183,7 +183,11 @@ function CampaignPage() {
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reloadDups = useCallback(async () => {
-    try { setDups(await findDuplicates(campaignId)); } catch { /* shown as no duplicate; the import already checked */ }
+    try {
+      const [all, own] = await Promise.all([findDuplicates(campaignId), unlinkedRows(campaignId)]);
+      // A guest's own row, cancelled after a refused send, is not a duplicate: the next send re-opens it.
+      setDups(all.filter(d => !(d.other_kind === 'guest' && d.other_status === 'cancelled' && own.has(`${d.recipient_id}:${d.other_id}`))));
+    } catch { /* shown as no duplicate; the import already checked */ }
   }, [campaignId]);
 
   const reload = useCallback(async () => {

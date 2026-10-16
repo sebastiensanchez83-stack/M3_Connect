@@ -2,13 +2,10 @@
 -- Run it AFTER step 1 (20261017090000 and 20261017091000) is applied and BEFORE this file is.
 -- ONE query text, ONE execute_sql call. Everything rolls back: the last statement raises
 -- 'DRYRUN ...'; the result is in that error message.
--- A. a snapshot of what must not change; B. the migration, verbatim (its precondition checks
--- the md5 of the 4 step 1 bodies it relies on); C. test helpers; D. cases as a visitor
--- (anon), a verified member, a verified moderator, a verified admin and the service role (the
--- sender, acting for a staff member), each in its own rolled-back sub-transaction, on a
--- throw-away guest-list event (capacity 3) created inside the run: the real wys26 list and
--- its 11 pending requests are not touched. No e-mail is sent (nothing is sent from SQL).
--- Expected: "44 PASS, 0 FAIL".
+-- A. snapshot of what must not change; B. the migration, verbatim; C. helpers; D. cases as
+-- anon, member, moderator, admin and the service role, each rolled back, on a throw-away
+-- guest-list event (capacity 3): the real wys26 list is not touched. No e-mail is sent.
+-- Expected: "50 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -26,17 +23,17 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
   union all select 'acls', (select md5(string_agg(p.oid::regprocedure::text || '=' || coalesce(array_to_string(p.proacl, ','), ''), ';'
                               order by p.oid::regprocedure::text))
                               from pg_proc p where p.pronamespace = 'public'::regnamespace
-                               and p.proname not in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent'))
+                               and p.proname not in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent', 'invitation_relink_guest'))
   union all select 'step1_bodies', (select md5(string_agg(p.oid::regprocedure::text || ':' || md5(p.prosrc), ',' order by p.oid::regprocedure::text))
                               from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'invitation%'
-                               and p.proname not in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent'))
+                               and p.proname not in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent', 'invitation_relink_guest'))
   union all select 'pins', (select md5(string_agg(p.proname || ':' || md5(p.prosrc), ',' order by p.proname, md5(p.prosrc)))
                               from pg_proc p where p.pronamespace = 'public'::regnamespace
                                and p.proname in ('gl_checkin', 'gl_checkin_v2', 'gl_guest_engine_guard', 'gl_guest_queue_provisioning',
                                  'invoke_registration_cron', 'invoke_send_profile_reminders', 'invoke_guest_webinar_reminders',
                                  'handle_new_user', 'has_capability', 'capability_set', 'complete_signup_for', 'is_moderator', 'is_admin',
                                  'ops_health_checks', 'ops_health_report'))
-  union all select 'triggers', (select md5(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled, ','
+  union all select 'triggers', (select md5(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
                                   order by t.tgrelid::regclass::text, t.tgname))
                                   from pg_trigger t where not t.tgisinternal)
   union all select 'tables', (select md5(string_agg(c.oid::regclass::text || ':' || c.relrowsecurity::text || ':'
@@ -49,7 +46,7 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
 $f$;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 
--- B. The migration, verbatim ───────────────────────────────────────────────────
+-- B. The migration, verbatim
 -- invitation_adopt_request: step 4 (sending) of the "Invitation campaigns" admin module.
 -- NOT APPLIED. Needs step 1 applied (20261017090000_invitation_campaigns and
 -- 20261017091000_invitation_guest_link), with the function bodies pinned below. Apply only
@@ -57,27 +54,22 @@ create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- and supabase/dryrun/20261017093000_invitation_adopt_request.down.dryrun.sql.
 -- Down: supabase/migrations/down/20261017093000_invitation_adopt_request.down.sql.
 --
--- ADDITIVE ONLY: 3 new functions, called by the new edge function invitation-campaign (the
+-- ADDITIVE ONLY: 4 new functions, called by the new edge function invitation-campaign (the
 -- sender). No step 1 function is redefined; their bodies are pinned (md5) because the sender
 -- relies on what they return. No gl_* function, trigger or policy is redefined; guest-list
 -- (live v6, WYS freeze until 28 Nov) is untouched.
 --
--- 1. invitation_adopt_request(): Victor's decision of 16 Oct (plan question 10). When a
---    campaign guest's address already has a PENDING public request on the event's guest list
---    (/wys26), Victor chooses per guest: adopt that request into the campaign, or leave it
---    to "WYS 2026". Adopting is never automatic: only the sender calls this, for a guest
---    staff listed explicitly ("adopt"), in the same action as the invitation e-mail. The
---    request row KEEPS its id, token (same QR, same /wys26/guest page), names, wishes and
---    source 'request'; it becomes 'invited' as guest-list v6 "invite" writes an invitation
---    (conference/gala from the campaign, invited_at = decided_at = now, decided_by = the
---    staff member). It takes a seat (capacity as v6, unless forced). Journalled
---    'request_adopted' with the values it replaced.
--- 2. invitation_unadopt_request(): undoes an adoption whose invitation e-mail never went out
---    (failed send): the row goes back to the pending request it was, exactly.
+-- 1. invitation_adopt_request(): Victor's decision of 16 Oct. A campaign guest whose address
+--    has a PENDING /wys26 request: Victor adopts it per guest ("adopt"), never automatically.
+--    The sender adopts it with the e-mail: same row, token, names, wishes, source 'request';
+--    it becomes 'invited' as v6 "invite" writes it, takes a seat, journalled with what it
+--    replaced.
+-- 2. invitation_unadopt_request(): undoes an adoption whose e-mail never went out.
 -- 3. invitation_mark_sent(): after Resend accepted the e-mail, in ONE transaction: the
---    gl_email_log line of kind 'invitation' (the health monitor expects it within 10 minutes
---    of the link), the campaign guest marked sent (first send only; a re-send keeps it), the
---    send lock released, the journal line. Service role only.
+--    gl_email_log 'invitation' line (the health monitor expects it within 10 minutes of the
+--    link), the guest sent (first send only), lock released, journal. Service role only.
+-- 4. invitation_relink_guest(): step 1's unlink (after a refused send) cancels the row and
+--    keeps it, so invitation_link_guest refuses that address for good; this re-opens it.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -109,7 +101,8 @@ begin
     end if;
   end loop;
   if exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
-              and p.proname in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent')) then
+              and p.proname in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent',
+                                'invitation_relink_guest')) then
     raise exception 'invitation_adopt_request: already applied';
   end if;
   if (select count(*) from information_schema.columns c
@@ -320,17 +313,87 @@ begin
 end
 $f$;
 
--- 4. Privileges (the project's default grants EXECUTE to anon, authenticated and
--- service_role). Adopting and recording a send: the sender only, so no request becomes
+-- 4. Re-link after a refused send (the sender only): the row THIS guest unlinked (journal),
+-- still 'cancelled', source 'invitation', never e-mailed, nobody else on it; capacity as
+-- invitation_link_guest. Same id and token, 'invited' again with the guest's current details.
+create function public.invitation_relink_guest(p_recipient_id uuid, p_force boolean default false,
+                                               p_actor uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $f$
+declare
+  v_uid uuid;
+  v_rec public.invitation_recipient;
+  v_camp public.invitation_campaign;
+  v_guest public.gl_guest;
+  v_cap integer;
+  v_held integer;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception using errcode = '42501', message = 'forbidden: guests are re-linked by the sender only';
+  end if;
+  v_uid := public.invitation_actor(p_actor);
+  select * into v_rec from public.invitation_recipient where id = p_recipient_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'recipient_not_found');
+  end if;
+  if v_rec.gl_guest_id is not null or v_rec.status not in ('draft', 'ready') then
+    return jsonb_build_object('ok', false, 'error', 'bad_status', 'status', v_rec.status);
+  end if;
+  select * into v_camp from public.invitation_campaign where id = v_rec.campaign_id;
+  if v_camp.archived_at is not null then
+    return jsonb_build_object('ok', false, 'error', 'campaign_archived');
+  end if;
+  if v_rec.email is null or v_rec.first_name is null or v_rec.last_name is null then
+    return jsonb_build_object('ok', false, 'error', 'missing_name');
+  end if;
+  perform pg_advisory_xact_lock(hashtext('invitation_link_guest'), hashtext(v_camp.gl_event_id::text));
+  select * into v_guest from public.gl_guest where event_id = v_camp.gl_event_id and lower(email) = v_rec.email for update;
+  if not found or v_guest.status <> 'cancelled' or v_guest.source <> 'invitation'
+     or exists (select 1 from public.invitation_recipient r where r.gl_guest_id = v_guest.id)
+     or exists (select 1 from public.gl_email_log l where l.guest_id = v_guest.id)
+     or not exists (select 1 from public.invitation_log l where l.recipient_id = v_rec.id and l.action = 'guest_unlinked'
+                     and l.payload ->> 'guest_id' = v_guest.id::text) then
+    return jsonb_build_object('ok', false, 'error', 'not_relinkable', 'guest_status', v_guest.status);
+  end if;
+  select e.capacity into v_cap from public.gl_event e where e.id = v_camp.gl_event_id;
+  if v_cap is not null and not p_force then
+    select count(*) into v_held from public.gl_guest where event_id = v_camp.gl_event_id and status in ('confirmed', 'invited');
+    if v_held + 1 > v_cap then
+      return jsonb_build_object('ok', false, 'error', 'capacity', 'held', v_held, 'capacity', v_cap);
+    end if;
+  end if;
+  update public.gl_guest
+     set status = 'invited', first_name = left(v_rec.first_name, 80), last_name = left(v_rec.last_name, 80),
+         company = coalesce(left(v_rec.organisation, 160), ''), job_title = coalesce(left(v_rec.position, 160), ''),
+         phone = coalesce(left(v_rec.phone, 40), ''), country = coalesce(left(v_rec.country, 80), ''),
+         conference = v_camp.conference, gala = v_camp.gala, wants_conference = v_camp.conference,
+         wants_gala = v_camp.gala, invited_at = now(), decided_at = now(), decided_by = v_uid
+   where id = v_guest.id
+  returning * into v_guest;
+  update public.invitation_recipient set gl_guest_id = v_guest.id where id = v_rec.id;
+  insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+  values (v_rec.campaign_id, v_rec.id, 'guest_relinked', v_uid, jsonb_build_object('guest_id', v_guest.id, 'forced', p_force));
+  return jsonb_build_object('ok', true, 'created', true, 'relinked', true, 'adopted', false, 'guest_id', v_guest.id,
+    'guest_status', v_guest.status);
+end
+$f$;
+
+-- 5. Privileges (the project's default grants EXECUTE to anon, authenticated and
+-- service_role). Adopting, re-linking and recording a send: the sender only, so no row becomes
 -- 'invited' without its e-mail. Undoing an adoption: staff too (checked inside).
 revoke all on function public.invitation_adopt_request(uuid, boolean, uuid) from public, anon, authenticated;
 revoke all on function public.invitation_mark_sent(uuid, uuid, boolean, text) from public, anon, authenticated;
+revoke all on function public.invitation_relink_guest(uuid, boolean, uuid) from public, anon, authenticated;
 revoke all on function public.invitation_unadopt_request(uuid, uuid) from public, anon;
 grant execute on function public.invitation_adopt_request(uuid, boolean, uuid) to service_role;
 grant execute on function public.invitation_mark_sent(uuid, uuid, boolean, text) to service_role;
+grant execute on function public.invitation_relink_guest(uuid, boolean, uuid) to service_role;
 grant execute on function public.invitation_unadopt_request(uuid, uuid) to authenticated, service_role;
 
--- C. Test helpers ──────────────────────────────────────────────────────────────
+-- C. Test helpers
 set local statement_timeout = '120s';
 
 -- A verified user with a proven address (handle_new_user creates the profile).
@@ -361,7 +424,7 @@ begin
 end
 $f$;
 
--- D. Cases ─────────────────────────────────────────────────────────────────────
+-- D. Cases
 do $dryrun$
 declare
   tests jsonb := '[]'::jsonb;
@@ -377,6 +440,7 @@ declare
   r8 text := substr(md5(random()::text), 1, 8);
   lk text := 'select pg_temp.dr_svc(); select public.invitation_link_guest({r1}, false, false, {admin});';
   ad text := 'select pg_temp.dr_svc(); select public.invitation_adopt_request({r2}, false, {admin});';
+  ul text := 'select pg_temp.dr_svc(); select public.invitation_link_guest({r1}, false, false, {admin}); select public.invitation_unlink_guest({r1}, {admin});';
   seats text := 'insert into public.gl_guest (event_id, source, status, first_name, last_name, email) select {ev}::uuid, ''invitation'', ''invited'', ''Seat'', ''No '' || n, ''dryrun-seat-'' || n || ''-'' || {r8} || ''@example.invalid'' from generate_series(1, 3) n;';
 begin
   vars := jsonb_build_object('admin', gen_random_uuid(), 'moder', gen_random_uuid(), 'member', gen_random_uuid(),
@@ -621,9 +685,33 @@ insert into public.invitation_recipient (id, campaign_id, first_name, last_name,
     jsonb_build_object('id', 'A02', 'who', 'admin', 'expect', 'ret:true/declined',
       'label', 'or declines: the seat is freed',
       'setup', '<ad> select public.invitation_mark_sent({r2}, {admin});',
-      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'guest_status') from (select public.invitation_set_answer({r2}, 'declined') as x) s$q$)
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'guest_status') from (select public.invitation_set_answer({r2}, 'declined') as x) s$q$),
+    -- Re-linking after a refused send (<ul>: the sender linked r1, the send failed, it unlinked)
+    jsonb_build_object('id', 'K01', 'who', 'postgres', 'bare', true, 'expect', 'ret:false/false/true', 'label', 'EXECUTE on re-linking: the sender only',
+      'q', $q$select concat_ws('/', has_function_privilege('anon', 'public.invitation_relink_guest(uuid,boolean,uuid)', 'execute')::text,
+               has_function_privilege('authenticated', 'public.invitation_relink_guest(uuid,boolean,uuid)', 'execute')::text,
+               has_function_privilege('service_role', 'public.invitation_relink_guest(uuid,boolean,uuid)', 'execute')::text)$q$),
+    jsonb_build_object('id', 'K02', 'who', 'service', 'expect', 'ret:false/already_on_list/cancelled',
+      'label', 'why: after an undo, step 1 invitation_link_guest refuses the address (its own cancelled row)', 'setup', '<ul>',
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'error', x ->> 'guest_status') from (select public.invitation_link_guest({r1}, false, false, {admin}) as x) s$q$),
+    jsonb_build_object('id', 'K03', 'who', 'service', 'expect', 'ret:true/true/invited',
+      'label', 're-linked: that same row is invited again for the admin, one row for the address, journalled', 'setup', '<ul>',
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'relinked', x ->> 'guest_status') from (select public.invitation_relink_guest({r1}, false, {admin}) as x) s$q$,
+      'chk', $c$select exists (select 1 from public.invitation_recipient r join public.gl_guest g on g.id = r.gl_guest_id
+               join public.invitation_log l on l.recipient_id = r.id and l.action = 'guest_unlinked' and l.payload ->> 'guest_id' = g.id::text
+               where r.id = {r1} and g.status = 'invited' and g.decided_by = {admin} and g.first_name = 'Leo')
+             and (select count(*) from public.gl_guest g where g.event_id = {ev} and g.email = {e_r1}) = 1
+             and exists (select 1 from public.invitation_log l where l.recipient_id = {r1} and l.action = 'guest_relinked')$c$),
+    jsonb_build_object('id', 'K04', 'who', 'service', 'expect', 'ret:true/cancelled', 'label', 'a second refused send can be undone again',
+      'setup', '<ul> select public.invitation_relink_guest({r1}, false, {admin});',
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'guest_status') from (select public.invitation_unlink_guest({r1}, {admin}) as x) s$q$),
+    jsonb_build_object('id', 'K05', 'who', 'service', 'expect', 'ret:false/not_relinkable', 'label', 'a row cancelled in WYS 2026, not by this guest, stays cancelled',
+      'setup', $s$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values ({ev}, 'invitation', 'cancelled', 'Leo', 'X', {e_r1})$s$,
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'error') from (select public.invitation_relink_guest({r1}, false, {admin}) as x) s$q$),
+    jsonb_build_object('id', 'K06', 'who', 'service', 'expect', 'ret:false/capacity', 'label', 're-linking takes a seat', 'setup', '<ul> <seats>',
+      'q', $q$select concat_ws('/', x ->> 'ok', x ->> 'error') from (select public.invitation_relink_guest({r1}, false, {admin}) as x) s$q$)
   );
-  tests := replace(replace(replace(tests::text, '<lk>', lk), '<ad>', ad), '<seats>', seats)::jsonb;
+  tests := replace(replace(replace(replace(tests::text, '<ul>', ul), '<lk>', lk), '<ad>', ad), '<seats>', seats)::jsonb;
 
   -- Runner: setup s0 + setup (owner), q as the caller, chk (owner), all rolled back. An
   -- expected error is caught around q only, so chk still runs. An error in setup, or any

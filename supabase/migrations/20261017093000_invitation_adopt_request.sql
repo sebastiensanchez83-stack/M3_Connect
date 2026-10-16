@@ -5,27 +5,22 @@
 -- and supabase/dryrun/20261017093000_invitation_adopt_request.down.dryrun.sql.
 -- Down: supabase/migrations/down/20261017093000_invitation_adopt_request.down.sql.
 --
--- ADDITIVE ONLY: 3 new functions, called by the new edge function invitation-campaign (the
+-- ADDITIVE ONLY: 4 new functions, called by the new edge function invitation-campaign (the
 -- sender). No step 1 function is redefined; their bodies are pinned (md5) because the sender
 -- relies on what they return. No gl_* function, trigger or policy is redefined; guest-list
 -- (live v6, WYS freeze until 28 Nov) is untouched.
 --
--- 1. invitation_adopt_request(): Victor's decision of 16 Oct (plan question 10). When a
---    campaign guest's address already has a PENDING public request on the event's guest list
---    (/wys26), Victor chooses per guest: adopt that request into the campaign, or leave it
---    to "WYS 2026". Adopting is never automatic: only the sender calls this, for a guest
---    staff listed explicitly ("adopt"), in the same action as the invitation e-mail. The
---    request row KEEPS its id, token (same QR, same /wys26/guest page), names, wishes and
---    source 'request'; it becomes 'invited' as guest-list v6 "invite" writes an invitation
---    (conference/gala from the campaign, invited_at = decided_at = now, decided_by = the
---    staff member). It takes a seat (capacity as v6, unless forced). Journalled
---    'request_adopted' with the values it replaced.
--- 2. invitation_unadopt_request(): undoes an adoption whose invitation e-mail never went out
---    (failed send): the row goes back to the pending request it was, exactly.
+-- 1. invitation_adopt_request(): Victor's decision of 16 Oct. A campaign guest whose address
+--    has a PENDING /wys26 request: Victor adopts it per guest ("adopt"), never automatically.
+--    The sender adopts it with the e-mail: same row, token, names, wishes, source 'request';
+--    it becomes 'invited' as v6 "invite" writes it, takes a seat, journalled with what it
+--    replaced.
+-- 2. invitation_unadopt_request(): undoes an adoption whose e-mail never went out.
 -- 3. invitation_mark_sent(): after Resend accepted the e-mail, in ONE transaction: the
---    gl_email_log line of kind 'invitation' (the health monitor expects it within 10 minutes
---    of the link), the campaign guest marked sent (first send only; a re-send keeps it), the
---    send lock released, the journal line. Service role only.
+--    gl_email_log 'invitation' line (the health monitor expects it within 10 minutes of the
+--    link), the guest sent (first send only), lock released, journal. Service role only.
+-- 4. invitation_relink_guest(): step 1's unlink (after a refused send) cancels the row and
+--    keeps it, so invitation_link_guest refuses that address for good; this re-opens it.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -57,7 +52,8 @@ begin
     end if;
   end loop;
   if exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
-              and p.proname in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent')) then
+              and p.proname in ('invitation_adopt_request', 'invitation_unadopt_request', 'invitation_mark_sent',
+                                'invitation_relink_guest')) then
     raise exception 'invitation_adopt_request: already applied';
   end if;
   if (select count(*) from information_schema.columns c
@@ -268,12 +264,82 @@ begin
 end
 $f$;
 
--- 4. Privileges (the project's default grants EXECUTE to anon, authenticated and
--- service_role). Adopting and recording a send: the sender only, so no request becomes
+-- 4. Re-link after a refused send (the sender only): the row THIS guest unlinked (journal),
+-- still 'cancelled', source 'invitation', never e-mailed, nobody else on it; capacity as
+-- invitation_link_guest. Same id and token, 'invited' again with the guest's current details.
+create function public.invitation_relink_guest(p_recipient_id uuid, p_force boolean default false,
+                                               p_actor uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $f$
+declare
+  v_uid uuid;
+  v_rec public.invitation_recipient;
+  v_camp public.invitation_campaign;
+  v_guest public.gl_guest;
+  v_cap integer;
+  v_held integer;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception using errcode = '42501', message = 'forbidden: guests are re-linked by the sender only';
+  end if;
+  v_uid := public.invitation_actor(p_actor);
+  select * into v_rec from public.invitation_recipient where id = p_recipient_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'recipient_not_found');
+  end if;
+  if v_rec.gl_guest_id is not null or v_rec.status not in ('draft', 'ready') then
+    return jsonb_build_object('ok', false, 'error', 'bad_status', 'status', v_rec.status);
+  end if;
+  select * into v_camp from public.invitation_campaign where id = v_rec.campaign_id;
+  if v_camp.archived_at is not null then
+    return jsonb_build_object('ok', false, 'error', 'campaign_archived');
+  end if;
+  if v_rec.email is null or v_rec.first_name is null or v_rec.last_name is null then
+    return jsonb_build_object('ok', false, 'error', 'missing_name');
+  end if;
+  perform pg_advisory_xact_lock(hashtext('invitation_link_guest'), hashtext(v_camp.gl_event_id::text));
+  select * into v_guest from public.gl_guest where event_id = v_camp.gl_event_id and lower(email) = v_rec.email for update;
+  if not found or v_guest.status <> 'cancelled' or v_guest.source <> 'invitation'
+     or exists (select 1 from public.invitation_recipient r where r.gl_guest_id = v_guest.id)
+     or exists (select 1 from public.gl_email_log l where l.guest_id = v_guest.id)
+     or not exists (select 1 from public.invitation_log l where l.recipient_id = v_rec.id and l.action = 'guest_unlinked'
+                     and l.payload ->> 'guest_id' = v_guest.id::text) then
+    return jsonb_build_object('ok', false, 'error', 'not_relinkable', 'guest_status', v_guest.status);
+  end if;
+  select e.capacity into v_cap from public.gl_event e where e.id = v_camp.gl_event_id;
+  if v_cap is not null and not p_force then
+    select count(*) into v_held from public.gl_guest where event_id = v_camp.gl_event_id and status in ('confirmed', 'invited');
+    if v_held + 1 > v_cap then
+      return jsonb_build_object('ok', false, 'error', 'capacity', 'held', v_held, 'capacity', v_cap);
+    end if;
+  end if;
+  update public.gl_guest
+     set status = 'invited', first_name = left(v_rec.first_name, 80), last_name = left(v_rec.last_name, 80),
+         company = coalesce(left(v_rec.organisation, 160), ''), job_title = coalesce(left(v_rec.position, 160), ''),
+         phone = coalesce(left(v_rec.phone, 40), ''), country = coalesce(left(v_rec.country, 80), ''),
+         conference = v_camp.conference, gala = v_camp.gala, wants_conference = v_camp.conference,
+         wants_gala = v_camp.gala, invited_at = now(), decided_at = now(), decided_by = v_uid
+   where id = v_guest.id
+  returning * into v_guest;
+  update public.invitation_recipient set gl_guest_id = v_guest.id where id = v_rec.id;
+  insert into public.invitation_log (campaign_id, recipient_id, action, actor_id, payload)
+  values (v_rec.campaign_id, v_rec.id, 'guest_relinked', v_uid, jsonb_build_object('guest_id', v_guest.id, 'forced', p_force));
+  return jsonb_build_object('ok', true, 'created', true, 'relinked', true, 'adopted', false, 'guest_id', v_guest.id,
+    'guest_status', v_guest.status);
+end
+$f$;
+
+-- 5. Privileges (the project's default grants EXECUTE to anon, authenticated and
+-- service_role). Adopting, re-linking and recording a send: the sender only, so no row becomes
 -- 'invited' without its e-mail. Undoing an adoption: staff too (checked inside).
 revoke all on function public.invitation_adopt_request(uuid, boolean, uuid) from public, anon, authenticated;
 revoke all on function public.invitation_mark_sent(uuid, uuid, boolean, text) from public, anon, authenticated;
+revoke all on function public.invitation_relink_guest(uuid, boolean, uuid) from public, anon, authenticated;
 revoke all on function public.invitation_unadopt_request(uuid, uuid) from public, anon;
 grant execute on function public.invitation_adopt_request(uuid, boolean, uuid) to service_role;
 grant execute on function public.invitation_mark_sent(uuid, uuid, boolean, text) to service_role;
+grant execute on function public.invitation_relink_guest(uuid, boolean, uuid) to service_role;
 grant execute on function public.invitation_unadopt_request(uuid, uuid) to authenticated, service_role;

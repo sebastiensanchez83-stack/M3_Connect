@@ -2,8 +2,9 @@
  *
  * Tables are read and written directly (RLS: verified admins and moderators).
  * Everything that e-mails someone or touches the guest list goes through the edge
- * function "invitation-campaign" (built by the send lane; contract below), which
- * calls invitation_link_guest / invitation_set_answer and guest-list "resend".
+ * function "invitation-campaign", called through ../sendApi.ts (the typed contract),
+ * which calls invitation_link_guest / invitation_adopt_request / invitation_mark_sent /
+ * invitation_set_answer and guest-list "resend".
  */
 import { supabase } from '@/lib/supabase';
 import {
@@ -134,6 +135,14 @@ export async function findDuplicates(campaignId: string): Promise<InvitationDupl
   return (data || []) as InvitationDuplicate[];
 }
 
+/** "recipientId:guestId" of the guest-list rows this campaign's guests unlinked after a refused send. */
+export async function unlinkedRows(campaignId: string): Promise<Set<string>> {
+  const { data, error } = await supabase.from('invitation_log').select('recipient_id, payload')
+    .eq('campaign_id', campaignId).eq('action', 'guest_unlinked');
+  fail(error);
+  return new Set((data || []).map(l => `${l.recipient_id}:${(l.payload as { guest_id?: string } | null)?.guest_id}`));
+}
+
 export async function logAction(campaignId: string, action: string, payload: Record<string, unknown> = {}, recipientId: string | null = null) {
   // actor_id defaults to the signed-in staff member (the policy requires it). Ids only, no names.
   await supabase.from('invitation_log').insert({ campaign_id: campaignId, recipient_id: recipientId, action, payload });
@@ -149,27 +158,6 @@ export async function uploadPdf(campaignId: string, recipientId: string, kind: '
     .upload(path, new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' }), { upsert: true, contentType: 'application/pdf', cacheControl: '0' });
   fail(error);
   return path;
-}
-
-/* ─── The send lane's edge function ─── */
-
-/**
- * CONTRACT (POST "invitation-campaign", staff JWT):
- *  test          {campaign_id, recipient_id, to?}  one invitation to the signed-in staff member's own address
- *  preview_send  {campaign_id, recipient_ids}      counts: sendable, without e-mail, blocked, seats left
- *  send          {campaign_id, recipient_ids, force_capacity?, adopt?}  batches of up to 10, per-recipient results
- *  resend        {campaign_id, recipient_id}       explicit re-send
- *  set_answer    {campaign_id, recipient_id, answer}  accepted sends the QR pass
- * The PDFs are uploaded by the screens BEFORE test, send and resend.
- */
-export async function campaignFn<T = Record<string, unknown>>(body: Record<string, unknown>): Promise<T & { error?: string; message?: string }> {
-  const { data, error } = await supabase.functions.invoke('invitation-campaign', { body });
-  if (!error) return (data ?? {}) as T & { error?: string };
-  try {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === 'function') return await ctx.json();
-  } catch { /* fall through */ }
-  return { error: (error as { message?: string }).message || 'network' } as T & { error?: string };
 }
 
 /* ─── Artwork, fonts and the signature (cached for the session) ─── */

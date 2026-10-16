@@ -3,7 +3,8 @@ import { Copy, Download, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import type { InvitationAnswer, InvitationCampaign } from './types';
-import { campaignFn, type GlEventLite, type GlGuestLite } from './lib/api';
+import type { GlEventLite, GlGuestLite } from './lib/api';
+import { invitationCampaign, invitationSendLabel } from './sendApi';
 import { daysSince, daysUntil, guestName, needsReminder, STATUS_LABEL, type DisplayStatus, type GuestRow } from './lib/model';
 import { dateLabel } from './lib/render';
 import { csvBlob, saveBlob, writeXlsx } from './lib/sheets';
@@ -11,6 +12,15 @@ import { SectionTitle, StatusChip } from './ui';
 
 const ORDER: DisplayStatus[] = ['draft', 'ready', 'sent', 'accepted', 'declined', 'no_answer'];
 const SHORT: Partial<Record<DisplayStatus, string>> = { sent: 'Awaiting answer', no_answer: 'No reply' };
+const ANSWER_ERRORS: Record<string, string> = {
+  not_linked: 'This guest was never sent the invitation (not on the guest list yet).',
+  guest_answered: 'The guest has already answered on the guest list.',
+  capacity: 'No seat left on the event: free a seat first.',
+  guest_cancelled: 'Cancelled on the guest list (WYS 2026).',
+  guest_rejected: 'Refused on the guest list (WYS 2026).',
+  guest_requested: 'Still a pending request on the guest list.',
+};
+const answerError = (code?: string) => (code ? ANSWER_ERRORS[code] || invitationSendLabel(code) : 'No answer from the server.');
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
 
 export function TrackingTab({ campaign, rows, event, guests, reload }: {
@@ -34,10 +44,27 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
       : a === 'declined' ? `Mark ${name} as declined? Their seat is released and no e-mail is sent.` : `Mark ${name} as "no reply"? They keep their seat; no e-mail is sent.`;
     if (!confirm(ask)) return;
     setBusy(g.r.id);
-    const res = await campaignFn<{ ok?: boolean; pass_sent?: boolean; pass_needed?: boolean }>({ action: 'set_answer', campaign_id: campaign.id, recipient_id: g.r.id, answer: a });
+    const res = await invitationCampaign({ action: 'set_answer', campaign_id: campaign.id, recipient_id: g.r.id, answer: a });
     setBusy(null);
-    if (res.error || res.ok === false) { toast({ title: 'Not changed', description: res.message || res.error, variant: 'destructive' }); return; }
-    toast({ title: `${name}: ${STATUS_LABEL[a === 'accepted' ? 'accepted' : a === 'declined' ? 'declined' : 'no_answer']}`, description: a === 'accepted' ? (res.pass_sent === false ? 'The entry pass was NOT sent: use Resend.' : 'The entry pass is on its way.') : undefined });
+    if (res.error || res.ok === false) { toast({ title: 'Not changed', description: answerError(res.error), variant: 'destructive' }); await reload(); return; }
+    toast({
+      title: `${name}: ${STATUS_LABEL[a === 'accepted' ? 'accepted' : a === 'declined' ? 'declined' : 'no_answer']}`,
+      description: a !== 'accepted' ? undefined
+        : res.pass?.sent === false ? `The entry pass was NOT sent (${res.pass.error || 'error'}): use "Send the entry pass".`
+        : res.pass?.sent ? 'The entry pass (QR) is on its way.' : 'The entry pass had already been sent.',
+      variant: res.pass?.sent === false ? 'destructive' : undefined,
+    });
+    await reload();
+  };
+
+  // A confirmed guest whose pass did not go: "accepted" again sends it (guest-list "resend").
+  const sendPass = async (g: GuestRow) => {
+    setBusy(g.r.id);
+    const res = await invitationCampaign({ action: 'set_answer', campaign_id: campaign.id, recipient_id: g.r.id, answer: 'accepted' });
+    setBusy(null);
+    if (res.error || res.ok === false || res.pass?.sent === false) {
+      toast({ title: 'The entry pass was not sent', description: res.pass?.error || answerError(res.error), variant: 'destructive' });
+    } else toast({ title: res.pass?.sent ? 'Entry pass sent' : 'The entry pass had already been sent' });
     await reload();
   };
 
@@ -48,9 +75,11 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
       const gen = await import('./lib/generate');
       const prep = await gen.prepareForSending(campaign, g.r);
       if (!prep.ok) { toast({ title: 'The PDFs of this guest have a problem', description: prep.issues.map(i => i.message).join(' '), variant: 'destructive' }); return; }
-      const res = await campaignFn<{ ok?: boolean }>({ action: 'resend', campaign_id: campaign.id, recipient_id: g.r.id });
-      if (res.error || res.ok === false) toast({ title: 'Not sent again', description: res.message || res.error, variant: 'destructive' });
-      else { toast({ title: 'Invitation sent again' }); await reload(); }
+      const res = await invitationCampaign({ action: 'resend', campaign_id: campaign.id, recipient_id: g.r.id });
+      if (res.error || res.ok === false) {
+        toast({ title: 'Not sent again', description: invitationSendLabel(res.result?.code || res.error) + (res.result?.detail ? ` (${res.result.detail})` : ''), variant: 'destructive' });
+      } else toast({ title: 'Invitation sent again' });
+      await reload();
     } finally { setBusy(null); }
   };
 
@@ -81,7 +110,7 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
       <p className="text-sm text-gray-600">
         Answers are read from the {event?.title || 'event'} guest list, where a guest may also answer on their personal page.
         Seats held on the event (confirmed and awaiting an answer, every source): <b>{held}{event?.capacity ? ` of ${event.capacity}` : ''}</b>.
-        {(counts.not_sent || 0) > 0 && <> {counts.not_sent} guest{counts.not_sent === 1 ? ' is' : 's are'} on the guest list without the e-mail: send again from the Send tab.</>}
+        {(counts.not_sent || 0) > 0 && <> {counts.not_sent} guest{counts.not_sent === 1 ? ' is' : 's are'} on the guest list without a recorded e-mail: the note on their line below says what to do.</>}
       </p>
 
       <section className="rounded-lg border bg-white p-4">
@@ -123,6 +152,7 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
                     <StatusChip status={g.status} />
                     {g.status === 'accepted' && <span className={`text-xs ${g.passSent ? 'text-green-700' : 'text-amber-700'}`}>{g.passSent ? 'Entry pass sent' : 'Entry pass not sent yet'}</span>}
                     {g.guest?.checked_in_at && <span className="text-xs text-green-700">Checked in</span>}
+                    {g.status === 'not_sent' && g.r.send_error && <span className="text-xs text-amber-800">{invitationSendLabel(g.r.send_error)}</span>}
                   </div>
                   <div className="text-xs text-gray-500 break-all">
                     {[g.r.organisation, g.r.email].filter(Boolean).join(' · ')}
@@ -132,9 +162,12 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
                 <div className="flex flex-wrap gap-1.5">
                   {busy === g.r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>
                     {g.r.gl_guest_id && g.status !== 'accepted' && g.status !== 'cancelled' && g.status !== 'refused' && <Button size="sm" variant="outline" onClick={() => answer(g, 'accepted')}>Accepted</Button>}
+                    {g.status === 'accepted' && !g.passSent && <Button size="sm" variant="outline" onClick={() => sendPass(g)}>Send the entry pass</Button>}
                     {g.status !== 'declined' && g.status !== 'cancelled' && g.status !== 'refused' && <Button size="sm" variant="outline" onClick={() => answer(g, 'declined')}>Declined</Button>}
                     {g.status === 'sent' && <Button size="sm" variant="outline" onClick={() => answer(g, 'no_answer')}>No reply</Button>}
                     {(g.status === 'sent' || g.status === 'no_answer') && g.r.email && <Button size="sm" variant="ghost" onClick={() => resend(g)}><RotateCcw className="h-4 w-4 mr-1" /> Resend</Button>}
+                    {/* The e-mail service did not answer: only an explicit resend, once Victor checked it did not go. */}
+                    {g.status === 'not_sent' && g.r.send_error === 'send_uncertain' && g.r.email && <Button size="sm" variant="ghost" onClick={() => resend(g)}><RotateCcw className="h-4 w-4 mr-1" /> Resend (checked it did not go)</Button>}
                   </>}
                 </div>
               </li>

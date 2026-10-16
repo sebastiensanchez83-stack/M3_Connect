@@ -64,7 +64,8 @@ export const INVITATION_EMAIL_VARIABLES: ReadonlyArray<readonly [string, string]
   ['country', 'Country'],
   ['event_name', 'Event name (campaign settings)'],
   ['edition', 'Edition'],
-  ['date', 'Event date, as written in the settings'],
+  ['event_date', 'Event date, as written in the settings ({{date}} works too)'],
+  ['date', 'Event date (same as {{event_date}})'],
   ['city', 'City'],
   ['venue', 'Venue'],
   ['access', 'Access, e.g. Conference and Gala Dinner'],
@@ -121,6 +122,7 @@ export function invitationGreeting(r: InvitationRenderRecipient): string {
 /** Every variable's value for one guest of one campaign. */
 export function invitationVariables(c: InvitationRenderCampaign, r: InvitationRenderRecipient): Record<string, string> {
   const name = one(r.name_on_letter) || one(r.name_on_ticket) || one([r.first_name, r.last_name].filter(Boolean).join(' '));
+  const date = setting(c, 'date_label') || invitationDateLabel(setting(c, 'date_iso'));
   return {
     greeting: invitationGreeting(r),
     name,
@@ -133,7 +135,9 @@ export function invitationVariables(c: InvitationRenderCampaign, r: InvitationRe
     country: one(r.country),
     event_name: setting(c, 'name') || one(c.name),
     edition: setting(c, 'edition'),
-    date: setting(c, 'date_label') || invitationDateLabel(setting(c, 'date_iso')),
+    // The admin screens' name for it is event_date (as in the ticket and letter texts); both work.
+    event_date: date,
+    date,
     city: setting(c, 'city'),
     venue: setting(c, 'venue'),
     access: setting(c, 'access'),

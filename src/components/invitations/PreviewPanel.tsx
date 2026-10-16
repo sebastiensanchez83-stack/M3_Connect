@@ -95,12 +95,15 @@ export function PreviewPanel({ campaign, recipient, onStyle, large = false }: {
       {!recipient ? null : tab === 'email' && mail ? (
         <div className="space-y-3">
           <div className="rounded-md border bg-gray-50 p-3 text-sm space-y-2">
+            <div><div className="text-[10.5px] uppercase tracking-wider text-gray-500 font-semibold">From</div>
+              <div className="break-all">{mail.from} <span className="text-gray-500">(replies to {mail.replyTo})</span></div></div>
             <div><div className="text-[10.5px] uppercase tracking-wider text-gray-500 font-semibold">To</div>
               <div className="break-all">{mail.to || <span className="text-amber-700">No e-mail address yet: type it in the table.</span>}</div></div>
             <div><div className="text-[10.5px] uppercase tracking-wider text-gray-500 font-semibold">Subject</div>
               <div className="font-semibold">{mail.subject}</div></div>
             <pre className="whitespace-pre-wrap font-sans text-sm max-w-[70ch]">{mail.body}</pre>
-            <div className="text-xs text-gray-500">Attached: {campaign.settings?.file_prefix || 'Invitation'}_Ticket and {campaign.settings?.file_prefix || 'Invitation'}_Letter PDFs.</div>
+            {mail.unknown.length > 0 && <p role="alert" className="text-sm text-red-700">Unknown variable{mail.unknown.length === 1 ? '' : 's'} {mail.unknown.join(' ')}: this e-mail will not be sent until it is fixed in Settings.</p>}
+            <div className="text-xs text-gray-500 break-all">Attached: {mail.attachments.letter} and {mail.attachments.ticket}.</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => copy(mail.body, 'E-mail text')}><Copy className="h-4 w-4 mr-1" /> Copy text</Button>

@@ -80,7 +80,7 @@ export function ResourceM3EditionEditor({ resourceId }: { resourceId: string }) 
       <p className="text-sm text-gray-600">For automatic publication, save this resource as public and published with “Also publish on m3monaco.com” enabled, then mark this edition ready. Allow the feed cache and the next hourly WordPress import to refresh. Later edits do not overwrite an article already imported into WordPress.</p>
       {loading ? <p role="status">Loading M3 edition…</p> : error ? <p role="alert" className="text-red-600">{error}</p> : <>
         <div className={saving ? 'pointer-events-none opacity-60' : ''}>
-          <RichTextEditor content={html} onChange={setHtml} placeholder="Source overview · M3 perspective · Practical implications · Relevant expertise links" />
+          <RichTextEditor allowImages={false} content={html} onChange={setHtml} placeholder="Source overview · M3 perspective · Practical implications · Relevant expertise links" />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">

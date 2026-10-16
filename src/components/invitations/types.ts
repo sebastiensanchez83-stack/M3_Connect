@@ -229,7 +229,9 @@ export type InvitationLinkGuestError =
  * invitation_link_guest(p_recipient_id, p_force?, p_adopt?, p_actor): puts a draft or ready
  * guest on the guest list as guest-list v6 "invite" does. No e-mail. SERVICE ROLE ONLY (the
  * sender), with p_actor = the verified staff member. A pending public request is never
- * adopted ('pending_request'): staff handle it in "WYS 2026".
+ * adopted ('pending_request'): staff handle it in "WYS 2026". The sender always passes
+ * p_adopt false (an address already on the list is never invited twice) and adopts a pending
+ * request, when staff chose it, with invitation_adopt_request.
  */
 export type InvitationLinkGuestResult =
   | {

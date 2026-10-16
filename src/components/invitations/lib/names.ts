@@ -16,11 +16,15 @@ import { translatePosition } from './positions';
 
 export type TitleKind = 'excellency' | 'highness' | 'doctor' | 'engineer' | 'civility' | 'other';
 
-interface TitleRule { re: RegExp; canonical: string | null; kind: TitleKind; standard: boolean; useFirst?: boolean }
+interface TitleRule { re: RegExp; canonical: string | null; kind: TitleKind; standard: boolean; useFirst?: boolean; read?: boolean }
 
 // Each pattern must be followed by a space or the end, so "Drew" or "Msaad" never lose letters.
 const END = '(?=\\s|$)';
 const TITLE_RULES: TitleRule[] = [
+  // "HE", "SE" and "HH" written without periods, in capitals only: "He" in normal case is a
+  // common surname (He Wei). Read as titles, and flagged so staff check it.
+  { re: new RegExp(`^(?:HE|SE)\\.?${END}`), canonical: 'H.E.', kind: 'excellency', standard: true, read: true },
+  { re: new RegExp(`^HH\\.?${END}`), canonical: 'H.H.', kind: 'highness', standard: false, read: true },
   { re: new RegExp(`^(?:h\\.\\s?e\\.?|s\\.\\s?e\\.?|his excellency|her excellency|son excellence)${END}`, 'i'), canonical: 'H.E.', kind: 'excellency', standard: true },
   { re: new RegExp(`^(?:h\\.\\s?h\\.?|his highness|her highness|son altesse)${END}`, 'i'), canonical: 'H.H.', kind: 'highness', standard: false },
   { re: new RegExp(`^(?:dr\\.?|doctor|docteur)${END}`, 'i'), canonical: 'Dr', kind: 'doctor', standard: true },
@@ -36,7 +40,7 @@ const TITLE_RULES: TitleRule[] = [
   { re: new RegExp(`^(?:sir|dame|lord|lady)${END}`, 'i'), canonical: null, kind: 'other', standard: false, useFirst: true },
 ];
 
-export interface Title { text: string; kind: TitleKind; standard: boolean; useFirst: boolean }
+export interface Title { text: string; kind: TitleKind; standard: boolean; useFirst: boolean; read?: boolean }
 
 /** Peels the leading titles off a name: "S.E. Dr. Jane Doe" gives [H.E., Dr] and "Jane Doe". */
 export function splitTitles(raw: string): { titles: Title[]; rest: string } {
@@ -46,7 +50,7 @@ export function splitTitles(raw: string): { titles: Title[]; rest: string } {
     const rule = TITLE_RULES.find(r => r.re.test(rest));
     if (!rule) break;
     const m = rest.match(rule.re)!;
-    titles.push({ text: rule.canonical ?? m[0], kind: rule.kind, standard: rule.standard, useFirst: !!rule.useFirst });
+    titles.push({ text: rule.canonical ?? m[0], kind: rule.kind, standard: rule.standard, useFirst: !!rule.useFirst, ...(rule.read ? { read: true } : {}) });
     rest = clean(rest.slice(m[0].length));
   }
   return { titles, rest };
@@ -88,11 +92,12 @@ export function titleCase(w: string): string {
 }
 
 export type CheckReason =
-  | 'title_other' | 'name_split' | 'single_name' | 'case_changed' | 'suffix'
+  | 'title_other' | 'title_read' | 'name_split' | 'single_name' | 'case_changed' | 'suffix'
   | 'position_translated' | 'position_french' | 'note_check' | 'greeting_kept';
 
 export const CHECK_LABEL: Record<CheckReason, string> = {
   title_other: 'Uncommon title kept as written: check the greeting',
+  title_read: 'HE, SE or HH without periods read as a title (H.E. or H.H.): check it is not part of the name',
   name_split: 'Check the split between first name and surname',
   single_name: 'Only one name: add the first name or surname',
   case_changed: 'Capitals changed to normal case: check the spelling',
@@ -119,6 +124,7 @@ export function parseContact(raw: string): ParsedName {
   const { titles, rest } = splitTitles(name);
   let words = rest.split(' ').filter(Boolean);
   if (titles.some(t => !t.standard)) reasons.push('title_other');
+  if (titles.some(t => t.read)) reasons.push('title_read');
   if (suffix) reasons.push('suffix');
 
   let first: string[] = [];

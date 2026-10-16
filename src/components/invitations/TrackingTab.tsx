@@ -11,7 +11,12 @@ import { csvBlob, saveBlob, writeXlsx } from './lib/sheets';
 import { SectionTitle, StatusChip } from './ui';
 
 const ORDER: DisplayStatus[] = ['draft', 'ready', 'sent', 'accepted', 'declined', 'no_answer'];
-const SHORT: Partial<Record<DisplayStatus, string>> = { sent: 'Awaiting answer', no_answer: 'No reply' };
+/** Shown only when someone is in them, so the tiles always add up to the campaign's guests. */
+const RARE: DisplayStatus[] = ['not_sent', 'cancelled', 'refused'];
+const SHORT: Partial<Record<DisplayStatus, string>> = {
+  sent: 'Awaiting answer', no_answer: 'No reply', not_sent: 'On the list, e-mail not sent',
+  cancelled: 'Cancelled in WYS 2026', refused: 'Refused in WYS 2026',
+};
 const ANSWER_ERRORS: Record<string, string> = {
   not_linked: 'This guest was never sent the invitation (not on the guest list yet).',
   guest_answered: 'The guest has already answered on the guest list.',
@@ -93,8 +98,8 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        {ORDER.map(s => (
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-3">
+        {[...ORDER, ...RARE.filter(s => counts[s])].map(s => (
           <div key={s} className="rounded-lg border bg-white p-3 text-center">
             <div className="text-2xl font-bold">{counts[s] || 0}</div>
             <div className="text-[11px] uppercase tracking-wide text-gray-500">{SHORT[s] || STATUS_LABEL[s]}</div>
@@ -166,8 +171,8 @@ export function TrackingTab({ campaign, rows, event, guests, reload }: {
                     {g.status !== 'declined' && g.status !== 'cancelled' && g.status !== 'refused' && <Button size="sm" variant="outline" onClick={() => answer(g, 'declined')}>Declined</Button>}
                     {g.status === 'sent' && <Button size="sm" variant="outline" onClick={() => answer(g, 'no_answer')}>No reply</Button>}
                     {(g.status === 'sent' || g.status === 'no_answer') && g.r.email && <Button size="sm" variant="ghost" onClick={() => resend(g)}><RotateCcw className="h-4 w-4 mr-1" /> Resend</Button>}
-                    {/* The e-mail service did not answer: only an explicit resend, once Victor checked it did not go. */}
-                    {g.status === 'not_sent' && g.r.send_error === 'send_uncertain' && g.r.email && <Button size="sm" variant="ghost" onClick={() => resend(g)}><RotateCcw className="h-4 w-4 mr-1" /> Resend (checked it did not go)</Button>}
+                    {/* Sending was interrupted: only an explicit resend, once staff checked the Resend log or asked the guest. */}
+                    {g.status === 'not_sent' && g.r.send_error === 'send_uncertain' && g.r.email && <Button size="sm" variant="ghost" onClick={() => resend(g)}><RotateCcw className="h-4 w-4 mr-1" /> Resend (it is not in the Resend log)</Button>}
                   </>}
                 </div>
               </li>

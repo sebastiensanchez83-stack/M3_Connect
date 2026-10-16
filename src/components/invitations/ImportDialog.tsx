@@ -14,7 +14,7 @@ import { CHECK_LABEL, type CheckReason } from './lib/names';
 import { normKey, personKey } from './lib/norm';
 import { decodeText, readCsvText, readXlsx, type Sheet } from './lib/sheets';
 
-const STRONG: CheckReason[] = ['title_other', 'name_split', 'single_name', 'case_changed', 'position_translated', 'position_french', 'note_check'];
+const STRONG: CheckReason[] = ['title_other', 'title_read', 'name_split', 'single_name', 'case_changed', 'position_translated', 'position_french', 'note_check'];
 
 interface Reviewed { d: ImportDraft; hits: DuplicateHit[]; inFile: boolean; choice: ImportChoice }
 

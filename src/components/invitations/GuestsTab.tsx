@@ -362,7 +362,7 @@ function RecipientEditor({ g, campaign, saveRecipient, removeRecipients, patchSe
 
       {g.dups.length > 0 && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 space-y-2">
-          <p className="font-medium text-red-900">Possible duplicate: one person receives one invitation only.</p>
+          <p className="font-medium text-red-900">Possible duplicate: one person receives one invitation only. This guest is not sent until you choose.</p>
           <ul className="space-y-1">
             {g.dups.map(d => (
               <li key={`${d.other_kind}-${d.other_id}`} className="flex flex-wrap items-center gap-2 text-red-900">

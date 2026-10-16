@@ -9,43 +9,43 @@ import type { InvitationCampaign } from './types';
 import type { GlEventLite } from './lib/api';
 import { guestName, type GuestRow } from './lib/model';
 import {
-  INVITATION_SEND_BATCH, invitationCampaign, invitationSendLabel,
+  INVITATION_SEND_BATCH, INVITATION_UNCERTAIN_HOW_TO_CHECK, invitationCampaign, invitationSendLabel,
   type InvitationPreviewItem, type InvitationPreviewResult,
 } from './sendApi';
 import { SectionTitle, StatusChip } from './ui';
 
 const BATCH = INVITATION_SEND_BATCH;
+/** A guest whose last send was interrupted and may have gone out: only "Resend" in Tracking. */
+const mayHaveGone = (g: GuestRow) => !!g.r.gl_guest_id && (g.r.send_error === 'send_uncertain' || g.r.send_error === 'sent_not_recorded');
 
 interface SendResult { id: string; outcome: 'sent' | 'skipped' | 'blocked' | 'failed' | 'uncertain'; message?: string }
 
 /** Screen wording of a send code (the sender's labels, a few shorter ones for this list). */
 const REASON: Record<string, string> = {
   pending_request: 'asked on /wys26: adopt the request in the Guests tab, or leave it to WYS 2026',
-  already_on_list: 'already on the event guest list (invited from WYS 2026): not sent twice',
+  already_on_list: 'already on the event guest list (invited, approved or answered in WYS 2026): not invited twice',
   capacity: 'no seat left',
 };
 const reasonText = (code?: string | null, detail?: string | null) => {
   const base = (code && REASON[code]) || invitationSendLabel(code) || '';
+  if (code === 'same_person') return base; // the detail is a list of row ids: the Guests tab names them
   return detail && code !== 'unresolved_variables' ? `${base} (${detail})` : detail ? `${base} ${detail}` : base;
 };
 
 /**
- * The confirmation check, as the screens use it. An "existing" adoption (the address became an
- * invited or confirmed guest-list row since Victor chose to adopt its request) is never sent
- * from here: that person already received the guest-list invitation.
+ * The confirmation check, as the screens use it. The sender decides (an address already on the
+ * guest list is never invited twice; a possible same person is blocked until dismissed in the
+ * Guests tab); the screen only reads it.
  */
 function readCheck(res: InvitationPreviewResult) {
-  const items = res.recipients.map(i => (i.state === 'sendable' && i.adopt === 'existing'
-    ? { ...i, state: 'blocked' as const, code: 'already_on_list' as const, adopt: undefined } : i));
+  const items = res.recipients;
   return {
     raw: res,
     items,
     sendable: items.filter(i => i.state === 'sendable'),
     blocked: items.filter(i => i.state === 'blocked'),
     capacityBlocked: items.filter(i => i.state === 'blocked' && i.code === 'capacity'),
-    withoutEmail: items.filter(i => i.state === 'no_email'),
     alreadySent: items.filter(i => i.state === 'already_sent' || i.state === 'in_progress'),
-    sameName: items.filter(i => i.same_name?.length),
   };
 }
 type Check = ReturnType<typeof readCheck>;
@@ -73,9 +73,10 @@ export function SendTab({ campaign, rows, event, selectedId, reload }: {
   const noEmail = candidates.filter(g => !g.r.email);
   const sentCount = rows.filter(g => !['draft', 'ready', 'not_sent'].includes(g.status)).length;
 
-  // Default selection: every ready guest with an address, except pending /wys26 requests not adopted.
+  // Default selection: every ready guest with an address, except pending /wys26 requests not
+  // adopted, possible duplicates not yet resolved and sends that may have gone out.
   useEffect(() => {
-    setPicked(new Set(ready.filter(g => !g.request || g.adopt).map(g => g.r.id)));
+    setPicked(new Set(ready.filter(g => (!g.request || g.adopt) && !g.dups.length && !mayHaveGone(g)).map(g => g.r.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows.length]);
   useEffect(() => { if (!testId && rows[0]) setTestId(rows[0].r.id); }, [rows, testId]);
@@ -123,8 +124,9 @@ export function SendTab({ campaign, rows, event, selectedId, reload }: {
     const go = (i: InvitationPreviewItem) => i.state === 'sendable' || (force && i.state === 'blocked' && i.code === 'capacity');
     const todo = check.items.filter(go).map(i => i.id);
     if (!todo.length) return;
-    // Adopt only what the check saw as a pending request.
-    const adoptNow = new Set(check.items.filter(i => i.adopt === 'request' || (i.can_adopt === 'request' && adoptIds.includes(i.id))).map(i => i.id));
+    // Adopt only what the check saw as a pending request Victor chose to adopt (the sender
+    // checks again that it is still pending).
+    const adoptNow = new Set(check.items.filter(i => i.can_adopt === 'request' && adoptIds.includes(i.id)).map(i => i.id));
     if (!confirm(`Send ${todo.length} invitation${todo.length === 1 ? '' : 's'} now? Each guest receives one e-mail with their ticket and letter.`)) return;
     const out: SendResult[] = [];
     setResults([]);
@@ -140,33 +142,49 @@ export function SendTab({ campaign, rows, event, selectedId, reload }: {
           if (prep.ok) preparedIds.push(id); else out.push({ id, outcome: 'blocked', message: prep.issues[0]?.message });
         } catch (e) { out.push({ id, outcome: 'failed', message: (e as Error).message }); }
       }
-      if (preparedIds.length) {
-        setProgress({ done: out.length, total: todo.length, phase: `Sending ${preparedIds.length} invitation${preparedIds.length === 1 ? '' : 's'}` });
+      // One call handles at most 10 guests and starts none after 70 s: send the rest again.
+      let left = preparedIds;
+      let stopped = false;
+      while (left.length) {
+        setProgress({ done: out.length, total: todo.length, phase: `Sending ${left.length} invitation${left.length === 1 ? '' : 's'}` });
         const res = await invitationCampaign({
-          action: 'send', campaign_id: campaign.id, recipient_ids: preparedIds, force_capacity: force || undefined,
-          adopt: preparedIds.filter(id => adoptNow.has(id)),
+          action: 'send', campaign_id: campaign.id, recipient_ids: left, force_capacity: force || undefined,
+          adopt: left.filter(id => adoptNow.has(id)),
         });
         if (!Array.isArray(res.results)) {
-          preparedIds.forEach(id => out.push({ id, outcome: 'failed', message: reasonText(res.error) || 'No answer from the sender' }));
+          // No answer: the sender may have been stopped mid-way. The guest it was sending keeps
+          // the "may have gone" mark (never sent again by Send); the others can be sent again.
+          left.forEach(id => out.push({ id, outcome: 'uncertain', message: 'No answer from the sender: one of these may have gone. Reload this page and check Tracking before sending again.' }));
           setResults([...out]);
-          toast({ title: 'Sending stopped', description: reasonText(res.error), variant: 'destructive' });
+          toast({ title: 'Sending stopped', description: `The sender did not answer${res.error ? ` (${reasonText(res.error)})` : ''}. Reload, then check Tracking before sending again.`, variant: 'destructive' });
+          stopped = true;
           break;
         }
         const got = new Map(res.results.map(x => [x.id, x]));
-        for (const id of preparedIds) {
+        const remaining = new Set(Array.isArray(res.remaining) ? res.remaining : []);
+        for (const id of left) {
+          if (remaining.has(id)) continue;
           const x = got.get(id);
           out.push(x ? { id, outcome: x.outcome, message: x.outcome === 'sent' ? (x.adopted === 'request' ? 'Request adopted' : undefined) : reasonText(x.code, x.detail) }
             : { id, outcome: 'failed', message: 'No answer for this guest' });
         }
+        setResults([...out]);
+        const next = left.filter(id => remaining.has(id));
+        if (next.length >= left.length) { // no progress: never loop
+          next.forEach(id => out.push({ id, outcome: 'skipped', message: 'Not handled by the sender: nothing was sent, try again.' }));
+          setResults([...out]);
+          break;
+        }
+        left = next;
       }
-      setResults([...out]);
+      if (stopped) break;
     }
     setProgress(null);
     const ok = out.filter(r => r.outcome === 'sent').length;
     const unsure = out.filter(r => r.outcome === 'uncertain').length;
     toast({
       title: `${ok} invitation${ok === 1 ? '' : 's'} sent`,
-      description: out.length > ok ? `${out.length - ok} not sent${unsure ? ` (${unsure} uncertain: check before resending)` : ''}: see the list.` : undefined,
+      description: out.length > ok ? `${out.length - ok} not sent${unsure ? ` (${unsure} interrupted, may have gone. ${INVITATION_UNCERTAIN_HOW_TO_CHECK})` : ''}. See the list.` : undefined,
       variant: out.length > ok ? 'destructive' : undefined,
     });
     setCheck(null);
@@ -217,15 +235,15 @@ export function SendTab({ campaign, rows, event, selectedId, reload }: {
           <SectionTitle>3. Confirm</SectionTitle>
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             {[
-              ['Will be sent', willSend], ['Without e-mail', check.withoutEmail.length], ['Blocked', check.blocked.length - (force ? check.capacityBlocked.length : 0)],
+              ['Will be sent', willSend], ['Without e-mail', noEmail.length], ['Blocked', check.blocked.length - (force ? check.capacityBlocked.length : 0)],
               ['Seats left', !seats || seats.left === null ? 'No limit' : `${seats.left}${seats.capacity ?? event?.capacity ? ` of ${seats.capacity ?? event?.capacity}` : ''}`],
             ].map(([k, v]) => (
               <div key={k as string} className="rounded-md bg-gray-50 p-2"><dt className="text-[11px] uppercase text-gray-500">{k}</dt><dd className="text-xl font-bold">{v}</dd></div>
             ))}
           </dl>
           <p className="text-xs text-gray-500 break-all">From {check.raw.from}, replies to {check.raw.reply_to}.</p>
-          {check.withoutEmail.length > 0 && (
-            <p className="text-sm text-gray-700">Without e-mail: {check.withoutEmail.map(b => nameOf(b.id)).join(', ')}</p>
+          {noEmail.length > 0 && (
+            <p className="text-sm text-gray-700">Not sent, no e-mail address yet (type it in the Guests tab): {noEmail.map(g => guestName(g.r)).join(', ')}</p>
           )}
           {check.alreadySent.length > 0 && (
             <p className="text-sm text-gray-700">Already sent or being sent, left out: {check.alreadySent.map(b => nameOf(b.id)).join(', ')}</p>
@@ -234,9 +252,6 @@ export function SendTab({ campaign, rows, event, selectedId, reload }: {
             <ul className="text-sm text-red-800 space-y-0.5">
               {check.blocked.map(b => <li key={b.id} className="flex gap-1"><XCircle className="h-4 w-4 shrink-0 mt-0.5" /><span><b>{nameOf(b.id)}</b>: {reasonText(b.code, b.code === 'capacity' || b.code === 'needs_explicit_resend' ? null : b.detail) || 'blocked'}</span></li>)}
             </ul>
-          )}
-          {check.sameName.length > 0 && (
-            <p className="text-sm text-amber-800"><AlertTriangle className="inline h-4 w-4 mr-1" />Same name as another guest of the event (sent anyway, check in the Guests tab): {check.sameName.map(b => nameOf(b.id)).join(', ')}.</p>
           )}
           {check.sendable.some(i => i.adopt === 'request') && (
             <p className="text-sm text-purple-800">Requests adopted into this campaign (same guest-list row and QR): {check.sendable.filter(i => i.adopt === 'request').map(i => nameOf(i.id)).join(', ')}.</p>
@@ -300,7 +315,8 @@ function GuestPickList({ title, rows, picked, toggle, note }: { title: string; r
             <span className="text-gray-500 break-all">{g.r.email}</span>
             <StatusChip status={g.status} />
             {g.request && <span className={`text-xs ${g.adopt ? 'text-purple-800' : 'text-red-700'}`}>{g.adopt ? 'Request adopted' : 'Asked on /wys26: choose in Guests'}</span>}
-            {g.dups.length > 0 && <span className="text-xs text-red-700">Possible duplicate</span>}
+            {g.dups.length > 0 && <span className="text-xs text-red-700">Possible duplicate: choose in Guests</span>}
+            {mayHaveGone(g) && <span className="text-xs text-amber-800">Last send interrupted: see Tracking</span>}
           </li>
         ))}
       </ul>

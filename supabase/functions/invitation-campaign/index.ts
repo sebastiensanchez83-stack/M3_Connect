@@ -21,34 +21,39 @@ import {
 //                and PDFs, to the caller's OWN address ("to" only if it is the caller's), with
 //                "[Test] " before the subject. Never links, marks or logs the guest.
 //   preview_send {campaign_id, recipient_ids, adopt?, pdfs_on_send?}  what a send would do,
-//                nothing written: sendable, without e-mail, blocked (duplicates, pending request
-//                not adopted, address already on the list, capacity, PDFs missing...), seats
-//                left. pdfs_on_send: the screen uploads fresh PDFs right before each send, so
-//                files not there yet do not block (the admin screens always pass it).
+//                nothing written: sendable, without e-mail, blocked (duplicates, a possible
+//                same person not yet dismissed by staff, pending request not adopted, address
+//                already on the list, capacity, PDFs missing...), seats left. pdfs_on_send:
+//                the screen uploads fresh PDFs right before each send, so files not there yet
+//                do not block (the admin screens always pass it).
 //   send         {campaign_id, recipient_ids, force_capacity?, adopt?: recipient_id[]}
-//                at most 10 guests per call (the rest come back in "remaining"), one e-mail
-//                each. IDEMPOTENT: only draft or ready guests not being sent are taken (a
-//                lock per guest stops a double click); a guest already sent is never sent
-//                again here.
+//                at most 10 guests per call, and no new guest once the call has run 70 s (the
+//                rest come back in "remaining": call again with them), one e-mail each.
+//                IDEMPOTENT: only draft or ready guests not being sent are taken (a lock per
+//                guest stops a double click); a guest already sent, or whose last send may
+//                have gone out, is never sent again here.
 //   resend       {campaign_id, recipient_id}  the explicit re-send of one invitation.
 //   set_answer   {campaign_id, recipient_id, answer: accepted|declined|no_answer, force?}
 //                records an answer received by e-mail; "accepted" then sends the platform's
 //                entry pass (QR) through the LIVE guest-list function's existing "resend"
 //                action, with the caller's JWT (guest-list is not changed: WYS freeze).
 //
-// One send, per guest: lock the guest; read ticket.pdf and letter.pdf from the private bucket
-// invitation-files (uploaded by the admin screen BEFORE the send, at <campaign>/<guest>/);
-// put the guest on the event's guest list (invitation_link_guest: a new "invited" row, or,
-// only when staff chose it for that guest, the existing row; a pending public request is
-// adopted with invitation_adopt_request, same row and token); send through Resend with both
-// PDFs attached; then invitation_mark_sent writes, in one transaction, the gl_email_log
-// 'invitation' line the health monitor expects within 10 minutes, the guest "sent", and the
-// journal. A send Resend refuses is tried once more (429 and 5xx, network errors); if it
-// still fails, the link made by this send is undone (invitation_unlink_guest, or
-// invitation_unadopt_request) so no guest-list row stays "invited" without its e-mail (the
-// next send re-opens that cancelled row with invitation_relink_guest, same token). When
-// the outcome is unknown (network error), the link stays and the guest gets the error
-// "send_uncertain": check the Resend log, then use resend if it did not go.
+// One send, per guest: lock the guest (and read it again, as it is now); read ticket.pdf and
+// letter.pdf from the private bucket invitation-files (uploaded by the admin screen BEFORE the
+// send, at <campaign>/<guest>/); mark the guest "send_uncertain" BEFORE anything can go out;
+// put the guest on the event's guest list (invitation_link_guest, never with its adopt
+// option: a new "invited" row; an address already on the list is never invited twice, except
+// a PENDING public request staff chose to adopt, taken with invitation_adopt_request, same row
+// and token); send through Resend with both PDFs attached; then invitation_mark_sent writes,
+// in one transaction, the gl_email_log 'invitation' line the health monitor expects within 10
+// minutes, the guest "sent", the mark cleared, and the journal. A send Resend refuses is tried
+// once more (429 and 5xx, network errors); if it still fails, the link made by this send is
+// undone (invitation_unlink_guest, or invitation_unadopt_request) so no guest-list row stays
+// "invited" without its e-mail (the next send re-opens that cancelled row with
+// invitation_relink_guest, same token), and the mark becomes the refusal's code. When the
+// outcome is unknown (network error), or the sender was stopped mid-way (timeout, crash), the
+// link and the "send_uncertain" mark stay: a plain send skips that guest; staff look for the
+// e-mail in the Resend log (or ask the guest), then use resend if it did not go.
 //
 // Sender: the campaign's sender_name / sender_email / reply_to, else "<event name>"
 // <noreply@smartmarinaconnect.com>, replies to events@m3monaco.com (render.ts). No function of
@@ -71,7 +76,11 @@ const PREVIEW_MAX = 500;
 const LOCK_MINUTES = 5;
 const SPACING_MS = 600; // Resend's default rate limit is 2 requests per second.
 const RETRY_WAIT_MS = 1500;
-const RESEND_TIMEOUT_MS = 30_000;
+const RESEND_TIMEOUT_MS = 15_000;
+// The platform ends a request after 150 s. One guest takes at most 2 x 15 s of Resend plus
+// the waits and its reads, so a "send" call starts no new guest after 70 s: the rest come back
+// in "remaining", and the call ends far from the limit.
+const SEND_BUDGET_MS = 70_000;
 // A guest whose last send may have gone out: a plain send skips it, only resend sends again.
 const NEEDS_EXPLICIT_RESEND = ["send_uncertain", "sent_not_recorded"];
 // Resend: 40 MB per e-mail, attachments counted after base64 (x 4/3). Our PDFs are ~0.7 MB.
@@ -101,7 +110,7 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: 
 type Row = Record<string, any>;
 type Ctx = { uid: string; jwt: string; email: string; campaign: Row; event: Row };
 type Outcome = "sent" | "skipped" | "blocked" | "failed" | "uncertain";
-type Result = { id: string; outcome: Outcome; code?: string; detail?: string; guest_id?: string; adopted?: "request" | "existing"; status?: string };
+type Result = { id: string; outcome: Outcome; code?: string; detail?: string; guest_id?: string; adopted?: "request"; status?: string };
 
 // ─── Data ────────────────────────────────────────────────────────────────
 async function loadCampaign(id: string): Promise<Row | null> {
@@ -132,6 +141,27 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<Row> {
   const { data, error } = await db.rpc(fn, args);
   if (error) throw new Error(`${fn}: ${error.message}`);
   return (data || {}) as Row;
+}
+/** A list kept in invitation_campaign.settings by the Guests tab (adopt, dismissed_duplicates). */
+function settingsList(c: Row, key: string): Set<string> {
+  const v = c.settings ? c.settings[key] : null;
+  return new Set(Array.isArray(v) ? v.filter((x: unknown) => typeof x === "string").map((x: string) => x.toLowerCase()) : []);
+}
+/** Adoptions asked by the screen that staff also recorded for that guest in the Guests tab. */
+function adoptChosen(c: Row, asked: unknown): Set<string> {
+  const chosen = settingsList(c, "adopt");
+  return new Set(uuids(asked).filter((id) => chosen.has(id)));
+}
+/** Name matches (same name, or same name and organisation) staff have not marked "Not the same person". */
+function samePersonOf(c: Row, dups: Row[]): Map<string, string[]> {
+  const dismissed = settingsList(c, "dismissed_duplicates");
+  const out = new Map<string, string[]>();
+  for (const d of dups) {
+    if (d.match_on === "email") continue; // e-mail matches have their own rules (one address = one person)
+    if (dismissed.has(`${d.recipient_id}:${d.other_id}`.toLowerCase())) continue;
+    out.set(d.recipient_id, [...(out.get(d.recipient_id) || []), `${d.other_kind}:${d.other_id}`]);
+  }
+  return out;
 }
 
 // ─── PDFs (private bucket, uploaded by the admin screen before the send) ─────
@@ -224,45 +254,67 @@ function emailPayload(ctx: Ctx, r: Row, to: string, attachments: Row[], test: bo
 }
 
 // ─── One guest ───────────────────────────────────────────────────────────
-async function claim(ctx: Ctx, r: Row, anyStatus: boolean): Promise<string | null> {
+/** Takes the guest's send lock and returns the guest as it is now (not as an earlier read saw it). */
+async function claim(ctx: Ctx, id: string, anyStatus: boolean): Promise<{ at: string; row: Row } | null> {
   const at = new Date().toISOString();
   const stale = new Date(Date.now() - LOCK_MINUTES * 60_000).toISOString();
-  let q = db.from("invitation_recipient").update({ sending_at: at, send_error: null })
-    .eq("id", r.id).eq("campaign_id", ctx.campaign.id)
+  let q = db.from("invitation_recipient").update({ sending_at: at })
+    .eq("id", id).eq("campaign_id", ctx.campaign.id)
     .or(`sending_at.is.null,sending_at.lt."${stale}"`);
   if (!anyStatus) q = q.in("status", ["draft", "ready"]);
-  const { data, error } = await q.select("id");
+  const { data, error } = await q.select("*");
   if (error) { console.error("invitation-campaign: claim failed", error.message); return null; }
-  return data && data.length ? at : null;
+  return data && data.length ? { at, row: data[0] } : null;
 }
-async function release(r: Row, at: string, code: string) {
-  const { error } = await db.from("invitation_recipient").update({ sending_at: null, send_error: code.slice(0, 300) })
-    .eq("id", r.id).eq("sending_at", at);
+/** Lets the lock go and stores the outcome's code (null clears it). */
+async function release(id: string, at: string, code: string | null) {
+  const { error } = await db.from("invitation_recipient").update({ sending_at: null, send_error: code ? code.slice(0, 300) : null })
+    .eq("id", id).eq("sending_at", at);
   if (error) console.error("invitation-campaign: release failed", error.message);
+}
+/** Lets the lock go, nothing else changed (a guest left out before anything was done). */
+async function unlock(id: string, at: string) {
+  const { error } = await db.from("invitation_recipient").update({ sending_at: null }).eq("id", id).eq("sending_at", at);
+  if (error) console.error("invitation-campaign: unlock failed", error.message);
 }
 
 /** One invitation: first send (resend false) or the explicit re-send (resend true). */
-async function sendOne(ctx: Ctx, r: Row, opts: { resend: boolean; adopt: boolean; force: boolean }): Promise<Result> {
-  if (!r.email) return { id: r.id, outcome: "blocked", code: "no_email" };
+async function sendOne(ctx: Ctx, seen: Row, opts: { resend: boolean; adopt: boolean; force: boolean }): Promise<Result> {
+  const id: string = seen.id;
+  if (!seen.email) return { id, outcome: "blocked", code: "no_email" };
+  if (!opts.resend && !["draft", "ready"].includes(seen.status)) return { id, outcome: "skipped", code: "already_sent", status: seen.status };
+  const lock = await claim(ctx, id, opts.resend);
+  if (!lock) return { id, outcome: "skipped", code: opts.resend ? "in_progress" : "in_progress_or_sent" };
+  const { at } = lock;
+  const r = lock.row; // read again under the lock: the call's first read may be a minute old
+  const leave = async (res: Result): Promise<Result> => { await unlock(id, at); return res; };
+  // The last send of this guest may have gone out (or did): that mark stays until the explicit
+  // resend records or refuses a new one; a plain send never sends it again.
+  const mayHaveGone = r.gl_guest_id && NEEDS_EXPLICIT_RESEND.includes(r.send_error) ? String(r.send_error) : null;
+  if (!r.email) return await leave({ id, outcome: "blocked", code: "no_email" });
   if (opts.resend) {
-    if (!r.gl_guest_id) return { id: r.id, outcome: "blocked", code: "not_sent_yet" };
-  } else if (!["draft", "ready"].includes(r.status)) {
-    return { id: r.id, outcome: "skipped", code: "already_sent", status: r.status };
-  } else if (r.gl_guest_id && NEEDS_EXPLICIT_RESEND.includes(r.send_error)) {
-    // It may have gone (or did): only the explicit resend sends it again.
-    return { id: r.id, outcome: "skipped", code: "needs_explicit_resend", detail: String(r.send_error) };
+    if (!r.gl_guest_id) return await leave({ id, outcome: "blocked", code: "not_sent_yet" });
+  } else if (mayHaveGone) {
+    return await leave({ id, outcome: "skipped", code: "needs_explicit_resend", detail: mayHaveGone });
   }
-  const at = await claim(ctx, r, opts.resend);
-  if (!at) return { id: r.id, outcome: "skipped", code: opts.resend ? "in_progress" : "in_progress_or_sent" };
 
   const fail = async (outcome: "blocked" | "failed", code: string, extra: Partial<Result> = {}, journalIt = false): Promise<Result> => {
-    await release(r, at, code);
+    // A block (nothing went out) keeps an earlier "it may have gone" mark.
+    await release(id, at, outcome === "blocked" && mayHaveGone ? mayHaveGone : code);
     // Codes and counts only: an unexpected error's message may quote a value (an address).
-    if (journalIt) await journal(ctx, r.id, "send_failed", { error: code, resend: opts.resend, detail: code === "error" ? null : extra.detail ?? null });
-    return { id: r.id, outcome, code, ...extra };
+    if (journalIt) await journal(ctx, id, "send_failed", { error: code, resend: opts.resend, detail: code === "error" ? null : extra.detail ?? null });
+    return { id, outcome, code, ...extra };
   };
 
   try {
+    // One person, one invitation: a name match staff have not dismissed in the Guests tab
+    // ("Not the same person") blocks the first send. Same rule as preview_send.
+    if (!opts.resend) {
+      const { data: dups, error: dupErr } = await db.rpc("invitation_find_duplicates", { p_campaign_id: ctx.campaign.id, p_recipient_id: id });
+      if (dupErr) throw new Error(`invitation_find_duplicates: ${dupErr.message}`);
+      const same = samePersonOf(ctx.campaign, ((dups || []) as Row[]).filter((d) => d.recipient_id === id)).get(id);
+      if (same?.length) return await fail("blocked", "same_person", { detail: same.join(" ") });
+    }
     // Texts and files first: nothing touches the guest list before the e-mail is ready.
     const files = await attachmentsFor(ctx, r);
     if (!files.ok) return await fail("blocked", files.code);
@@ -270,41 +322,57 @@ async function sendOne(ctx: Ctx, r: Row, opts: { resend: boolean; adopt: boolean
     if (mail.empty) return await fail("blocked", "empty_email");
     if (mail.unknown.length) return await fail("blocked", "unresolved_variables", { detail: mail.unknown.join(" ") });
 
+    // From here the e-mail may go out. Mark it first: a sender stopped from here on (timeout,
+    // crash) leaves a guest that only the explicit resend sends again. invitation_mark_sent
+    // clears the mark; a refusal or a block replaces it with its own code.
+    const { data: marked0, error: markErr } = await db.from("invitation_recipient").update({ send_error: "send_uncertain" })
+      .eq("id", id).eq("sending_at", at).select("id");
+    if (markErr) throw new Error(`mark: ${markErr.message}`);
+    if (!marked0?.length) return { id, outcome: "skipped", code: "in_progress" }; // the lock went stale and was taken over
+
     // On the guest list (or already there).
     let guestId: string = r.gl_guest_id || "";
     let undo: "unlink" | "unadopt" | null = null;
-    let adopted: "request" | "existing" | undefined;
+    let adopted: "request" | undefined;
     if (opts.resend) {
       const { data: g } = await db.from("gl_guest").select("status").eq("id", guestId).maybeSingle();
       if (!g || !["invited", "confirmed"].includes(g.status)) return await fail("blocked", `guest_${g?.status || "missing"}`);
     } else {
-      let link = await rpc("invitation_link_guest", { p_recipient_id: r.id, p_force: opts.force, p_adopt: opts.adopt, p_actor: ctx.uid });
-      if (!link.ok && link.error === "pending_request" && opts.adopt) {
-        link = await rpc("invitation_adopt_request", { p_recipient_id: r.id, p_force: opts.force, p_actor: ctx.uid });
+      // Never with p_adopt: an address already invited, confirmed or declined on the list
+      // (from WYS 2026, maybe since the check) is never sent a second, different invitation.
+      let link = await rpc("invitation_link_guest", { p_recipient_id: id, p_force: opts.force, p_adopt: false, p_actor: ctx.uid });
+      if (!link.ok && link.error === "already_on_list" && link.guest_status === "requested" && link.guest_source === "request"
+          && opts.adopt) {
+        // A pending /wys26 request staff chose to adopt for this guest. invitation_adopt_request
+        // takes pending requests only: approved, refused or cancelled since, it refuses.
+        link = await rpc("invitation_adopt_request", { p_recipient_id: id, p_force: opts.force, p_actor: ctx.uid });
         if (link.ok && link.adopted_request) { undo = "unadopt"; adopted = "request"; }
-      } else if (!link.ok && ["already_on_list", "not_adoptable"].includes(link.error)
+      } else if (!link.ok && link.error === "already_on_list"
                  && link.guest_status === "cancelled" && link.guest_source === "invitation") {
         // Most likely this guest's own row, cancelled by the undo of an earlier refused send
         // (step 1 keeps it on the list): re-open it. The database checks it is that row.
-        const re = await rpc("invitation_relink_guest", { p_recipient_id: r.id, p_force: opts.force, p_actor: ctx.uid });
+        const re = await rpc("invitation_relink_guest", { p_recipient_id: id, p_force: opts.force, p_actor: ctx.uid });
         if (re.ok) { link = re; undo = "unlink"; } else if (re.error !== "not_relinkable") link = re;
       } else if (link.ok && link.created) {
         undo = "unlink";
-      } else if (link.ok && link.adopted) {
-        adopted = "existing";
+      } else if (link.ok && link.already_linked && !["invited", "confirmed"].includes(link.guest_status)) {
+        // Linked by an earlier send that failed; the row changed in WYS 2026 since (cancelled...).
+        return await fail("blocked", `guest_${link.guest_status || "missing"}`);
       }
       if (!link.ok) {
         // Same codes as preview_send: an address with a pending public request is
         // "pending_request" (adopt it, or leave it to WYS 2026), whatever the step that saw it.
-        const code = link.error === "already_on_list" && link.guest_status === "requested" && link.guest_source === "request"
-          ? "pending_request" : String(link.error || "link_failed");
+        const onList = link.error === "already_on_list";
+        const code = onList && link.guest_status === "requested" && link.guest_source === "request" ? "pending_request"
+          : onList && ["rejected", "cancelled", "requested"].includes(link.guest_status) ? "not_adoptable"
+          : String(link.error || "link_failed");
         const detail = [link.guest_status, link.held != null ? `${link.held}/${link.capacity}` : ""].filter(Boolean).join(" ");
         return await fail("blocked", code, detail ? { detail } : {});
       }
       guestId = String(link.guest_id);
     }
 
-    const key = `invitation-${r.id}-${guestId}-${Date.parse(at)}`;
+    const key = `invitation-${id}-${guestId}-${Date.parse(at)}`;
     const sent = await resendWithRetry(payload, key);
     if (sent.outcome !== "sent") {
       let undone: string | null = null;
@@ -336,7 +404,7 @@ async function sendOne(ctx: Ctx, r: Row, opts: { resend: boolean; adopt: boolean
     }
     if (!marked?.ok) {
       // The e-mail went out but is not recorded: never send it again; a developer adds the log line.
-      await release(r, at, "sent_not_recorded");
+      await release(id, at, "sent_not_recorded");
       await journal(ctx, r.id, "send_failed", { error: "sent_not_recorded", message_id: sent.id || null, guest_id: guestId });
       return { id: r.id, outcome: "failed", code: "sent_not_recorded", guest_id: guestId, detail: "The e-mail went out. Do not send it again." };
     }
@@ -373,17 +441,16 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>, pdfsOnSe
     const { data } = await db.from("invitation_recipient").select("id, gl_guest_id").in("gl_guest_id", guestIds.slice(i, i + 100));
     for (const x of data || []) holder.set(x.gl_guest_id, x.id);
   }
-  // Same address on another campaign guest of the event (one address = one person), and
-  // same-name warnings (staff decide, nothing is merged).
+  // Same address on another campaign guest of the event (one address = one person), and a
+  // possible same person (same name, or same name and organisation, in a campaign of the event
+  // or on its guest list): blocked until staff choose "Not the same person" in the Guests tab
+  // (settings.dismissed_duplicates) or remove one of them. Nothing is merged.
   const dupEmail = new Map<string, string>();
-  const nameWarn = new Map<string, string[]>();
   const { data: dups, error: dupErr } = await db.rpc("invitation_find_duplicates", { p_campaign_id: ctx.campaign.id });
-  if (dupErr) console.error("invitation-campaign: duplicates", dupErr.message);
-  for (const d of (dups || []) as Row[]) {
-    if (!found.has(d.recipient_id)) continue;
-    if (d.match_on === "email" && d.other_kind === "recipient") dupEmail.set(d.recipient_id, d.other_id);
-    else if (d.match_on !== "email") nameWarn.set(d.recipient_id, [...(nameWarn.get(d.recipient_id) || []), `${d.other_kind}:${d.other_id}`]);
-  }
+  if (dupErr) throw new Error(`invitation_find_duplicates: ${dupErr.message}`);
+  const mine = ((dups || []) as Row[]).filter((d) => found.has(d.recipient_id));
+  for (const d of mine) if (d.match_on === "email" && d.other_kind === "recipient") dupEmail.set(d.recipient_id, d.other_id);
+  const samePerson = samePersonOf(ctx.campaign, mine);
   const { count: held } = await db.from("gl_guest").select("id", { count: "exact", head: true })
     .eq("event_id", ctx.event.id).in("status", ["confirmed", "invited"]);
   const capacity: number | null = ctx.event.capacity ?? null;
@@ -401,7 +468,12 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>, pdfsOnSe
     else if (r.sending_at && Date.parse(r.sending_at) > staleMs) { item.state = "in_progress"; }
     else if (!r.email) { item.state = "no_email"; }
     else if (r.gl_guest_id && NEEDS_EXPLICIT_RESEND.includes(r.send_error)) { item.state = "blocked"; item.code = "needs_explicit_resend"; item.detail = r.send_error; }
-    else if (r.gl_guest_id) { item.code = "linked"; } // an earlier failed send left it linked: no new seat
+    else if (r.gl_guest_id) {
+      // An earlier failed send left it linked: no new seat, unless that row changed in WYS 2026.
+      item.code = "linked";
+      const own = g && g.id === r.gl_guest_id ? g : null;
+      if (own && !["invited", "confirmed"].includes(own.status)) { item.state = "blocked"; item.code = `guest_${own.status}`; }
+    }
     else if (!r.first_name || !r.last_name) { item.state = "blocked"; item.code = "missing_name"; }
     else if (dupEmail.has(r.id)) { item.state = "blocked"; item.code = "duplicate_email"; item.other_id = dupEmail.get(r.id); }
     else if (g && holder.has(g.id)) { item.state = "blocked"; item.code = "guest_linked_elsewhere"; item.other_id = holder.get(g.id); }
@@ -410,16 +482,19 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>, pdfsOnSe
     } else if (g) {
       item.guest_status = g.status; item.guest_source = g.source;
       if (g.status === "requested" && g.source === "request" && !g.plus_one_of) {
+        // Only a PENDING request can be adopted, and only when staff chose it for this guest.
         item.can_adopt = "request";
         if (!adopt.has(r.id)) { item.state = "blocked"; item.code = "pending_request"; }
         else { item.adopt = "request"; item.seat = true; }
       } else if (["invited", "confirmed", "declined"].includes(g.status)) {
-        item.can_adopt = "existing";
-        if (!adopt.has(r.id)) { item.state = "blocked"; item.code = "already_on_list"; }
-        else item.adopt = "existing";
+        // Invited, approved or answered in WYS 2026: never a second, different invitation.
+        item.state = "blocked"; item.code = "already_on_list";
       } else { item.state = "blocked"; item.code = "not_adoptable"; }
     } else item.seat = true;
-    if (nameWarn.has(r.id)) item.same_name = nameWarn.get(r.id);
+    if (samePerson.has(r.id)) {
+      item.same_name = samePerson.get(r.id);
+      if (item.state === "sendable") { item.state = "blocked"; item.code = "same_person"; item.detail = item.same_name.join(" "); delete item.seat; delete item.adopt; }
+    }
     out.push(item);
   }
   // 2. Texts and PDFs of those still sendable (10 folders at a time).
@@ -466,14 +541,15 @@ async function previewSend(ctx: Ctx, ids: string[], adopt: Set<string>, pdfsOnSe
     blocked: {
       total: blocked.length,
       duplicates: count("duplicate_email") + count("guest_linked_elsewhere"),
+      same_person: count("same_person"),
       pending_request: count("pending_request"),
       already_on_list: count("already_on_list"),
       not_adoptable: count("not_adoptable"),
       capacity: count("capacity"),
       missing_pdfs: count("missing_pdfs"),
       missing_name: count("missing_name"),
-      other: blocked.filter((x) => !["duplicate_email", "guest_linked_elsewhere", "pending_request", "already_on_list", "not_adoptable",
-        "capacity", "missing_pdfs", "missing_name"].includes(x.code)).length,
+      other: blocked.filter((x) => !["duplicate_email", "guest_linked_elsewhere", "same_person", "pending_request", "already_on_list",
+        "not_adoptable", "capacity", "missing_pdfs", "missing_name"].includes(x.code)).length,
     },
     same_name_warnings: out.filter((x) => x.same_name).length,
     seats: { capacity, held: held || 0, left: capacity == null ? null : Math.max(0, capacity - (held || 0)), needed },
@@ -559,7 +635,7 @@ Deno.serve(async (req) => {
     if (action === "preview_send") {
       const ids = uuids(body.recipient_ids).slice(0, PREVIEW_MAX);
       if (!ids.length) return json(req, { error: "recipient_ids required" }, 400);
-      return json(req, await previewSend(ctx, ids, new Set(uuids(body.adopt)), body.pdfs_on_send === true));
+      return json(req, await previewSend(ctx, ids, adoptChosen(campaign, body.adopt), body.pdfs_on_send === true));
     }
 
     if (action === "send") {
@@ -567,12 +643,15 @@ Deno.serve(async (req) => {
       const all = uuids(body.recipient_ids);
       if (!all.length) return json(req, { error: "recipient_ids required" }, 400);
       const ids = all.slice(0, BATCH_MAX);
-      const adopt = new Set(uuids(body.adopt));
+      const adopt = adoptChosen(campaign, body.adopt);
       const rows = await loadRecipients(campaign.id, ids);
       const byId = new Map(rows.map((r) => [r.id, r]));
       const results: Result[] = [];
+      const notReached: string[] = [];
+      const started = Date.now();
       let resendCalls = 0;
       for (const id of ids) {
+        if (results.length > 0 && Date.now() - started > SEND_BUDGET_MS) { notReached.push(id); continue; }
         const r = byId.get(id);
         if (!r) { results.push({ id, outcome: "skipped", code: "not_found" }); continue; }
         if (resendCalls > 0) await sleep(SPACING_MS);
@@ -583,7 +662,7 @@ Deno.serve(async (req) => {
       const n = (o: Outcome) => results.filter((x) => x.outcome === o).length;
       return json(req, {
         ok: true, sent: n("sent"), failed: n("failed"), uncertain: n("uncertain"), blocked: n("blocked"), skipped: n("skipped"),
-        results, remaining: all.slice(BATCH_MAX),
+        results, remaining: [...notReached, ...all.slice(BATCH_MAX)],
       });
     }
 

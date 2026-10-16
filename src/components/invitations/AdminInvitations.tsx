@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, Loader2, Mail, Plus, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, CalendarDays, ChevronRight, Loader2, Mail, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,7 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import type { InvitationCampaign, InvitationCampaignSettings, InvitationDuplicate, InvitationRecipient, InvitationRecipientUpdate } from './types';
 import {
   campaignCounts, createCampaign, deleteRecipients, emailLog, eventGuests, findDuplicates, getCampaign, listCampaigns, listEvents,
-  listRecipients, unlinkedRows, updateCampaign, updateRecipient, type EmailLogLite, type GlEventLite, type GlGuestLite,
+  listRecipients, sendChannels, unlinkedRows, updateCampaign, updateRecipient, type EmailLogLite, type GlEventLite, type GlGuestLite,
 } from './lib/api';
 import { buildRows, daysUntil } from './lib/model';
 import { PRESETS } from './lib/presets';
@@ -16,21 +16,153 @@ import { dateLabel } from './lib/render';
 import { GuestsTab } from './GuestsTab';
 import { PreviewPanel } from './PreviewPanel';
 import { SendTab } from './SendTab';
+import { HandTab } from './HandTab';
 import { TrackingTab } from './TrackingTab';
 import { SettingsTab } from './SettingsTab';
 
-/* ─── "Invitation campaigns" (admin, Events > On-site): /admin/invitations and /admin/invitations/:campaignId ───
+/* ─── Invitations of a guest-list event (admin, Events > On-site > WYS 2026 > Invitations) ───
+ * /admin/guest-list/:slug/invitations opens the event's campaign directly (as SM26 has its
+ * Invitations under the event), or offers to start it from the event's preset; with several
+ * campaigns it lists them (/admin/guest-list/:slug/invitations/:campaignId).
+ * /admin/invitations and /admin/invitations/:campaignId (every campaign) keep working.
  * Staff only (verified admins and moderators: RLS on every table). A campaign invites
  * people to one guest-list event: each invitee becomes an "invited" row of that guest
- * list when the invitation goes out (same token, QR, door and personal page).
+ * list when the invitation goes out, by the platform's e-mail or marked as sent by hand
+ * (same token, QR, door and personal page).
  */
 export function AdminInvitations() {
   return (
     <Routes>
       <Route index element={<CampaignList />} />
-      <Route path=":campaignId" element={<CampaignPage />} />
+      <Route path=":campaignId" element={<CampaignRoute />} />
     </Routes>
   );
+}
+
+function CampaignRoute() {
+  const { campaignId = '' } = useParams();
+  return <CampaignPage key={campaignId} campaignId={campaignId} back={<BackLink />} listPath="/admin/invitations" />;
+}
+
+export function AdminEventInvitations() {
+  return (
+    <Routes>
+      <Route index element={<EventInvitationsLanding />} />
+      <Route path=":campaignId" element={<EventCampaignRoute />} />
+    </Routes>
+  );
+}
+
+/** The preset a new campaign of this event starts from. */
+const presetFor = (slug: string) => PRESETS.find(p => p.key === (slug === 'wys26' ? 'wys-dubai-2026' : 'blank')) || PRESETS[0];
+
+function useEventCampaigns(slug: string) {
+  const location = useLocation();
+  const [state, setState] = useState<{ event: GlEventLite | null; campaigns: InvitationCampaign[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const [events, campaigns] = await Promise.all([listEvents(), listCampaigns()]);
+      const event = events.find(e => e.slug === slug) || null;
+      setState({ event, campaigns: event ? campaigns.filter(c => c.gl_event_id === event.id) : [] });
+      setError(null);
+    } catch (e) { setError((e as Error).message); setState({ event: null, campaigns: [] }); }
+  }, [slug]);
+  // location.key: coming back here after a campaign was deleted reloads the list.
+  useEffect(() => { load(); }, [load, location.key]);
+  return { state, error, load };
+}
+
+function EventCrumb({ slug, title, campaign }: { slug: string; title: string; campaign?: { id: string; name: string } }) {
+  return (
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-gray-500 pl-10 md:pl-0 min-h-[36px]">
+      <Link to={`/admin/guest-list/${slug}`} className="hover:text-primary">{title}</Link>
+      <ChevronRight className="h-3.5 w-3.5" />
+      {campaign ? <Link to={`/admin/guest-list/${slug}/invitations`} className="hover:text-primary">Invitations</Link>
+        : <span className="inline-flex items-center gap-1 text-gray-700"><Mail className="h-4 w-4" /> Invitations</span>}
+      {campaign && <><ChevronRight className="h-3.5 w-3.5" /><span className="text-gray-700 break-words">{campaign.name}</span></>}
+    </nav>
+  );
+}
+
+function EventInvitationsLanding() {
+  const { slug = '' } = useParams();
+  const { state, error, load } = useEventCampaigns(slug);
+  const [creating, setCreating] = useState(false);
+  if (!state) return <div className="flex justify-center py-20"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
+  const { event, campaigns } = state;
+  const title = event?.title || slug.toUpperCase();
+  if (error) {
+    return (
+      <div className="space-y-3 max-w-3xl">
+        <EventCrumb slug={slug} title={title} />
+        <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {notInstalled(error) ? 'The invitation tables are not installed on this database yet.' : `The invitations could not be loaded: ${error}`}
+        </p>
+      </div>
+    );
+  }
+  if (!event) return <div className="space-y-3"><EventCrumb slug={slug} title={title} /><p className="text-gray-500">No guest-list event "{slug}".</p></div>;
+  const active = campaigns.filter(c => !c.archived_at);
+  // One campaign for the event: open it directly, as SM26 opens its invitations.
+  if (active.length === 1) {
+    const c = active[0];
+    return <CampaignPage key={c.id} campaignId={c.id} back={<EventCrumb slug={slug} title={title} />} listPath={`/admin/guest-list/${slug}/invitations`} />;
+  }
+  const start = async () => {
+    const p = presetFor(slug);
+    setCreating(true);
+    try {
+      await createCampaign(p.build(event.id));
+      toast({ title: `Invitations of ${title} started`, description: p.key === 'blank' ? 'Fill the texts in Settings, then add the guests.' : "Prefilled with the kit's texts: check Settings, then add the guests." });
+      await load();
+    } catch (e) { toast({ title: 'Not created', description: (e as Error).message, variant: 'destructive' }); }
+    finally { setCreating(false); }
+  };
+  return (
+    <div className="space-y-5 max-w-5xl">
+      <EventCrumb slug={slug} title={title} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Invitations, {title}</h1>
+          <p className="text-sm text-gray-500 max-w-2xl">Personal invitations with a ticket and a letter in PDF: send them from the platform, or download them and send them yourself, then follow every reply. Each invitee joins the {title} guest list when the invitation goes out: same QR and door as the other guests.</p>
+        </div>
+        {active.length === 0 && (
+          <Button onClick={start} disabled={creating}>{creating ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}Start the invitations</Button>
+        )}
+      </div>
+      {active.length === 0 && (
+        <div className="rounded-lg border bg-white p-6 text-sm text-gray-600 space-y-1">
+          <p>No invitations for {title} yet.</p>
+          <p>{presetFor(slug).key === 'blank' ? 'They start blank: you write the ticket, letter and e-mail texts in Settings.' : "They start from the kit's texts (ticket, letter and e-mail), all editable."}</p>
+        </div>
+      )}
+      {campaigns.length > 0 && (active.length > 1 || active.length === 0) && (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {campaigns.map(c => (
+            <li key={c.id}>
+              <Link to={`/admin/guest-list/${slug}/invitations/${c.id}`} className="block rounded-lg border bg-white p-4 hover:border-[#5E9CC4] hover:shadow-sm transition">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-gray-900 break-words">{c.name}</div>
+                  {c.archived_at && <span className="text-xs rounded bg-gray-100 px-2 py-0.5 text-gray-600">Archived</span>}
+                </div>
+                {c.rsvp_deadline && <div className="mt-1 text-sm text-gray-500 inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />RSVP {dateLabel(c.rsvp_deadline)}</div>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function EventCampaignRoute() {
+  const { slug = '', campaignId = '' } = useParams();
+  const { state } = useEventCampaigns(slug);
+  const title = state?.event?.title || slug.toUpperCase();
+  const c = state?.campaigns.find(x => x.id === campaignId);
+  return <CampaignPage key={campaignId} campaignId={campaignId} listPath={`/admin/guest-list/${slug}/invitations`}
+    back={<EventCrumb slug={slug} title={title} campaign={{ id: campaignId, name: c?.name || 'Campaign' }} />} />;
 }
 
 const notInstalled = (m: string) => /invitation_(campaign|recipient)|does not exist|schema cache/i.test(m);
@@ -159,14 +291,17 @@ function NewCampaignDialog({ open, onClose, events, hasCampaigns, onCreated }: {
 
 /* ─── One campaign ─── */
 
-type Tab = 'guests' | 'preview' | 'send' | 'tracking' | 'settings';
+type Tab = 'guests' | 'preview' | 'hand' | 'send' | 'tracking' | 'settings';
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'guests', label: 'Guests' }, { key: 'preview', label: 'Preview' }, { key: 'send', label: 'Send' },
-  { key: 'tracking', label: 'Tracking' }, { key: 'settings', label: 'Settings' },
+  { key: 'guests', label: 'Guests' }, { key: 'preview', label: 'Preview' }, { key: 'hand', label: 'Send yourself' },
+  { key: 'send', label: 'Send from the platform' }, { key: 'tracking', label: 'Tracking' }, { key: 'settings', label: 'Settings' },
 ];
 
-function CampaignPage() {
-  const { campaignId = '' } = useParams();
+/**
+ * One campaign. back: the link above the header (the campaigns list, or the event's
+ * breadcrumb); listPath: where to go once the campaign is deleted.
+ */
+function CampaignPage({ campaignId, back, listPath }: { campaignId: string; back: ReactNode; listPath: string }) {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find(t => t.key === params.get('tab'))?.key || 'guests') as Tab;
   const setTab = (t: Tab) => setParams(p => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
@@ -177,6 +312,7 @@ function CampaignPage() {
   const [recipients, setRecipients] = useState<InvitationRecipient[]>([]);
   const [guests, setGuests] = useState<GlGuestLite[]>([]);
   const [log, setLog] = useState<EmailLogLite[]>([]);
+  const [channels, setChannels] = useState<Map<string, string>>(new Map());
   const [dups, setDups] = useState<InvitationDuplicate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,8 +331,12 @@ function CampaignPage() {
       const c = await getCampaign(campaignId);
       if (!c) { setMissing(true); return; }
       const [ev, rs, gs] = await Promise.all([listEvents(), listRecipients(campaignId), eventGuests(c.gl_event_id)]);
-      const lg = await emailLog(rs.map(r => r.gl_guest_id).filter(Boolean) as string[]);
-      setCampaign(c); setEvents(ev); setRecipients(rs); setGuests(gs); setLog(lg); setError(null);
+      const [lg, ch] = await Promise.all([
+        emailLog(rs.map(r => r.gl_guest_id).filter(Boolean) as string[]),
+        // How each invitation went out: shown in Tracking; the screens work without it.
+        sendChannels(campaignId).catch(() => new Map<string, string>()),
+      ]);
+      setCampaign(c); setEvents(ev); setRecipients(rs); setGuests(gs); setLog(lg); setChannels(ch); setError(null);
       setSelectedId(s => (s && rs.some(r => r.id === s) ? s : rs[0]?.id || null));
       reloadDups();
     } catch (e) { setError((e as Error).message); }
@@ -204,7 +344,7 @@ function CampaignPage() {
   useEffect(() => { reload(); }, [reload]);
 
   const event = events.find(e => e.id === campaign?.gl_event_id) || null;
-  const rows = useMemo(() => (campaign ? buildRows(campaign, recipients, guests, dups, log) : []), [campaign, recipients, guests, dups, log]);
+  const rows = useMemo(() => (campaign ? buildRows(campaign, recipients, guests, dups, log, channels) : []), [campaign, recipients, guests, dups, log, channels]);
 
   const saveRecipient = useCallback(async (id: string, patch: InvitationRecipientUpdate): Promise<boolean> => {
     try {
@@ -245,8 +385,8 @@ function CampaignPage() {
     await patchCampaign({ settings: { ...(campaign.settings || {}), ...patch } });
   }, [campaign, patchCampaign]);
 
-  if (missing) return <div className="space-y-3"><BackLink /><p className="text-gray-500">This campaign does not exist (or was deleted).</p></div>;
-  if (error && !campaign) return <div className="space-y-3"><BackLink /><p role="alert" className="text-red-700">The campaign could not be loaded: {error}</p></div>;
+  if (missing) return <div className="space-y-3">{back}<p className="text-gray-500">This campaign does not exist (or was deleted).</p></div>;
+  if (error && !campaign) return <div className="space-y-3">{back}<p role="alert" className="text-red-700">The campaign could not be loaded: {error}</p></div>;
   if (!campaign) return <div className="flex justify-center py-20"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
 
   const s = campaign.settings || {};
@@ -255,7 +395,7 @@ function CampaignPage() {
 
   return (
     <div className="space-y-4 max-w-[1400px]">
-      <BackLink />
+      {back}
       <header className="rounded-lg bg-[#0A2E5C] text-white px-4 py-4 sm:px-6 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] uppercase tracking-[0.22em] text-[#8EC5E5] font-medium">{[s.name, s.edition].filter(Boolean).join(' · ') || event?.title}</div>
@@ -297,10 +437,11 @@ function CampaignPage() {
           <PreviewPanel campaign={campaign} recipient={selected?.r || null} onStyle={st => patchCampaign({ ticket_style: st })} large />
         </div>
       )}
+      {tab === 'hand' && <HandTab campaign={campaign} rows={rows} event={event} guests={guests} reload={reload} onTracking={() => setTab('tracking')} />}
       {tab === 'send' && <SendTab campaign={campaign} rows={rows} event={event} selectedId={selectedId} reload={reload} />}
       {tab === 'tracking' && <TrackingTab campaign={campaign} rows={rows} event={event} guests={guests} reload={reload} />}
       {tab === 'settings' && (
-        <SettingsTab campaign={campaign} events={events} hasGuests={rows.length > 0} invitedAny={invitedAny} onSaved={setCampaign} />
+        <SettingsTab campaign={campaign} events={events} hasGuests={rows.length > 0} invitedAny={invitedAny} onSaved={setCampaign} listPath={listPath} />
       )}
     </div>
   );

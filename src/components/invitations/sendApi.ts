@@ -26,8 +26,25 @@ export {
   INVITATION_DEFAULT_SENDER_EMAIL,
   INVITATION_DEFAULT_REPLY_TO,
 } from '../../../supabase/functions/invitation-campaign/render.ts';
+export {
+  INVITATION_HAND_CHANNELS, INVITATION_HAND_PREFIX, MARK_SENT_BATCH_MAX, invitationChannels,
+  type InvitationHandChannel,
+} from '../../../supabase/functions/invitation-campaign/markSent.ts';
+import type { InvitationHandChannel } from '../../../supabase/functions/invitation-campaign/markSent.ts';
+import { SM26_INVITE_CHANNELS } from '@/components/admin/types';
 
 export const INVITATION_SEND_BATCH = 10;
+
+/**
+ * How an invitation went out: the platform's e-mail, or one of the SM26 channels (Victor's own
+ * mailbox, a posted letter, a phone call, in person, through somebody else), recorded with
+ * "Mark as sent". Same labels as the SM26 invitations.
+ */
+export const INVITATION_CHANNEL_LABELS: Record<string, string> = {
+  platform: 'Platform e-mail',
+  ...Object.fromEntries(SM26_INVITE_CHANNELS.filter(c => c.key !== 'platform_letter').map(c => [c.key, c.label])),
+};
+export const invitationChannelLabel = (c: string | null | undefined) => (c ? INVITATION_CHANNEL_LABELS[c] || c : '');
 
 /** Codes a guest can come back with (results of send / resend, states of preview_send). */
 export type InvitationSendCode =
@@ -76,6 +93,13 @@ export const INVITATION_SEND_LABELS: Record<string, string> = {
   sent_not_recorded: 'Sent, but not recorded. Do not send it again; tell the developer.',
   resend_unreachable: 'The e-mail service could not be reached.',
   error: 'Unexpected error.',
+  // "Mark as sent" (an invitation sent outside the platform).
+  bad_channel: 'Choose how the invitation went out.',
+  bad_date: 'The date is not a valid day.',
+  future_date: 'The date is in the future.',
+  too_old: 'The date is more than a year ago.',
+  mark_failed: 'Not recorded. Reload the page to see where this guest stands, then try again.',
+  date_not_saved: "Marked as sent, but with today's date: the date given was not saved.",
   // Request-level answers of the function.
   test_only_to_yourself: 'A test goes only to your own address.',
   no_address_for_you: 'Your account has no e-mail address for the test.',
@@ -165,19 +189,42 @@ export interface InvitationAnswerResult {
   pass?: { sent: boolean; error?: string } | null;
 }
 
+/** One guest of a "mark_sent" call. */
+export interface InvitationMarkItem {
+  id: string;
+  outcome: 'sent' | 'skipped' | 'blocked' | 'failed';
+  code?: InvitationSendCode | 'mark_failed';
+  detail?: string;
+  guest_id?: string;
+  adopted?: 'request';
+  status?: string;
+  channel?: InvitationHandChannel;
+}
+
+export interface InvitationMarkResult {
+  ok: true; marked: number; blocked: number; skipped: number; failed: number;
+  results: InvitationMarkItem[];
+  /** Ids this call did not handle (beyond the first 25, or after 70 s): call mark_sent again with them. */
+  remaining: string[];
+}
+
 type Body =
   | { action: 'test'; campaign_id: string; recipient_id: string; to?: string }
   /** pdfs_on_send: the screen uploads fresh PDFs right before "send", so missing files do not block here. */
   | { action: 'preview_send'; campaign_id: string; recipient_ids: string[]; adopt?: string[]; pdfs_on_send?: boolean }
   | { action: 'send'; campaign_id: string; recipient_ids: string[]; force_capacity?: boolean; adopt?: string[] }
   | { action: 'resend'; campaign_id: string; recipient_id: string }
-  | { action: 'set_answer'; campaign_id: string; recipient_id: string; answer: 'accepted' | 'declined' | 'no_answer'; force?: boolean };
+  | { action: 'set_answer'; campaign_id: string; recipient_id: string; answer: 'accepted' | 'declined' | 'no_answer'; force?: boolean }
+  /** sent_on: YYYY-MM-DD; omitted or null = now. adopt: as for send (pending /wys26 requests staff chose to adopt). */
+  | { action: 'mark_sent'; campaign_id: string; recipient_ids: string[]; channel: InvitationHandChannel; sent_on?: string | null;
+      adopt?: string[]; force_capacity?: boolean };
 
 type Out<B extends Body> =
   B extends { action: 'test' } ? InvitationTestResult
   : B extends { action: 'preview_send' } ? InvitationPreviewResult
   : B extends { action: 'send' } ? InvitationSendResult
   : B extends { action: 'resend' } ? { ok: boolean; result: InvitationSendItem }
+  : B extends { action: 'mark_sent' } ? InvitationMarkResult
   : InvitationAnswerResult;
 
 /** Calls the sender. Returns its JSON whether it answered 2xx or not ({ error } on failure). */

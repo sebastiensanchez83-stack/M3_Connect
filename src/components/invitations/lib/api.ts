@@ -13,6 +13,7 @@ import {
   type InvitationGuestStatus, type InvitationRecipient, type InvitationRecipientInsert, type InvitationRecipientUpdate,
 } from '../types';
 import type { InvitationAssets } from './pdf';
+import { invitationChannels } from '../../../../supabase/functions/invitation-campaign/markSent.ts';
 
 export interface GlEventLite { id: string; slug: string; title: string; capacity: number | null; engine: string | null; settings: Record<string, unknown> | null }
 export interface GlGuestLite {
@@ -141,6 +142,17 @@ export async function unlinkedRows(campaignId: string): Promise<Set<string>> {
     .eq('campaign_id', campaignId).eq('action', 'guest_unlinked');
   fail(error);
   return new Set((data || []).map(l => `${l.recipient_id}:${(l.payload as { guest_id?: string } | null)?.guest_id}`));
+}
+
+/**
+ * How each guest's invitation went out (platform e-mail, or the channel of "Mark as sent"), read
+ * from the journal: invitation_mark_sent writes "hand:<channel>" as the message id of a mark.
+ */
+export async function sendChannels(campaignId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from('invitation_log').select('recipient_id, action, payload')
+    .eq('campaign_id', campaignId).in('action', ['invitation_sent', 'sent_by_hand']).order('id', { ascending: true }).limit(5000);
+  fail(error);
+  return invitationChannels((data || []) as { recipient_id: string | null; action: string; payload: Record<string, unknown> | null }[]);
 }
 
 export async function logAction(campaignId: string, action: string, payload: Record<string, unknown> = {}, recipientId: string | null = null) {

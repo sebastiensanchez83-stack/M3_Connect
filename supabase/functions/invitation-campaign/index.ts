@@ -6,11 +6,12 @@ import {
   type InvitationRenderCampaign,
   type InvitationRenderRecipient,
 } from "./render.ts";
+import { MARK_SENT_BATCH_MAX, markSentOne, parseHandSent, type MarkResult, type MarkSentDeps } from "./markSent.ts";
 
 // invitation-campaign: the sender of the "Invitation campaigns" admin module
 // (/admin/invitations). Staff only. POST with the signed-in staff member's JWT.
 //
-// DEPLOY with verify_jwt = TRUE (files index.ts and render.ts). The gateway refuses a call
+// DEPLOY with verify_jwt = TRUE (files index.ts, render.ts and markSent.ts). The gateway refuses a call
 // without a valid JWT; inside, the caller must also pass public.is_moderator() (a verified
 // admin or moderator, the rule of the module's RLS), checked with the caller's own JWT. The
 // work is then done with the service role, always naming that staff member to the database
@@ -37,6 +38,12 @@ import {
 //                records an answer received by e-mail; "accepted" then sends the platform's
 //                entry pass (QR) through the LIVE guest-list function's existing "resend"
 //                action, with the caller's JWT (guest-list is not changed: WYS freeze).
+//   mark_sent    {campaign_id, recipient_ids, channel, sent_on?, adopt?, force_capacity?}
+//                invitations staff sent THEMSELVES (own mailbox, post, phone, in person, through
+//                somebody else): everything a send does except the e-mail (markSent.ts), at most
+//                25 guests per call ("remaining" as for send). channel: email | post | phone |
+//                in_person | third_party; sent_on: YYYY-MM-DD, empty for now. IDEMPOTENT: only
+//                draft or ready guests not being sent, under the sender's lock.
 //
 // One send, per guest: lock the guest (and read it again, as it is now); read ticket.pdf and
 // letter.pdf from the private bucket invitation-files (uploaded by the admin screen BEFORE the
@@ -81,6 +88,8 @@ const RESEND_TIMEOUT_MS = 15_000;
 // the waits and its reads, so a "send" call starts no new guest after 70 s: the rest come back
 // in "remaining", and the call ends far from the limit.
 const SEND_BUDGET_MS = 70_000;
+// "mark_sent" sends nothing, but starts no new guest after the same budget.
+const MARK_BUDGET_MS = 70_000;
 // A guest whose last send may have gone out: a plain send skips it, only resend sends again.
 const NEEDS_EXPLICIT_RESEND = ["send_uncertain", "sent_not_recorded"];
 // Resend: 40 MB per e-mail, attachments counted after base64 (x 4/3). Our PDFs are ~0.7 MB.
@@ -577,6 +586,32 @@ async function sendPassThroughGuestList(jwt: string, eventId: string, guestId: s
   }
 }
 
+// ─── "mark_sent": the sender's helpers, given to markSent.ts ─────────────
+function markDeps(ctx: Ctx): MarkSentDeps {
+  return {
+    claim: (id) => claim(ctx, id, false),
+    unlock,
+    release,
+    duplicates: async (id) => {
+      const { data, error } = await db.rpc("invitation_find_duplicates", { p_campaign_id: ctx.campaign.id, p_recipient_id: id });
+      if (error) throw new Error(`invitation_find_duplicates: ${error.message}`);
+      return (data || []) as Row[];
+    },
+    rpc,
+    read: async (id) => {
+      const { data } = await db.from("invitation_recipient").select("id, status, gl_guest_id").eq("id", id).maybeSingle();
+      return data;
+    },
+    setSentAt: async (id, iso) => {
+      // The service role passes the guard trigger (staff themselves cannot write sent_at).
+      const { error } = await db.from("invitation_recipient").update({ sent_at: iso }).eq("id", id).eq("status", "sent");
+      if (error) console.error("invitation-campaign: sent_at not saved", error.message);
+      return !error;
+    },
+    journal: (id, action, payload) => journal(ctx, id, action, payload),
+  };
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -692,6 +727,37 @@ Deno.serve(async (req) => {
       }
       // pass.sent false: the answer is recorded; "Accepted" again retries the pass.
       return json(req, { ...res, pass });
+    }
+
+    if (action === "mark_sent") {
+      if (campaign.archived_at) return json(req, { error: "campaign_archived" }, 400);
+      const parsed = parseHandSent(body.channel, body.sent_on, new Date());
+      if (!parsed.ok) return json(req, { error: parsed.error }, 400);
+      const all = uuids(body.recipient_ids);
+      if (!all.length) return json(req, { error: "recipient_ids required" }, 400);
+      const ids = all.slice(0, MARK_SENT_BATCH_MAX);
+      const adopt = adoptChosen(campaign, body.adopt);
+      const dismissed = settingsList(campaign, "dismissed_duplicates");
+      const rows = await loadRecipients(campaign.id, ids);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const deps = markDeps(ctx);
+      const results: MarkResult[] = [];
+      const notReached: string[] = [];
+      const started = Date.now();
+      for (const id of ids) {
+        if (results.length > 0 && Date.now() - started > MARK_BUDGET_MS) { notReached.push(id); continue; }
+        const r = byId.get(id);
+        if (!r) { results.push({ id, outcome: "skipped", code: "not_found" }); continue; }
+        results.push(await markSentOne(deps, r, {
+          actor: uid, channel: parsed.channel, sentOn: parsed.sentOn, adopt: adopt.has(id),
+          force: body.force_capacity === true, dismissed,
+        }));
+      }
+      const n = (o: MarkResult["outcome"]) => results.filter((x) => x.outcome === o).length;
+      return json(req, {
+        ok: true, marked: n("sent"), blocked: n("blocked"), skipped: n("skipped"), failed: n("failed"),
+        results, remaining: [...notReached, ...all.slice(MARK_SENT_BATCH_MAX)],
+      });
     }
 
     return json(req, { error: "Unknown action" }, 400);

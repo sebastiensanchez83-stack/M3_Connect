@@ -32,6 +32,11 @@ export interface GuestRow {
   adopt: boolean;
   passSent: boolean;
   invitationLogged: boolean;
+  /**
+   * How the invitation went out: 'platform' (the platform's e-mail) or the channel recorded with
+   * "Mark as sent" (email, post, phone, in_person, third_party). null: not sent yet.
+   */
+  channel: string | null;
 }
 
 export function displayStatus(r: InvitationRecipient, g: GlGuestLite | null): DisplayStatus {
@@ -51,7 +56,8 @@ export function displayStatus(r: InvitationRecipient, g: GlGuestLite | null): Di
   }
 }
 
-export function buildRows(c: InvitationCampaign, recipients: InvitationRecipient[], guests: GlGuestLite[], dups: InvitationDuplicate[], log: EmailLogLite[]): GuestRow[] {
+export function buildRows(c: InvitationCampaign, recipients: InvitationRecipient[], guests: GlGuestLite[], dups: InvitationDuplicate[], log: EmailLogLite[],
+  channels: Map<string, string> = new Map()): GuestRow[] {
   const byId = new Map(guests.map(g => [g.id, g]));
   const linked = new Set(recipients.map(r => r.gl_guest_id).filter(Boolean) as string[]);
   const requests = new Map(guests.filter(g => g.status === 'requested' && g.source === 'request' && !linked.has(g.id))
@@ -70,6 +76,7 @@ export function buildRows(c: InvitationCampaign, recipients: InvitationRecipient
     return {
       r, guest, status: displayStatus(r, guest), reasons, dups: ownDups, request, adopt: adopt.has(r.id),
       passSent: !!k?.has('pass'), invitationLogged: !!k?.has('invitation'),
+      channel: channels.get(r.id) || null,
     };
   });
 }

@@ -53,6 +53,13 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     return path.startsWith(c.to);
   };
   const onSm26 = path.startsWith('/admin/sm26');
+  // ---- WYS 2026 (guest-list event): Guest list and its Invitations, like the Smart 26 sub-tabs ----
+  const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations') || path.startsWith('/admin/invitations');
+  const onWys = path.startsWith('/admin/guest-list/wys26') || wysInvitations;
+  const wysChildren: (NavItem & { active: boolean })[] = [
+    { to: '/admin/guest-list/wys26', label: 'Guest list', icon: <ClipboardList className="h-4 w-4" />, active: onWys && !wysInvitations },
+    { to: '/admin/guest-list/wys26/invitations', label: 'Invitations', icon: <Mail className="h-4 w-4" />, active: wysInvitations },
+  ];
   const onWebinarList = path === '/admin/events' && new URLSearchParams(location.search).get('type') === 'webinar';
   const onWebinars = path.startsWith('/admin/webinars') || onWebinarList;
 
@@ -84,8 +91,9 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
 
   // Expansion state. Events branches + active bottom group open by default.
   const [open, setOpen] = useState<Record<string, boolean>>(() => ({
-    onsite: onSm26 || isAdmin,           // on-site open by default for admins
+    onsite: onSm26 || onWys || isAdmin,  // on-site open by default for admins
     smart26: onSm26,
+    wys26: onWys,
     webinars: onWebinars,
     ...(activeGroupKey ? { [activeGroupKey]: true } : {}),
   }));
@@ -94,6 +102,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     setOpen(p => ({
       ...p,
       ...(onSm26 ? { onsite: true, smart26: true } : {}),
+      ...(onWys ? { onsite: true, wys26: true } : {}),
       ...(onWebinars ? { webinars: true } : {}),
       ...(activeGroupKey ? { [activeGroupKey]: true } : {}),
     }));
@@ -154,9 +163,20 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
                     ))}
                   </div>
                 )}
-                <Item l={{ to: '/admin/invitations', label: 'Invitation campaigns', icon: <Mail className="h-4 w-4" /> }} />
-                {/* Guest-list events (invitation-only) */}
-                <Item l={{ to: '/admin/guest-list/wys26', label: 'WYS 2026', icon: <Mail className="h-4 w-4" /> }} />
+                {/* Guest-list events (invitation-only): WYS 2026 expands to its guest list and invitations */}
+                <button type="button" onClick={() => toggle('wys26')} className={`w-full ${linkClass(onWys)} justify-between`}>
+                  <span className="flex items-center gap-3"><Mail className="h-4 w-4" /> WYS 2026</span>
+                  <Caret isOpen={!!open.wys26} />
+                </button>
+                {open.wys26 && (
+                  <div className="ml-2 pl-2 border-l border-gray-100 space-y-1">
+                    {wysChildren.map(c => (
+                      <Link key={c.to} to={c.to} onClick={onNavigate} className={linkClass(c.active)}>
+                        {c.icon}{c.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
                 {/* Add another on-site event */}
                 <Link to="/admin/events/new?type=on_site" onClick={onNavigate} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors">
                   <Plus className="h-4 w-4" /> Add on-site event

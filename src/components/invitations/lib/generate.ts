@@ -4,6 +4,8 @@
 import type { InvitationCampaign, InvitationRecipient } from '../types';
 import { loadAssets, updateRecipient, uploadPdf } from './api';
 import { fileSlug, filePrefix, letterPdf, ticketPdf, type PdfIssue, type PdfResult } from './pdf';
+import { emailCopyFor, emailCopyText } from './emailCopy';
+import { saveBlob } from './sheets';
 
 export type { PdfIssue, PdfResult };
 
@@ -19,6 +21,23 @@ export async function guestPdfs(c: InvitationCampaign, r: InvitationRecipient, w
 
 export const ticketName = (c: InvitationCampaign, r: InvitationRecipient) => `${filePrefix(c)}_Ticket_${fileSlug(r)}.pdf`;
 export const letterName = (c: InvitationCampaign, r: InvitationRecipient) => `${filePrefix(c)}_Letter_${fileSlug(r)}.pdf`;
+export const emailName = (c: InvitationCampaign, r: InvitationRecipient) => `${filePrefix(c)}_Email_${fileSlug(r)}.txt`;
+
+/**
+ * "Download ticket + letter" of one guest: the two PDFs, as the platform e-mail attaches them,
+ * ready to attach to an e-mail sent from your own mailbox. Nothing is saved when a PDF has an
+ * error (the issues come back instead).
+ */
+export async function downloadGuestPdfs(c: InvitationCampaign, r: InvitationRecipient): Promise<{ ok: true } | { ok: false; issues: PdfIssue[] }> {
+  const p = await guestPdfs(c, r);
+  const errors = p.issues.filter(x => x.level === 'error');
+  if (errors.length) return { ok: false, issues: errors };
+  saveBlob(new Blob([p.letter.bytes as unknown as BlobPart], { type: 'application/pdf' }), letterName(c, r));
+  // Two files from one click: a short gap so the browser takes the second one too.
+  await new Promise(res => setTimeout(res, 400));
+  saveBlob(new Blob([p.ticket.bytes as unknown as BlobPart], { type: 'application/pdf' }), ticketName(c, r));
+  return { ok: true };
+}
 
 export interface ZipResult { blob: Blob | null; done: number; skipped: { r: InvitationRecipient; issues: PdfIssue[] }[] }
 
@@ -27,7 +46,8 @@ export interface ZipResult { blob: Blob | null; done: number; skipped: { r: Invi
  * WYS_Ticket_First_Last.pdf and WYS_Letter_First_Last.pdf), so a ZIP of a few selected
  * guests keeps the numbers of the table.
  */
-export async function zipFor(c: InvitationCampaign, list: InvitationRecipient[], onProgress?: (n: number) => void, numberOf?: (r: InvitationRecipient) => number): Promise<ZipResult> {
+export async function zipFor(c: InvitationCampaign, list: InvitationRecipient[], onProgress?: (n: number) => void, numberOf?: (r: InvitationRecipient) => number,
+  opts: { email?: boolean } = {}): Promise<ZipResult> {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
   const skipped: ZipResult['skipped'] = [];
@@ -46,6 +66,8 @@ export async function zipFor(c: InvitationCampaign, list: InvitationRecipient[],
     const folder = zip.folder(`${String(numberOf?.(r) ?? i + 1).padStart(width, '0')}_${slug}`)!;
     folder.file(ticketName(c, r).replace(fileSlug(r), slug), p.ticket.bytes);
     folder.file(letterName(c, r).replace(fileSlug(r), slug), p.letter.bytes);
+    // To send them yourself: the e-mail of that guest (address, subject, text) next to the PDFs.
+    if (opts.email) folder.file(emailName(c, r).replace(fileSlug(r), slug), emailCopyText(emailCopyFor(c, r)));
     done++;
   }
   return { blob: done ? await zip.generateAsync({ type: 'blob' }) : null, done, skipped };

@@ -14,3 +14,7 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.svg text eol=lf
+
+# Binary assets: never convert line endings (a PDF template's byte offsets must not move).
+*.pdf binary
+*.ttf binary

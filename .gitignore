@@ -37,3 +37,30 @@ npm-debug.log*
 .swarm/
 .mcp.json
 CLAUDE.md
+
+# Invitation campaigns module: this repository is PUBLIC.
+# Never the guest lists (personal data), the kit's sample renders (real guest names) or
+# generated invitations. The kit itself lives next to the repository, never inside it.
+wys-invitation-kit/
+guests_*.csv
+*guest*list*.csv
+*invitees*.csv
+*invites*.xlsx
+*invitation*.xlsx
+sample_letter*.pdf
+sample_ticket*.pdf
+public/invitations/**/*.pdf
+# Single invitations and ZIP batches as the module names them (ticket / letter / 01_First_Last/).
+*_ticket.pdf
+*_letter.pdf
+ticket_*.pdf
+letter_*.pdf
+invitation-*.pdf
+invitations-*.zip
+invitations_*.zip
+/*.pdf
+/*.csv
+/*.xlsx
+/*.zip
+# Only the blank backgrounds may live under public/invitations/ (keep this rule last).
+!public/invitations/*/templates/tpl_*.pdf

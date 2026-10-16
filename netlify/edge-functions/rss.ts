@@ -6,8 +6,8 @@
  * Each feed lists its ticked resources that are published and public, newest
  * first, at most 50. Each item carries the title, the summary as an excerpt
  * followed by a "Read the full article" link, the cover image and the topic:
- * the site shows the excerpt and sends readers here for the full text, so no
- * article is published twice and Google sees one original.
+ * /rss-s3.xml also supplies the public article body in content:encoded.
+ * Its description stays an excerpt; /rss.xml remains excerpt-only.
  *
  * Read with the public anon key (netlify/lib/supabase-rest.ts), under the same
  * row-level security as an anonymous visitor: members-only articles can never
@@ -31,18 +31,21 @@ interface Feed {
   column: 'share_to_m3' | 'share_to_s3';
   /** Marks the visits that come from that site in Google Analytics. */
   tracking: string;
+  /** Opt-in full HTML, leaving existing excerpt consumers unchanged. */
+  fullContent?: boolean;
 }
 
 /** Keep the paths in step with the [[edge_functions]] entries in netlify.toml. */
 const FEEDS: Feed[] = [
   { path: '/rss.xml', column: 'share_to_m3', tracking: 'utm_source=m3monaco.com&utm_medium=rss&utm_campaign=article_feed' },
-  { path: '/rss-s3.xml', column: 'share_to_s3', tracking: 'utm_source=s3monaco.com&utm_medium=rss&utm_campaign=article_feed' },
+  { path: '/rss-s3.xml', column: 'share_to_s3', tracking: 'utm_source=s3monaco.com&utm_medium=rss&utm_campaign=article_feed', fullContent: true },
 ];
 
 interface Article {
   id: string;
   title: string | null;
   summary: string | null;
+  content?: string | null;
   thumbnail_url: string | null;
   topic: string | null;
   published_at: string | null;
@@ -78,6 +81,8 @@ export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
     const title = (a.title || 'Article').trim();
     const paragraphs = (a.summary || '').split(/\n+/).map((p) => p.trim()).filter(Boolean);
     const excerpt = `${paragraphs.map((p) => `<p>${htmlEscape(p)}</p>`).join('')}<p><a href="${htmlEscape(tracked)}">Read the full article on Smart Marina Connect</a></p>`;
+    const body = (a.content || '').trim();
+    const hasBody = body.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;|&#xA0;/gi, ' ').trim().length > 0;
     const date = rfc822(a.published_at) ?? rfc822(a.created_at);
     const image = a.thumbnail_url && /^https:\/\//i.test(a.thumbnail_url) ? a.thumbnail_url : null;
     return [
@@ -88,6 +93,7 @@ export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
       date ? `      <pubDate>${date}</pubDate>` : '',
       a.topic ? `      <category>${xmlEscape(a.topic)}</category>` : '',
       `      <description>${cdata(excerpt)}</description>`,
+      feed.fullContent && hasBody ? `      <content:encoded>${cdata(body)}</content:encoded>` : '',
       image ? `      <enclosure url="${xmlEscape(image)}" length="0" type="${imageType(image)}" />` : '',
       image ? `      <media:content url="${xmlEscape(image)}" medium="image" type="${imageType(image)}" />` : '',
       '    </item>',
@@ -95,7 +101,7 @@ export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
   });
   const newest = articles.length ? rfc822(articles[0].published_at) ?? rfc822(articles[0].created_at) : null;
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"${feed.fullContent ? ' xmlns:content="http://purl.org/rss/1.0/modules/content/"' : ''}>
   <channel>
     <title>Smart Marina Connect — Articles</title>
     <link>${SITE_URL}/resources</link>
@@ -116,7 +122,7 @@ export default async function rss(request: Request): Promise<Response> {
     ? await selectRows<Article>(
       env,
       'resources',
-      `select=id,title,summary,thumbnail_url,topic,published_at,created_at&${feed.column}=eq.true&published=eq.true&access_level=eq.public&order=published_at.desc.nullslast&limit=${MAX_ITEMS}`,
+      `select=id,title,summary,${feed.fullContent ? 'content,' : ''}thumbnail_url,topic,published_at,created_at&${feed.column}=eq.true&published=eq.true&access_level=eq.public&order=published_at.desc.nullslast&limit=${MAX_ITEMS}`,
       LOOKUP_TIMEOUT_MS,
     )
     : null;

@@ -57,6 +57,19 @@ export interface InvitationCampaignSettings {
   phone?: string;
   /** Folder under public/invitations/ holding templates/ and logos/, e.g. "wys26". */
   assets?: string;
+  /**
+   * Ticket artwork: "template" prints the name on the folder's validated blank ticket
+   * (identical to the kit samples); "drawn" draws every text from these settings.
+   */
+  ticket_artwork?: 'template' | 'drawn';
+  /** Letter signature: the SM26 letterhead copy (event-media, staff signed URL), or none. */
+  signature?: 'sm26' | 'none';
+  /** File names: "WYS" gives WYS_Ticket_First_Last.pdf. */
+  file_prefix?: string;
+  /** Guests whose pending /wys26 request staff chose to adopt (send action "adopt"). */
+  adopt?: string[];
+  /** "recipientId:otherId" pairs staff marked as different people. */
+  dismissed_duplicates?: string[];
 }
 
 /**

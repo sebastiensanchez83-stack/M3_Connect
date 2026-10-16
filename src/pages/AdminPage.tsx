@@ -73,6 +73,7 @@ const AdminSM26Import = lazyWithRetry(() => import('@/components/admin/AdminSM26
 const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/AdminMediaDownloads').then(m => ({ default: m.AdminMediaDownloads })));
 const AdminGuestList = lazyWithRetry(() => import('@/components/admin/AdminGuestList').then(m => ({ default: m.AdminGuestList })));
 const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGuestCheckin').then(m => ({ default: m.AdminGuestCheckin })));
+const AdminInvitations = lazyWithRetry(() => import('@/components/invitations/AdminInvitations').then(m => ({ default: m.AdminInvitations })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -168,6 +169,8 @@ export function AdminPage() {
             <Route path="/guest-list/:slug" element={<AdminOnlyGuard><AdminGuestList /></AdminOnlyGuard>} />
             {/* The entry QR in guest emails encodes this URL. Moderators may work the door: gl_checkin checks is_moderator itself. */}
             <Route path="/guest-list/:slug/checkin" element={<AdminGuestCheckin />} />
+            {/* Invitation campaigns: staff (admins and moderators), RLS on every table. */}
+            <Route path="/invitations/*" element={<AdminInvitations />} />
             <Route path="/media-downloads" element={<AdminOnlyGuard><AdminMediaDownloads /></AdminOnlyGuard>} />
             <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}

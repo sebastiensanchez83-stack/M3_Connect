@@ -154,6 +154,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
                     ))}
                   </div>
                 )}
+                <Item l={{ to: '/admin/invitations', label: 'Invitation campaigns', icon: <Mail className="h-4 w-4" /> }} />
                 {/* Guest-list events (invitation-only) */}
                 <Item l={{ to: '/admin/guest-list/wys26', label: 'WYS 2026', icon: <Mail className="h-4 w-4" /> }} />
                 {/* Add another on-site event */}

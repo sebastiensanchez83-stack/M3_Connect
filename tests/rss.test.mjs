@@ -16,12 +16,11 @@ test('S3 adds a separate complete HTML body with safe CDATA boundaries',()=>{
   assert.ok(xml.includes('<title>Marinas &amp; standards</title>'));
   assert.match(xml,/<enclosure url="https:\/\/example.com\/photo.jpg"/);
 });
-test('M3 remains excerpt-only, even when a body was supplied',()=>{
+test('M3 excludes sources without a ready distinct editorial edition',()=>{
   const xml=renderFeed([article]);
-  assert.ok(!xml.includes('content:encoded'));
-  assert.ok(!xml.includes('xmlns:content'));
+  assert.ok(!xml.includes('<content:encoded>'));
+  assert.ok(!xml.includes('<item>'));
   assert.ok(!xml.includes('<h2>Evidence'));
-  assert.ok(xml.includes('utm_source=m3monaco.com'));
 });
 test('Missing and visually empty article bodies fall back to the summary',()=>{
   for(const content of [null,'','<p></p>','<p> &nbsp; &#160; &#xA0; </p>']){
@@ -43,6 +42,7 @@ test('Each endpoint keeps its public, published and selected resource filters',a
       assert.equal(lookup.url.searchParams.get('published'),'eq.true');
       assert.equal(lookup.url.searchParams.get('access_level'),'eq.public');
       assert.equal(lookup.url.searchParams.get('limit'),'50');
+      assert.equal(lookup.url.searchParams.get('resource_m3_editions.is_ready'),column === 'share_to_m3' ? 'eq.true' : null);
       assert.equal(lookup.url.searchParams.get('select').split(',').includes('content'),full);
       assert.equal(lookup.options.headers.apikey,'sb_publishable_fixture');
       assert.equal(lookup.options.headers.Authorization,undefined);

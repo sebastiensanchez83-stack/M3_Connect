@@ -23,10 +23,11 @@ test('unprepared editions never enter M3 feed', () => {
     assert.doesNotMatch(renderFeed([{...article,resource_m3_editions:edition}]), /<item>/);
   }
 });
-test('S3 preserves summary-only output without M3 editorial leakage', () => {
-  const xml = renderFeed([article], {path:'/rss-s3.xml',column:'share_to_s3',tracking:'utm_source=s3monaco.com'});
+test('S3 preserves its source body without M3 editorial leakage', () => {
+  const xml = renderFeed([{...article,content:'<h2>SMC source body</h2><p>Original reporting.</p>'}], {path:'/rss-s3.xml',column:'share_to_s3',tracking:'utm_source=s3monaco.com',fullContent:true});
   assert.match(xml, /<item>/);
-  assert.doesNotMatch(xml, /<content:encoded>|M3 perspective/);
+  assert.match(xml, /<content:encoded><!\[CDATA\[<h2>SMC source body/);
+  assert.doesNotMatch(xml, /M3 perspective/);
   assert.match(xml, /utm_source=s3monaco.com/);
 });
 test('unsafe markup and protocols cannot reach WordPress', () => {

@@ -45,7 +45,7 @@
     "react-i18next": "^13.5.0",
     "react-router-dom": "^6.20.1",
     "recharts": "^3.8.1",
-    "sanitize-html": "2.17.0",
+    "sanitize-html": "2.18.1",
     "tailwind-merge": "^2.1.0",
     "tailwindcss-animate": "^1.0.7"
   },

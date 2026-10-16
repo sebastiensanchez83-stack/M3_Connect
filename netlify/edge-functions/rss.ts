@@ -8,6 +8,10 @@
  * followed by a "Read the full article" link, the cover image and the topic:
  * /rss-s3.xml also supplies the public article body in content:encoded.
  * Its description stays an excerpt; /rss.xml remains excerpt-only.
+ * The body goes through an allowlist (netlify/lib/rss-html.ts: no scripts,
+ * frames or event attributes, site-relative links made absolute) and ends with
+ * "Article first published on Smart Marina Connect" and a link, so Google can
+ * tell where the original is (Victor, 16 Oct 2026).
  *
  * Read with the public anon key (netlify/lib/supabase-rest.ts), under the same
  * row-level security as an anonymous visitor: members-only articles can never
@@ -20,6 +24,7 @@
  * Declared in netlify.toml.
  */
 import { selectRows, supabaseEnv } from '../lib/supabase-rest.ts';
+import { articleHtml } from '../lib/rss-html.ts';
 
 const SITE_URL = 'https://smartmarinaconnect.com';
 const LOOKUP_TIMEOUT_MS = 3000;
@@ -93,7 +98,9 @@ export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
       date ? `      <pubDate>${date}</pubDate>` : '',
       a.topic ? `      <category>${xmlEscape(a.topic)}</category>` : '',
       `      <description>${cdata(excerpt)}</description>`,
-      feed.fullContent && hasBody ? `      <content:encoded>${cdata(body)}</content:encoded>` : '',
+      feed.fullContent && hasBody
+        ? `      <content:encoded>${cdata(`${articleHtml(body, SITE_URL)}<p><em>Article first published on <a href="${htmlEscape(tracked)}">Smart Marina Connect</a>.</em></p>`)}</content:encoded>`
+        : '',
       image ? `      <enclosure url="${xmlEscape(image)}" length="0" type="${imageType(image)}" />` : '',
       image ? `      <media:content url="${xmlEscape(image)}" medium="image" type="${imageType(image)}" />` : '',
       '    </item>',

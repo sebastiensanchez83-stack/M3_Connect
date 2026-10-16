@@ -58,3 +58,12 @@ test('Each endpoint keeps its public, published and selected resource filters',a
     assert.equal(await(await rss(new Request('https://smartmarinaconnect.com/rss-s3.xml',{method:'HEAD'}))).text(),'');
   }finally{globalThis.fetch=originalFetch;globalThis.Netlify=originalNetlify;}
 });
+test('S3 body is allowlisted and ends with the first-published line',()=>{
+  const content='<h1>Head</h1><p onclick="x()">Text <a href="/resources/other">rel</a> <a href="javascript:alert(1)">bad</a></p><script>alert(1)</script><iframe src="https://x"></iframe>';
+  const xml=renderFeed([{...article,content}],s3);
+  const enc=xml.match(/<content:encoded><!\[CDATA\[([\s\S]*?)\]\]><\/content:encoded>/)[1];
+  assert.ok(enc.startsWith('<h2>Head</h2>'));
+  assert.ok(enc.includes('<a href="https://smartmarinaconnect.com/resources/other">rel</a>'));
+  for(const bad of ['onclick','javascript:','<script','<iframe','<h1']) assert.ok(!enc.toLowerCase().includes(bad),bad);
+  assert.ok(enc.endsWith('<p><em>Article first published on <a href="https://smartmarinaconnect.com/resources/public-1?utm_source=s3monaco.com&amp;utm_medium=rss&amp;utm_campaign=article_feed">Smart Marina Connect</a>.</em></p>'));
+});

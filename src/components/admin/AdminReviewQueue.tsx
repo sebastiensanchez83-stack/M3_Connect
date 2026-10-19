@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -13,7 +13,8 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { readRegistrationFlags } from '@/lib/flags';
+import { readRegistrationFlags, useRegistrationFlagsOnce } from '@/lib/flags';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { guestList, partsLabel } from '@/lib/guestList';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -54,9 +55,16 @@ import {
  *
  * After every load the page announces the new total on the window
  * (REVIEW_QUEUE_EVENT, detail.count) so the sidebar badge follows.
+ *
+ * Registration Phase 3: while registration_flags.review_queue is on, /admin/review
+ * is queue v2 instead (review/ReviewQueueV2.tsx: tabs, person validation, claims,
+ * team joins, duplicates, retro-review), which reuses this file's words and dates.
+ * This v1 page is what M3 sees with the switch off, exactly as before; its quick
+ * Approve / Refuse (shown only with the switch on) is therefore reached only if
+ * the switch is turned on mid-visit, and v2 carries the same calls.
  */
 
-type ReviewKind =
+export type ReviewKind =
   | 'report' | 'event_request' | 'person' | 'company' | 'need'
   | 'webinar' | 'resource_draft' | 'sponsorship' | 'exposition';
 
@@ -66,7 +74,7 @@ const KIND_ORDER: ReviewKind[] = [
 
 type FactValue = string | number | boolean | null | undefined;
 
-interface ReviewItem {
+export interface ReviewItem {
   kind: ReviewKind;
   id: string;
   title: string;
@@ -103,7 +111,7 @@ const MODERATOR_SCREENS: ReviewKind[] = ['webinar', 'resource_draft'];
 /** Touch targets of at least 44 px on this page (the kit's buttons are 40 px). */
 const TALL = 'h-11';
 
-const KIND_ICON: Record<ReviewKind, LucideIcon> = {
+export const KIND_ICON: Record<ReviewKind, LucideIcon> = {
   report: Flag,
   event_request: Ticket,
   person: UserCheck,
@@ -135,18 +143,18 @@ function websiteHost(url: string | undefined): string | undefined {
   return host || undefined;
 }
 
-function toTime(iso: string | null | undefined): number | null {
+export function toTime(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
 
-function formatDate(iso: string | null | undefined): string {
+export function formatDate(iso: string | null | undefined): string {
   const ms = toTime(iso);
   return ms === null ? '' : new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function formatDateTime(iso: string | null | undefined): string {
+export function formatDateTime(iso: string | null | undefined): string {
   const ms = toTime(iso);
   return ms === null
     ? ''
@@ -156,7 +164,7 @@ function formatDateTime(iso: string | null | undefined): string {
 const DAY_MS = 86_400_000;
 
 /** Whole working days (Monday to Friday) since a moment: Friday 18:00 counts 1 on Monday 18:00. */
-function workingDaysSince(ms: number, now = Date.now()): number {
+export function workingDaysSince(ms: number, now = Date.now()): number {
   let n = 0;
   // Bounded: a few hundred steps for an item waiting a year.
   for (let at = ms + DAY_MS; at <= now && n < 1000; at += DAY_MS) {
@@ -167,7 +175,7 @@ function workingDaysSince(ms: number, now = Date.now()): number {
 }
 
 /** "Waiting 3 days" (calendar time). Empty when the date is unknown. */
-function waiting(iso: string | null, t: TFunction): string {
+export function waiting(iso: string | null, t: TFunction): string {
   const start = toTime(iso);
   if (start === null) return '';
   const hours = Math.max(0, Math.floor((Date.now() - start) / 3_600_000));
@@ -195,7 +203,7 @@ interface QueueSettings {
 const DEFAULT_SETTINGS: QueueSettings = { slaDays: 2, quickDecisions: false };
 
 /** The promised delay from review_sla_text; the switch comes from src/lib/flags.ts (the one reader of registration_flags). */
-function readSlaDays(value: unknown): number {
+export function readSlaDays(value: unknown): number {
   if (typeof value !== 'string') return DEFAULT_SETTINGS.slaDays;
   const m = /(\d+)\s*working\s*days?/i.exec(value);
   const n = m ? Number(m[1]) : NaN;
@@ -217,7 +225,7 @@ function urgencyRank(item: ReviewItem, slaDays: number): number {
 
 /* ─── words ─── */
 
-function kindLabel(kind: ReviewKind, t: TFunction): string {
+export function kindLabel(kind: ReviewKind, t: TFunction): string {
   switch (kind) {
     case 'report': return t('adminReview.kind.report', 'Reported conversation');
     case 'event_request': return t('adminReview.kind.eventRequest', 'Event request');
@@ -245,7 +253,7 @@ function chipLabel(kind: ReviewKind, t: TFunction): string {
   }
 }
 
-function openLabel(item: ReviewItem, t: TFunction): string {
+export function openLabel(item: ReviewItem, t: TFunction): string {
   switch (item.kind) {
     case 'report': return t('adminReview.open.report', 'See all reports');
     case 'event_request':
@@ -263,7 +271,7 @@ function openLabel(item: ReviewItem, t: TFunction): string {
   }
 }
 
-function sinceLabel(item: ReviewItem, t: TFunction): string {
+export function sinceLabel(item: ReviewItem, t: TFunction): string {
   const date = formatDate(item.waiting_since);
   if (!date) return '';
   switch (item.kind) {
@@ -281,7 +289,7 @@ function sinceLabel(item: ReviewItem, t: TFunction): string {
   }
 }
 
-function personaLabel(persona: string | undefined, t: TFunction): string | undefined {
+export function personaLabel(persona: string | undefined, t: TFunction): string | undefined {
   switch (persona) {
     case 'marina': return t('adminReview.persona.marina', 'Marina or port');
     case 'developer': return t('adminReview.persona.developer', 'Marina developer');
@@ -306,8 +314,8 @@ function companyTypeLabel(type: string | undefined, t: TFunction): string | unde
   }
 }
 
-interface FactChip { label: string; tone?: AdminTone; icon?: LucideIcon; title?: string }
-interface Description {
+export interface FactChip { label: string; tone?: AdminTone; icon?: LucideIcon; title?: string }
+export interface Description {
   what: string;
   quote?: string;
   quoteLabel?: string;
@@ -319,7 +327,7 @@ interface Description {
 }
 
 /** What the item asks for, its key facts and an optional quote, in plain words. */
-function describe(item: ReviewItem, t: TFunction, canOpen: boolean): Description {
+export function describe(item: ReviewItem, t: TFunction, canOpen: boolean): Description {
   const f = item.facts || {};
   const chips: FactChip[] = [];
   const push = (c: FactChip | false | undefined) => { if (c && c.label) chips.push(c); };
@@ -547,7 +555,47 @@ function describe(item: ReviewItem, t: TFunction, canOpen: boolean): Description
 
 /* ─── the page ─── */
 
+// Queue v2 (tabs, validation, claims, team joins, duplicates, retro-review): its own chunk,
+// loaded only while the switch is on.
+const ReviewQueueV2 = lazyWithRetry(() => import('./review/ReviewQueueV2').then(m => ({ default: m.ReviewQueueV2 })));
+
+/**
+ * /admin/review. registration_flags.review_queue (spec 13) chooses the version: on = queue v2
+ * (review/ReviewQueueV2.tsx); off or missing = this page as it was (v1). The switch is read
+ * once per visit, so a card never changes under the cursor. A switch that cannot be read is
+ * never taken for "off" (src/lib/flags.ts): the page says so and offers to try again (the
+ * row is also read again when the tab regains focus).
+ */
 export function AdminReviewQueue() {
+  const { t } = useTranslation();
+  const { flags, known, failed, retry } = useRegistrationFlagsOnce();
+  if (!known && failed) {
+    return (
+      <div>
+        <AdminPageHeader title={t('adminReview.title', 'To review')} />
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty
+            icon={AlertTriangle}
+            title={t('adminReview.flagsError.title', 'The review settings could not be loaded')}
+            body={t('adminReview.flagsError.body', 'Which version of the list to show depends on them. Check your connection, then try again.')}
+            action={<Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={retry}>{t('adminReview.error.retry', 'Try again')}</Button>}
+          />
+        </div>
+      </div>
+    );
+  }
+  if (!known) return <AdminLoading />;
+  if (flags.review_queue) {
+    return (
+      <Suspense fallback={<AdminLoading />}>
+        <ReviewQueueV2 />
+      </Suspense>
+    );
+  }
+  return <ReviewQueueV1 />;
+}
+
+function ReviewQueueV1() {
   const { t } = useTranslation();
   const { user, isAdmin } = useAuth();
   const [items, setItems] = useState<ReviewItem[]>([]);

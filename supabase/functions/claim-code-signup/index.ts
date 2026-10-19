@@ -107,6 +107,24 @@ const SEND_FAILED = "We could not send the confirmation e-mail. Please try again
 const TOO_SOON =
   "A confirmation e-mail was requested for this address less than a minute ago. Check your inbox (and spam folder), or try again in a minute.";
 const RATE_LIMITED = "Too many attempts from this network. Please try again later.";
+// Word for word the database's refusal (claim_organization, claim_organization_for_user).
+const HAS_OWNER = "This company already has an owner on Smart Marina Connect. Ask them to invite you to the team.";
+
+/** true = the company has an owner (an owner member row or owner_user_id); null = unknown. */
+async function companyHasOwner(admin: SupabaseClient, orgId: string): Promise<boolean | null> {
+  const { data: org, error: orgErr } = await admin.from("organizations").select("owner_user_id").eq("id", orgId).maybeSingle();
+  if (orgErr) {
+    console.error("owner check failed (organizations)", orgErr);
+    return null;
+  }
+  if ((org as { owner_user_id?: string | null } | null)?.owner_user_id) return true;
+  const { data: owners, error: memErr } = await admin.from("organization_members").select("user_id").eq("organization_id", orgId).eq("role", "owner").limit(1);
+  if (memErr) {
+    console.error("owner check failed (organization_members)", memErr);
+    return null;
+  }
+  return (owners || []).length > 0;
+}
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
@@ -715,6 +733,22 @@ Deno.serve(async (req: Request) => {
     if (!org) {
       // The slot stays taken: one failed code for this network.
       return reply({ error: "Invalid organization code. Please use the normal signup process.", code: "invalid_code" }, 400);
+    }
+
+    // 1b. A company that already has an owner is never claimed with a code (Victor,
+    //     11 Oct 2026; claim_organization and claim_organization_for_user refuse it with
+    //     the same words since 15 Oct). No account and no e-mail here, retry or not. The
+    //     answer carries code "invalid_code", so both sign-up forms (the live site's and
+    //     the redesign's) drop the code and offer the normal sign-up, and reason
+    //     "has_owner" with the database's message for a form that shows it. The slot stays
+    //     taken, as for any code that cannot be used. Fail closed if ownership is unknown.
+    const owned = await companyHasOwner(admin, org.id);
+    if (owned === null) {
+      await releaseSlot(admin, codeSlot);
+      return reply({ error: "Could not check this code. Please try again in a minute." }, 500);
+    }
+    if (owned) {
+      return reply({ error: HAS_OWNER, code: "invalid_code", reason: "has_owner" }, 409);
     }
     await releaseSlot(admin, codeSlot);
 

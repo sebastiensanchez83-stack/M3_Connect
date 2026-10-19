@@ -17,6 +17,52 @@
 //   - the rejection reason comes from profiles.rejection_reason (caller text
 //     only as a fallback), capped; every interpolated value is HTML-escaped.
 // verify_jwt stays false: the function authenticates its caller itself.
+//
+// Registration Phase 3 (spec regspec-en.md §7, §8.1; 15 Oct 2026). Same callers
+// (service role or verified staff). Three request shapes:
+//   {user_id, status}        verified | rejected | suspended: same words and answers (the
+//                            old live site's AdminUsers calls it this way), with one
+//                            guard: when the outbox holds the same decision for that
+//                            person (user_account_approved for verified,
+//                            user_account_rejected for rejected: unsent with fewer than 5
+//                            attempts, or sent by the outbox in the last 30 minutes),
+//                            nothing is sent and the answer is 200 {success, skipped,
+//                            reason: "queued"}: the person never gets both e-mails. Until
+//                            the review RPCs queue decisions no such row exists, and an
+//                            unreadable queue sends as before.
+//   {action: "types"}        the decision types below, so registration-cron can tell
+//                            this version from the old one before it claims a queued
+//                            e-mail (the old one answers 400 "user_id and status are
+//                            required" and the e-mail stays queued).
+//   {type, user_id, outbox_id?, subject_id?, data?}  an M3 review decision:
+//     user_account_approved   the person is verified: wording "member of <company>"
+//                             (a verified company they belong to) or "participant"
+//                             (none, or M3 chose "Validate as participant only":
+//                             data.action = "participant");
+//     user_account_rejected   the person is rejected: reason + "Ask M3 to review again";
+//     account_info_requested  the person is still pending: M3's question (data.question,
+//                             data.message or data.reason);
+//     company_validated       the company (subject_id or data.organization_id) is
+//                             verified and the recipient belongs to it;
+//     claim_approved          the recipient is now an owner of the claimed company
+//                             (data.organization_id, or the claim_requested invitation
+//                             given as subject_id);
+//     claim_declined          the recipient is not an owner of it (data.reason).
+//   As for the old statuses, the e-mail only confirms a decision already recorded: when
+//   the database no longer says so, the answer is 409 {stale: true} and nothing is sent.
+//   Recipient, names and company come from the database; only M3's own text for the
+//   person (data.reason, or the question of account_info_requested) comes from the queued
+//   row (or the staff caller's `reason`), capped and escaped. data.note is never e-mailed:
+//   it may be an internal note of the review.
+//   Queued e-mails (public.notification_outbox, filled by the review RPCs): registration-
+//   cron passes outbox_id; the row's subject and data win over the body's, a row already
+//   sent is skipped ({skipped: true, reason: "duplicate"}), and the row is marked sent
+//   (notification_outbox_done) once the e-mail has left. A staff call without outbox_id
+//   for an e-mail the outbox will still send (unsent, fewer than 5 attempts; for a company
+//   decision, a row about the same company) is refused (409 {queued: true, outbox_id}):
+//   the outbox sends it, never twice. Staff may pass outbox_id themselves ("send now",
+//   e.g. a row the outbox gave up on), except while an attempt of the outbox may still be
+//   in flight (claimed less than 10 minutes ago, no result recorded: 409).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -29,9 +75,12 @@ const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 const ALLOWED_ORIGINS = [
   "https://smartmarinaconnect.com",
   "https://m3connect.netlify.app",
+  "https://m3connectv2.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
+// Branch previews of the redesign (its admin calls this function too).
+const NETLIFY_SUBDOMAIN = /^https:\/\/[a-z0-9-]+--m3connect(v2)?\.netlify\.app$/;
 
 const STATUSES = new Set(["verified", "rejected", "suspended"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,8 +88,9 @@ const MAX_REASON_CHARS = 2000;
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
+  const allowed = ALLOWED_ORIGINS.includes(origin) || NETLIFY_SUBDOMAIN.test(origin);
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-caller-user-id",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
@@ -386,7 +436,8 @@ Deno.serve(async (req: Request) => {
     // ── Caller: service role, or a verified admin / moderator. ──
     const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
     if (!bearer) return reply({ error: "Unauthorized" }, 401);
-    if (!sameSecret(bearer, SUPABASE_SERVICE_ROLE_KEY)) {
+    const serviceCaller = sameSecret(bearer, SUPABASE_SERVICE_ROLE_KEY);
+    if (!serviceCaller) {
       const { data: callerData } = await supabase.auth.getUser(bearer);
       const caller = callerData?.user;
       if (!caller?.id) return reply({ error: "Unauthorized" }, 401);
@@ -400,6 +451,15 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+
+    // Registration Phase 3 (see the header): the decision types. The old shape
+    // {user_id, status} below is unchanged.
+    if (body?.action === "types") return reply({ success: true, version: 2, types: DECISION_TYPES }, 200);
+    if (typeof body?.type === "string") {
+      const r = await handleDecision(supabase, body, serviceCaller);
+      return reply(r.body, r.status);
+    }
+
     const user_id = typeof body?.user_id === "string" ? body.user_id.trim() : "";
     const status = typeof body?.status === "string" ? body.status : "";
     if (!user_id || !status) return reply({ error: "user_id and status are required" }, 400);
@@ -417,6 +477,11 @@ Deno.serve(async (req: Request) => {
     if (profile.access_status !== status) {
       return reply({ error: "Status does not match the member's current status" }, 409);
     }
+
+    // The same decision queued in the outbox (the review RPCs, Phase 3) gets its own e-mail:
+    // this older request then sends nothing, so the person never gets both (see the header).
+    const queued = await queuedDecisionFor(supabase, user_id, status);
+    if (queued) return reply({ success: true, skipped: true, reason: "queued", detail: queued }, 200);
 
     let email: string = profile.email || "";
     let firstName: string = profile.first_name || "";
@@ -550,4 +615,421 @@ async function sendNotification(
 
   console.log("Status notification sent, status:", status);
   return new Response(JSON.stringify({ success: true }), { status: 200, headers });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registration Phase 3: decisions of the M3 review queue (see the header)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DECISION_TYPES = [
+  "user_account_approved",
+  "user_account_rejected",
+  "account_info_requested",
+  "company_validated",
+  "claim_approved",
+  "claim_declined",
+];
+const ORG_NAME_CHARS = 120;
+const NAME_CHARS = 100;
+/** notification_outbox_claim's limit: a row with 5 attempts is never sent by the outbox. */
+const OUTBOX_MAX_ATTEMPTS = 5;
+/** The decision kinds that name a company: a queued row is matched on it. */
+const COMPANY_DECISIONS = new Set(["company_validated", "claim_approved", "claim_declined"]);
+
+/** The old statuses and the decision kind that announces the same thing. */
+const LEGACY_STATUS_KINDS: Record<string, string> = { verified: "user_account_approved", rejected: "user_account_rejected" };
+/** An outbox e-mail of the same decision sent this recently also stops an old-shape request. */
+const QUEUED_DECISION_WINDOW_MS = 30 * 60000;
+
+/**
+ * Why an old-shape request {user_id, status} must not send (the outbox sends, or just sent,
+ * the same decision), or "" (none, or the queue cannot be read: the e-mail goes as before).
+ * Rows the outbox gave up on (5 attempts) and rows settled unsent ("not sent: ...") do not count.
+ */
+async function queuedDecisionFor(db: Db, userId: string, status: string): Promise<string> {
+  const kind = LEGACY_STATUS_KINDS[status];
+  if (!kind) return "";
+  const { data, error } = await db
+    .from("notification_outbox")
+    .select("sent_at, attempts, last_error")
+    .eq("kind", kind)
+    .eq("user_id", userId)
+    .order("id", { ascending: false })
+    .limit(5);
+  if (error) {
+    console.error("send-status-notification: notification_outbox unreadable, sending as before:", error.message);
+    return "";
+  }
+  const since = Date.now() - QUEUED_DECISION_WINDOW_MS;
+  for (const r of (data || []) as Rec[]) {
+    if (!r.sent_at && Number(r.attempts) < OUTBOX_MAX_ATTEMPTS) return `${kind} is queued: the outbox sends it`;
+    if (r.sent_at && Date.parse(String(r.sent_at)) >= since && !String(r.last_error || "").startsWith("not sent")) return `${kind} was just sent by the outbox`;
+  }
+  return "";
+}
+
+/** The company a decision's data names (organization_id, or org_id), or "". */
+const orgOfData = (d: Rec) => [d.organization_id, d.org_id].map((x) => String(x || "")).find((x) => UUID_RE.test(x)) || "";
+
+// deno-lint-ignore no-explicit-any
+type Db = any;
+type Rec = Record<string, unknown>;
+const asRec = (v: unknown): Rec => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : {});
+/** One line of database text (a name), capped. */
+const oneLine = (v: unknown, max: number) => cleanText(v, max * 2).replace(/\s+/g, " ").trim().slice(0, max);
+/** The first non-empty text among these keys of M3's queued data. */
+function firstText(d: Rec, keys: string[], max: number): string {
+  for (const k of keys) {
+    const t = cleanText(d[k], max);
+    if (t) return t;
+  }
+  return "";
+}
+
+/** What a decision e-mail says: from the database, except M3's own text for the person (note). */
+interface DecisionFacts {
+  firstName: string;
+  /** The company the e-mail names; "" = none (a participant). */
+  orgName: string;
+  /** Verified by M3: only then may its name appear in the subject line. */
+  orgVerified: boolean;
+  /** The reason given to the person (rejection, declined claim) or M3's question. */
+  note: string;
+}
+
+// Subject, HTML and plain-text parts of a decision e-mail, or null for an unknown type.
+// Pure: no I/O. Every value is plain text here and escaped on its way into the HTML.
+function renderDecisionEmail(type: string, f: DecisionFacts): StatusEmail | null {
+  const greeting = f.firstName ? `Hello ${f.firstName},` : "Hello,";
+  const home = `${SITE_URL}/dashboard`;
+  const companyUrl = `${SITE_URL}/account?tab=organization`;
+  const org = f.orgName || "your company";
+  type Para = { text: string; html: string };
+  const p = (text: string): Para => ({ text, html: emEsc(text) });
+  // A sentence naming the company: bold in the HTML part.
+  const named = (before: string, after: string): Para => ({
+    text: `${before}${org}${after}`,
+    html: `${emEsc(before)}<strong style="color:${EM.navy};">${emEsc(org)}</strong>${emEsc(after)}`,
+  });
+
+  let subject: string;
+  let eyebrow = "Your account";
+  let title: string;
+  let button = "Open Smart Marina Connect";
+  let url = home;
+  let footer = "You can reply to this e-mail: it reaches the M3 team.";
+  let before: Para[];
+  let note: { label: string; text: string } | null = null;
+  let after: Para[] = [];
+
+  switch (type) {
+    case "user_account_approved":
+      subject = "Your Smart Marina Connect account is approved";
+      title = "Welcome to Smart Marina Connect";
+      if (f.orgName) {
+        before = [
+          named("M3 has reviewed and approved your account. You are now a member of Smart Marina Connect for ", "."),
+          p("The network of marinas and maritime businesses, the events and the resources are open to you, and your colleagues can join your company's team."),
+        ];
+      } else {
+        before = [
+          p("M3 has reviewed and approved your account. You are a participant on Smart Marina Connect."),
+          p("As a participant you can register for events, read the resources and browse the directory."),
+          p("If you work for a company that is already on Smart Marina Connect, ask its owner to invite you to the team. If your company is not listed yet, add it from your account: M3 will review it."),
+        ];
+      }
+      break;
+    case "user_account_rejected":
+      subject = "Update on your Smart Marina Connect application";
+      eyebrow = "Your application";
+      title = "Your application was not accepted";
+      button = "Ask M3 to review again";
+      before = [p("M3 has reviewed your Smart Marina Connect application and cannot accept it as it stands.")];
+      if (f.note) note = { label: "Reason", text: f.note };
+      after = [p("If something was missing or has changed, correct your profile, then choose \"Ask M3 to review again\" on your dashboard. M3 will look at your account again.")];
+      footer = "Think this is a mistake? Reply to this e-mail: it reaches the M3 team.";
+      break;
+    case "account_info_requested":
+      subject = "M3 needs one more detail to review your account";
+      title = "One more detail, please";
+      button = "Complete my profile";
+      url = `${SITE_URL}/account`;
+      before = [p("M3 is reviewing your Smart Marina Connect account and needs a little more information:")];
+      note = { label: "Our question", text: f.note || "Please tell us a little more about your company and your role." };
+      after = [p("Reply to this e-mail with your answer, or complete your profile. M3 will finish the review as soon as it has it.")];
+      break;
+    case "company_validated":
+      subject = f.orgVerified && f.orgName ? `${f.orgName} is approved on Smart Marina Connect` : "Your company is approved on Smart Marina Connect";
+      eyebrow = "Your company";
+      title = "Your company is approved";
+      button = "Open my company";
+      url = companyUrl;
+      before = [named("M3 has reviewed and approved ", ". Its page is now listed in the Smart Marina Connect directory.")];
+      after = [p("Check that its details are right, then invite your colleagues from your company settings.")];
+      break;
+    case "claim_approved":
+      subject = f.orgVerified && f.orgName ? `You now manage ${f.orgName} on Smart Marina Connect` : "Your request on Smart Marina Connect is approved";
+      eyebrow = "Your company";
+      title = "Your request is approved";
+      button = "Open my company";
+      url = companyUrl;
+      before = [named("M3 has approved your request: you now manage the page of ", " on Smart Marina Connect.")];
+      after = [p("Check the company details, then invite your colleagues from your company settings.")];
+      break;
+    case "claim_declined":
+      subject = "Update on your company request on Smart Marina Connect";
+      eyebrow = "Your company";
+      title = "Your request was not approved";
+      before = [named("M3 has reviewed your request to manage the page of ", " and could not approve it.")];
+      if (f.note) note = { label: "Reason", text: f.note };
+      after = [p("If you work for this company, ask a colleague who manages its page to invite you to the team. You can also reply to this e-mail with a detail that confirms your role, for example from your company e-mail address.")];
+      break;
+    default:
+      return null;
+  }
+
+  const bodyHtml =
+    before.map((x) => emP(x.html)).join("") +
+    (note ? emNote(emEsc(note.text).replace(/\n/g, "<br>"), note.label) : "") +
+    after.map((x) => emP(x.html)).join("");
+  const html = emailLayout({
+    pageTitle: emEsc(title),
+    preheader: emEsc(before[0]?.text || title),
+    eyebrow: emEsc(eyebrow),
+    title: emEsc(title),
+    greeting: emEsc(greeting),
+    bodyHtml,
+    cta: { label: emEsc(button), url: emEsc(url) },
+    footerNote: emEsc(footer),
+  });
+  const text = emText({
+    title,
+    greeting,
+    body: [...before.map((x) => x.text), note ? `${note.label}: ${note.text}` : "", ...after.map((x) => x.text)].filter(Boolean).join("\n\n"),
+    cta: { label: button, url },
+    footerNote: footer,
+  });
+  return { subject, html, text };
+}
+
+type OrgRow = { id: string; name: string; verified: boolean; archived: boolean; ownerUserId: string };
+
+// select("*"): archived_at / duplicate_of arrive with the Phase 3 database lane; until
+// then they read as absent.
+async function orgsByIds(db: Db, ids: string[]): Promise<Map<string, OrgRow>> {
+  const out = new Map<string, OrgRow>();
+  if (!ids.length) return out;
+  const { data, error } = await db.from("organizations").select("*").in("id", ids);
+  if (error) throw new Error(`organizations: ${error.message}`);
+  for (const o of (data || []) as Rec[]) {
+    out.set(String(o.id), {
+      id: String(o.id),
+      name: oneLine(o.name, ORG_NAME_CHARS),
+      verified: o.access_status === "verified",
+      archived: !!o.archived_at || !!o.duplicate_of,
+      ownerUserId: String(o.owner_user_id || ""),
+    });
+  }
+  return out;
+}
+
+async function membershipsOf(db: Db, userId: string): Promise<Array<{ orgId: string; role: string }>> {
+  const { data, error } = await db
+    .from("organization_members")
+    .select("organization_id, role, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(50);
+  if (error) throw new Error(`memberships: ${error.message}`);
+  return ((data || []) as Rec[])
+    .map((m) => ({ orgId: String(m.organization_id || ""), role: String(m.role || "") }))
+    .filter((m) => UUID_RE.test(m.orgId));
+}
+
+/** The recipient and the facts of the e-mail, or why the decision is no longer what the e-mail would say. */
+async function decisionFacts(
+  db: Db,
+  type: string,
+  userId: string,
+  subjectId: string,
+  data: Rec,
+  callerText: string,
+): Promise<{ facts: DecisionFacts; email: string } | { stale: string }> {
+  const { data: prof, error } = await db
+    .from("profiles")
+    .select("first_name, email, access_status, rejection_reason")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`profile: ${error.message}`);
+  if (!prof) return { stale: "the account no longer exists" };
+  // The sign-in address (profiles.email is its copy).
+  const { data: au } = await db.auth.admin.getUserById(userId);
+  const email = String(au?.user?.email || prof.email || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return { stale: "the account has no e-mail address" };
+  const facts: DecisionFacts = {
+    firstName: oneLine(prof.first_name || au?.user?.user_metadata?.first_name || "", NAME_CHARS),
+    orgName: "",
+    orgVerified: false,
+    note: "",
+  };
+  const status = String(prof.access_status || "");
+  const givenOrg = orgOfData(data);
+
+  switch (type) {
+    case "user_account_approved": {
+      if (status !== "verified") return { stale: `the account is ${status || "unknown"}, not validated` };
+      // M3 chose "Validate as participant only" (admin_validate_person action 'participant',
+      // carried in the queued data as action = "participant"): the participant wording,
+      // whatever companies the person belongs to.
+      if (data.action === "participant" || data.as_participant === true) break;
+      // "Member of <company>": a verified company the person belongs to (the one M3 named,
+      // else an owned one, else the oldest membership); otherwise a participant.
+      const mems = await membershipsOf(db, userId);
+      const orgs = await orgsByIds(db, mems.map((m) => m.orgId));
+      const usable = mems.filter((m) => {
+        const o = orgs.get(m.orgId);
+        return !!o && o.verified && !o.archived;
+      });
+      const pick = usable.find((m) => m.orgId === givenOrg) || usable.find((m) => m.role === "owner") || usable[0];
+      if (pick) {
+        const o = orgs.get(pick.orgId) as OrgRow;
+        facts.orgName = o.name;
+        facts.orgVerified = true;
+      }
+      break;
+    }
+    case "user_account_rejected":
+      if (status !== "rejected") return { stale: `the account is ${status || "unknown"}, not rejected` };
+      facts.note = cleanText(prof.rejection_reason, MAX_REASON_CHARS) || firstText(data, ["reason"], MAX_REASON_CHARS) || callerText;
+      break;
+    case "account_info_requested":
+      if (status !== "pending") return { stale: `the account is ${status || "unknown"}, no longer under review` };
+      facts.note = firstText(data, ["question", "message", "info_request", "reason"], MAX_REASON_CHARS) || callerText;
+      break;
+    case "company_validated": {
+      const orgId = subjectId || givenOrg;
+      if (!orgId) return { stale: "no company named" };
+      const o = (await orgsByIds(db, [orgId])).get(orgId);
+      if (!o) return { stale: "the company no longer exists" };
+      if (!o.verified || o.archived) return { stale: "the company is not validated" };
+      const mems = await membershipsOf(db, userId);
+      if (!mems.some((m) => m.orgId === orgId) && o.ownerUserId !== userId) return { stale: "the recipient is not a member of the company" };
+      facts.orgName = o.name;
+      facts.orgVerified = true;
+      break;
+    }
+    case "claim_approved":
+    case "claim_declined": {
+      let orgId = givenOrg;
+      if (!orgId && subjectId) {
+        // subject_id = the claim_requested invitation.
+        const { data: inv, error: invErr } = await db.from("organization_invitations").select("organization_id").eq("id", subjectId).maybeSingle();
+        if (invErr) throw new Error(`invitation: ${invErr.message}`);
+        orgId = UUID_RE.test(String(inv?.organization_id || "")) ? String(inv.organization_id) : "";
+      }
+      if (!orgId) return { stale: "no company named" };
+      const o = (await orgsByIds(db, [orgId])).get(orgId);
+      if (!o) return { stale: "the company no longer exists" };
+      const mems = await membershipsOf(db, userId);
+      const owner = mems.some((m) => m.orgId === orgId && m.role === "owner") || o.ownerUserId === userId;
+      if (type === "claim_approved" && !owner) return { stale: "the person does not manage the company" };
+      if (type === "claim_declined" && owner) return { stale: "the person manages the company after all" };
+      facts.orgName = o.name;
+      facts.orgVerified = o.verified;
+      if (type === "claim_declined") facts.note = firstText(data, ["reason"], MAX_REASON_CHARS) || callerText;
+      break;
+    }
+    default:
+      return { stale: "unknown type" };
+  }
+  return { facts, email };
+}
+
+async function sendDecisionMail(email: string, mail: StatusEmail): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: SENDER_EMAIL, to: [email], reply_to: EM.contact, subject: mail.subject, html: mail.html, text: mail.text }),
+    });
+    const resBody = await res.text();
+    if (!res.ok) {
+      console.error("Resend API error:", res.status, resBody.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Resend request failed:", e instanceof Error ? e.message : String(e));
+    return false;
+  }
+}
+
+/** {type, user_id, outbox_id?, subject_id?, data?}: see the header. */
+async function handleDecision(db: Db, body: Rec, serviceCaller: boolean): Promise<{ status: number; body: Rec }> {
+  const type = String(body.type || "");
+  if (!DECISION_TYPES.includes(type)) return { status: 400, body: { error: "Invalid type" } };
+  const userId = typeof body.user_id === "string" ? body.user_id.trim() : "";
+  if (!UUID_RE.test(userId)) return { status: 400, body: { error: "Invalid user_id" } };
+  let subjectId = typeof body.subject_id === "string" && UUID_RE.test(body.subject_id) ? body.subject_id : "";
+  let data = asRec(body.data);
+  const callerText = cleanText(body.reason, MAX_REASON_CHARS);
+
+  // The queued row this e-mail settles (registration-cron), or none (a staff call).
+  let outboxId: number | null = null;
+  if (body.outbox_id !== undefined && body.outbox_id !== null) {
+    const id = Number(body.outbox_id);
+    if (!Number.isSafeInteger(id) || id <= 0) return { status: 400, body: { error: "Invalid outbox_id" } };
+    const { data: row, error } = await db
+      .from("notification_outbox")
+      .select("id, kind, user_id, subject_id, data, sent_at, claimed_at, attempts, last_error")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) return { status: 500, body: { error: "The e-mail queue cannot be read" } };
+    if (!row || row.kind !== type || row.user_id !== userId) return { status: 400, body: { error: "outbox_id does not match this e-mail" } };
+    if (row.sent_at) return { status: 200, body: { success: true, skipped: true, reason: "duplicate" } };
+    // A staff "send now" of a queued row (e.g. one the outbox gave up on) never races an
+    // attempt of the outbox still in flight: claimed less than 10 minutes ago, no result yet.
+    if (!serviceCaller && row.claimed_at && Date.now() - Date.parse(String(row.claimed_at)) < 10 * 60000 &&
+      !String(row.last_error || "").startsWith(`attempt ${row.attempts} failed`) && !String(row.last_error || "").startsWith("gave up")) {
+      return { status: 409, body: { error: "The outbox is sending this e-mail right now: try again in 10 minutes.", queued: true } };
+    }
+    outboxId = id;
+    subjectId = UUID_RE.test(String(row.subject_id || "")) ? String(row.subject_id) : "";
+    data = asRec(row.data);
+  } else {
+    // Never twice: an e-mail the outbox will still send is the outbox's to send. Rows it
+    // gave up on (5 attempts) do not count (staff may send those, or pass their outbox_id),
+    // and for a company decision only a row about the same company does.
+    const { data: queued, error } = await db
+      .from("notification_outbox")
+      .select("id, subject_id, data")
+      .eq("kind", type)
+      .eq("user_id", userId)
+      .is("sent_at", null)
+      .lt("attempts", OUTBOX_MAX_ATTEMPTS)
+      .limit(20);
+    if (error) return { status: 500, body: { error: "The e-mail queue cannot be read" } };
+    const want = [subjectId, orgOfData(data)].filter(Boolean);
+    const same = ((queued || []) as Rec[]).filter((q) => {
+      if (!COMPANY_DECISIONS.has(type) || !want.length) return true;
+      const theirs = [String(q.subject_id || ""), orgOfData(asRec(q.data))].filter(Boolean);
+      return !theirs.length || theirs.some((x) => want.includes(x));
+    });
+    if (same.length) return { status: 409, body: { error: "This e-mail is queued: the outbox sends it.", queued: true, outbox_id: Number(same[0].id) } };
+  }
+
+  const resolved = await decisionFacts(db, type, userId, subjectId, data, callerText);
+  if ("stale" in resolved) {
+    console.log(`Decision e-mail not sent (${type}): ${resolved.stale}`);
+    return { status: 409, body: { error: "The decision is no longer current: nothing was sent.", stale: true, detail: resolved.stale } };
+  }
+  const mail = renderDecisionEmail(type, resolved.facts);
+  if (!mail) return { status: 400, body: { error: "Invalid type" } };
+  if (!(await sendDecisionMail(resolved.email, mail))) return { status: 502, body: { error: "Email provider error" } };
+  if (outboxId !== null) {
+    const { error } = await db.rpc("notification_outbox_done", { p_id: outboxId, p_error: null });
+    if (error) console.error("send-status-notification: could not mark the queued e-mail sent:", outboxId, error.message);
+  }
+  console.log(`Decision e-mail sent: ${type} (${serviceCaller ? "service" : "staff"})`);
+  return { status: 200, body: { success: true, type } };
 }

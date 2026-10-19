@@ -24,6 +24,9 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { useRegistrationFlags } from '@/lib/flags';
+import { ValidatePersonDialog } from './ValidatePersonDialog';
+import type { PersonAction } from './review/reviewApi';
 import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminProfile } from './types';
@@ -65,6 +68,14 @@ export function AdminUserDetail() {
   const [adminNotes, setAdminNotes] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
+  // Review list v2 (registration_flags.review_queue): Approve, Reject and Ask go through M3's
+  // validation window (admin_validate_person: company, type, reason, e-mail). Off = as before.
+  // Staff profiles (admin, moderator) keep the direct path: admin_validate_person refuses
+  // them (staff_profile). Until the switches are read, Approve and Reject wait; a failed read
+  // is never taken for "off" (src/lib/flags.ts): they keep waiting, with a retry.
+  const { flags: regFlags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
+  const flagsKnown = flagsReady && !flagsFailed;
+  const [validating, setValidating] = useState<PersonAction | null>(null);
 
   // Tier management
   const [updatingTier, setUpdatingTier] = useState(false);
@@ -415,6 +426,10 @@ export function AdminUserDetail() {
   );
 
   if (!user) return null;
+
+  // Review list v2 (registration_flags.review_queue), people only: Approve, Reject and Ask go
+  // through M3's validation window (admin_validate_person: company, type, reason, e-mail).
+  const validationV2 = regFlags.review_queue && user.persona !== 'admin' && user.persona !== 'moderator';
 
   const getUserName = () => {
     if (user.first_name || user.last_name) return `${user.first_name || ''} ${user.last_name || ''}`.trim();
@@ -799,17 +814,22 @@ export function AdminUserDetail() {
           <div className="flex flex-wrap gap-2">
             {user.access_status !== 'verified' && (
               <Button
-                onClick={handleApprove}
-                disabled={saving}
+                onClick={validationV2 ? () => setValidating('validate') : handleApprove}
+                disabled={saving || !flagsKnown}
                 className="gap-1.5"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                Approve
+                {validationV2 ? 'Validate…' : 'Approve'}
+              </Button>
+            )}
+            {validationV2 && user.access_status !== 'verified' && (
+              <Button variant="outline" onClick={() => setValidating('ask')} className="gap-1.5">
+                Ask for a detail
               </Button>
             )}
             {user.access_status !== 'rejected' && !showRejectForm && (
-              <Button variant="destructive" onClick={() => setShowRejectForm(true)} className="gap-1.5">
-                Reject
+              <Button variant="destructive" disabled={!flagsKnown} onClick={() => (validationV2 ? setValidating('reject') : setShowRejectForm(true))} className="gap-1.5">
+                {validationV2 ? 'Not accepted…' : 'Reject'}
               </Button>
             )}
             {user.access_status !== 'suspended' && (
@@ -819,6 +839,22 @@ export function AdminUserDetail() {
             )}
             {/* Payment pending button removed — member tier is free */}
           </div>
+          {flagsFailed && user.access_status !== 'verified' && (
+            <p role="alert" className="text-sm text-red-700">
+              The review settings could not be loaded, so Approve and Reject wait.{' '}
+              <button type="button" className="font-semibold underline underline-offset-2" onClick={retryFlags}>Try again</button>
+            </p>
+          )}
+
+          {validating && id && (
+            <ValidatePersonDialog
+              open
+              onOpenChange={(o) => { if (!o) setValidating(null); }}
+              userId={id}
+              initialAction={validating}
+              onDone={() => { loadUser(id); }}
+            />
+          )}
 
           {/* Reject form */}
           {showRejectForm && (

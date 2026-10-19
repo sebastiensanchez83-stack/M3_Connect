@@ -50,10 +50,14 @@ import { supabase } from '@/lib/supabase';
  *    account_signup_v2 on, team invitation e-mails carry the signed /join/<token> link.
  *    The old live site cannot open such a link: switch it on at go-live only. It is not
  *    in the list below on purpose (no page reads it).
+ *  - outbox_sender (Phase 3) is acted on by the server only (registration-cron sends the
+ *    e-mails queued in notification_outbox while it is on), but the admin pages read it to
+ *    say where a decision e-mail waits ("queued until the sender is on"), so it is listed.
  */
 export const REGISTRATION_FLAG_KEYS = [
   'webinar_v2', 'onsite_v2', 'front_door', 'account_signup_v2', 'password_only_login',
   'wys_form_v2', 'wys_status_edit', 'review_queue', 'provisioning', 'capabilities_enforced', 'turnstile',
+  'outbox_sender',
 ] as const;
 
 export type RegistrationFlag = typeof REGISTRATION_FLAG_KEYS[number];

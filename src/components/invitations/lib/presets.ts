@@ -6,6 +6,7 @@
 import type { InvitationCampaignInsert, InvitationCampaignSettings, InvitationCampaignTexts } from '../types';
 import wys from '../presets/wys-dubai-2026.json';
 import { todayIso } from './render';
+import { clean } from './norm';
 
 export interface Preset { key: string; label: string; build: (glEventId: string) => InvitationCampaignInsert }
 
@@ -59,3 +60,14 @@ export const PRESETS: Preset[] = [
 /** The kit's texts, to compare with a campaign in template mode (the artwork prints them). */
 export const WYS_TICKET_TEXTS = wys.ticket;
 export const WYS_EVENT = wys.event;
+
+/**
+ * The times of the event printed on the ticket (Victor, 19 Oct 2026: "Conference and lunch
+ * 9:00 to 15:00", "Gala dinner 19:30 to 22:00"). Campaigns created before then carry no
+ * schedule: they get the WYS 2026 times when their facts are WYS's, otherwise nothing.
+ */
+export function ticketSchedule(c: { settings?: InvitationCampaignSettings | null }): { label: string; time: string }[] {
+  const s = c.settings || {};
+  if (Array.isArray(s.schedule)) return s.schedule.filter((p) => clean(p?.label) || clean(p?.time));
+  return clean(s.date_label) === WYS_EVENT.date_label && clean(s.access) === WYS_EVENT.access ? WYS_EVENT.schedule : [];
+}

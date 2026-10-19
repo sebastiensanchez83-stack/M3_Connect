@@ -7,6 +7,10 @@
     "city": "Dubai",
     "venue": "The Lana, Dorchester Collection",
     "access": "Conference and Gala Dinner",
+    "schedule": [
+      { "label": "Conference and lunch", "time": "9:00 to 15:00" },
+      { "label": "Gala dinner", "time": "19:30 to 22:00" }
+    ],
     "rsvp_deadline_iso": "2026-11-13",
     "rsvp_deadline_label": "13 November 2026",
     "rsvp_email": "events@m3monaco.com",

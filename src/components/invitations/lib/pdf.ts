@@ -20,6 +20,7 @@ import type { InvitationCampaign, InvitationRecipient, InvitationTicketStyle } f
 import { clean } from './norm';
 import { dateLabel, fill, parseMarkup, variablesFor, type RunStyle } from './render';
 import { salutation } from './names';
+import { ticketSchedule } from './presets';
 
 export const MM = 72 / 25.4;
 
@@ -167,6 +168,7 @@ export async function ticketPdf(assets: InvitationAssets, c: Campaign, g: Guest,
   const page = template ? d.pdf.getPage(0) : d.pdf.addPage([TICKET.W, TICKET.H]);
   const T = THEMES[style];
   if (mode === 'drawn') await drawTicketArtwork(d, page, c, T);
+  await drawTicketSchedule(d, page, c, T);
 
   const italic = await d.font('pagellaItalic');
   const name = d.safe(clean(g.name_on_ticket), italic, 'pagellaItalic', 'Name on ticket');
@@ -180,6 +182,31 @@ export async function ticketPdf(assets: InvitationAssets, c: Campaign, g: Guest,
   d.finish();
   meta(d.pdf, c, 'Invitation', clean(g.name_on_ticket));
   return { bytes: await d.pdf.save(), issues: d.issues };
+}
+
+/**
+ * One line between the line under the name and the hairline above DATE / VENUE / ACCESS
+ * (baseline y = 30 mm): each part's label in the DATE-label style, then its time in the
+ * value style. Drawn on the validated artwork too (that band is empty there).
+ */
+async function drawTicketSchedule(d: Doc, page: PDFPage, c: Campaign, T: TicketTheme) {
+  const schedule = ticketSchedule(c);
+  if (!schedule.length) return;
+  const semibold = await d.font('semibold');
+  const regular = await d.font('regular');
+  const y = 30 * MM;
+  let x = TICKET.ML;
+  schedule.forEach((p, i) => {
+    const label = d.safe(clean(p.label).toUpperCase(), semibold, 'semibold', 'Ticket times');
+    const time = d.safe(clean(p.time), regular, 'regular', 'Ticket times');
+    if (label) x += tracked(page, label, x, y, semibold, 5.6, 1.2, T.dlab) + 2.2 * MM;
+    if (time) {
+      page.drawText(time, { x, y, size: 7.6, font: regular, color: T.dval });
+      x += regular.widthOfTextAtSize(time, 7.6);
+    }
+    if (i < schedule.length - 1) x += 8 * MM;
+  });
+  if (x > TICKET.STUB - 12 * MM) d.issues.push({ level: 'error', code: 'times_too_long', message: 'The times on the ticket run past the line. Shorten them in Settings.' });
 }
 
 async function drawTicketArtwork(d: Doc, page: PDFPage, c: Campaign, T: TicketTheme) {

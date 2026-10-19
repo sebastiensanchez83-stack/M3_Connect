@@ -48,6 +48,12 @@ export interface InvitationCampaignSettings {
   city?: string;
   venue?: string;
   access?: string;
+  /**
+   * The times printed on the ticket, one entry per part (e.g. "Conference and lunch",
+   * "9:00 to 15:00"). Absent: the WYS 2026 times when the campaign carries the WYS
+   * event facts; an empty list prints nothing.
+   */
+  schedule?: { label: string; time: string }[];
   rsvp_deadline_iso?: string;
   rsvp_deadline_label?: string;
   rsvp_email?: string;

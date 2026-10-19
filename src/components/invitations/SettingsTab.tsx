@@ -11,7 +11,7 @@ import type { InvitationCampaign, InvitationCampaignSettings, InvitationCampaign
 import { deleteCampaign, signatureBytes, updateCampaign, type GlEventLite } from './lib/api';
 import { JOIN_PLATFORM_DEFAULT, VARIABLES, dashProblems, unknownVariables } from './lib/render';
 import { isEmail } from './lib/norm';
-import { WYS_EVENT, WYS_TICKET_TEXTS } from './lib/presets';
+import { WYS_EVENT, WYS_TICKET_TEXTS, ticketSchedule } from './lib/presets';
 import { Segmented, SectionTitle } from './ui';
 
 interface Form {
@@ -106,6 +106,16 @@ export function SettingsTab({ campaign, events, hasGuests, invitedAny, onSaved, 
     catch (e) { toast({ title: 'Not deleted', description: (e as Error).message, variant: 'destructive' }); }
   };
 
+  // Times on the ticket: one line per part, "label | time" (kept as typed, saved as a list).
+  const [timesText, setTimesText] = useState(() => ticketSchedule(campaign).map(p => `${p.label} | ${p.time}`).join('\n'));
+  const onTimes = (v: string) => {
+    setTimesText(v);
+    setS('schedule', v.split('\n').map(l => {
+      const [label, ...rest] = l.split('|');
+      return { label: (label || '').trim(), time: rest.join('|').trim() };
+    }).filter(p => p.label || p.time));
+  };
+
   const text = (label: string, value: string | undefined, on: (v: string) => void, hint?: ReactNode, type = 'text') => (
     <Labeled label={label} hint={hint}><Input type={type} value={value || ''} onChange={e => on(e.target.value)} /></Labeled>
   );
@@ -156,6 +166,9 @@ export function SettingsTab({ campaign, events, hasGuests, invitedAny, onSaved, 
           {text('City', f.settings.city, v => setS('city', v))}
           {text('Venue', f.settings.venue, v => setS('venue', v))}
           {text('Access (as printed)', f.settings.access, v => setS('access', v))}
+          <Labeled label="Times on the ticket" hint="One line per part: label | time. Empty: no times printed.">
+            <Textarea rows={3} value={timesText} onChange={e => onTimes(e.target.value)} />
+          </Labeled>
           {text('RSVP deadline (as printed)', f.settings.rsvp_deadline_label, v => setS('rsvp_deadline_label', v))}
           {text('RSVP e-mail', f.settings.rsvp_email, v => setS('rsvp_email', v))}
           {text('Hosts', f.settings.hosts, v => setS('hosts', v))}

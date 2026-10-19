@@ -409,6 +409,19 @@ const chans = M.invitationChannels([
 ]);
 eq('Tracking channels: platform, by hand, first send only', [chans.get('a'), chans.get('b'), chans.get('c'), chans.get('d')], ['platform', 'third_party', 'phone', undefined]);
 
+/* 4b. Times on the ticket (Victor, 19 Oct 2026) */
+{
+  const def = await M.ticketPdf(assets, campaign(), guest('Luck Machin'));
+  check('Ticket prints the WYS 2026 times by default, within the line', !def.issues.some((i) => i.code === 'times_too_long'));
+  const none = await M.ticketPdf(assets, campaign({ settings: { schedule: [] } }), guest('Luck Machin'));
+  check('An empty times list prints nothing and raises nothing', !none.issues.some((i) => i.code === 'times_too_long'));
+  const long = await M.ticketPdf(assets, campaign({ settings: { schedule: [
+    { label: 'Conference, lunch and afternoon workshops', time: '9:00 to 17:30' },
+    { label: 'Cocktail and gala dinner on the terrace', time: '19:30 to 23:30' },
+  ] } }), guest('Luck Machin'));
+  check('Times too long for the line are reported', long.issues.some((i) => i.code === 'times_too_long'));
+}
+
 /* 5. Optional: pixel comparison with the kit's validated samples */
 const samples = opt('--samples');
 if (samples) {
@@ -452,7 +465,7 @@ if (samples) {
   const letterGuest = opt('--letter-guest'); // "Name|Job title|Organisation|Greeting"
   if (ticketName) {
     for (const artwork of ['template', 'drawn']) {
-      const t = await M.ticketPdf(assets, campaign({ settings: { ticket_artwork: artwork } }), guest(ticketName));
+      const t = await M.ticketPdf(assets, campaign({ settings: { ticket_artwork: artwork, schedule: [] } }), guest(ticketName));
       const pct = await compare(`ticket-${artwork}`, t.bytes, 'sample_ticket_white.pdf', 4);
       check(`Ticket (${artwork}) matches sample_ticket_white.pdf`, pct < 0.05, `${pct.toFixed(3)}% of pixels differ`);
     }

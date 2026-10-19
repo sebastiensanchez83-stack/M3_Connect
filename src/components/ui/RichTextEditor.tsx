@@ -16,6 +16,7 @@ interface RichTextEditorProps {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  allowImages?: boolean;
 }
 
 function ToolbarButton({
@@ -46,7 +47,7 @@ function ToolbarButton({
   );
 }
 
-export function RichTextEditor({ content, onChange, placeholder }: RichTextEditorProps) {
+export function RichTextEditor({ content, onChange, placeholder, allowImages = true }: RichTextEditorProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
@@ -59,12 +60,12 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
         openOnClick: false,
         HTMLAttributes: { class: 'text-primary underline' },
       }),
-      Image.configure({
+      ...(allowImages ? [Image.configure({
         HTMLAttributes: {
           class: 'rounded-lg max-w-full h-auto my-4',
         },
         allowBase64: false,
-      }),
+      })] : []),
       Placeholder.configure({
         placeholder: placeholder || 'Start writing...',
       }),
@@ -82,6 +83,7 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
         const file = event.dataTransfer.files[0];
         if (!file.type.startsWith('image/')) return false;
         event.preventDefault();
+        if (!allowImages) return true;
         handleImageUpload(file);
         return true;
       },
@@ -91,6 +93,7 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
         for (const item of Array.from(items)) {
           if (item.type.startsWith('image/')) {
             event.preventDefault();
+            if (!allowImages) return true;
             const file = item.getAsFile();
             if (file) handleImageUpload(file);
             return true;
@@ -102,7 +105,7 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
   });
 
   const handleImageUpload = async (file: File) => {
-    if (!editor) return;
+    if (!editor || !allowImages) return;
     toast({ title: 'Uploading image...' });
     const url = await uploadImageToStorage(file);
     if (url) {
@@ -210,12 +213,12 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
             <Unlink className="h-4 w-4" />
           </ToolbarButton>
         )}
-        <ToolbarButton
+        {allowImages && <ToolbarButton
           onClick={handleImageButtonClick}
           title="Insert Image"
         >
           <ImagePlus className="h-4 w-4" />
-        </ToolbarButton>
+        </ToolbarButton>}
         <ToolbarButton
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
           title="Horizontal Rule"
@@ -239,13 +242,13 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
         </ToolbarButton>
       </div>
       {/* Hidden file input for image upload */}
-      <input
+      {allowImages && <input
         ref={imageInputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp,image/gif"
         onChange={handleImageFileSelect}
         className="hidden"
-      />
+      />}
       {/* Editor */}
       <EditorContent editor={editor} />
     </div>

@@ -79,6 +79,8 @@ const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGu
 const AdminReviewQueue = lazyWithRetry(() => import('@/components/admin/AdminReviewQueue').then(m => ({ default: m.AdminReviewQueue })));
 // Rights per company type: the table and what the switch would change (read-only).
 const AdminRights = lazyWithRetry(() => import('@/components/admin/AdminRights').then(m => ({ default: m.AdminRights })));
+const AdminInvitations = lazyWithRetry(() => import('@/components/invitations/AdminInvitations').then(m => ({ default: m.AdminInvitations })));
+const AdminEventInvitations = lazyWithRetry(() => import('@/components/invitations/AdminInvitations').then(m => ({ default: m.AdminEventInvitations })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -198,6 +200,10 @@ export function AdminPage() {
             <Route path="/guest-list/:slug" element={<AdminOnlyGuard><AdminGuestList /></AdminOnlyGuard>} />
             {/* The entry QR in guest emails encodes this URL. Moderators may work the door: gl_checkin checks is_moderator itself. */}
             <Route path="/guest-list/:slug/checkin" element={<AdminGuestCheckin />} />
+            {/* The event's invitations (WYS 2026 > Invitations): same access as /invitations. */}
+            <Route path="/guest-list/:slug/invitations/*" element={<AdminEventInvitations />} />
+            {/* Invitation campaigns: staff (admins and moderators), RLS on every table. */}
+            <Route path="/invitations/*" element={<AdminInvitations />} />
             <Route path="/media-downloads" element={<AdminOnlyGuard><AdminMediaDownloads /></AdminOnlyGuard>} />
             <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}

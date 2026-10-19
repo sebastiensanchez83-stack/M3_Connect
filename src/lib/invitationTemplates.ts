@@ -256,10 +256,10 @@ export const FOOTER_DEFAULT =
 
 /**
  * Artwork shipped with the app, so a letter looks right with nothing to set up.
- * Only the public marketing assets live here: the CEO's signature and the
- * company stamp are deliberately NOT bundled, because everything under public/
- * is downloadable by anyone who guesses the URL. Those two are uploaded once
- * into private storage instead.
+ * Only the public marketing assets live here: the signatures and the company
+ * stamp are deliberately NOT bundled, because everything under public/ is
+ * downloadable by anyone who guesses the URL. Those are kept in private
+ * storage instead (see PRIVATE_LETTERHEAD_ASSETS below).
  */
 // The 2026 artwork, as supplied by the design team: both strips are 2480px
 // wide, which is exactly 300 dpi across a full A4 sheet. Served from public/
@@ -270,8 +270,17 @@ export const BUNDLED_ASSETS = {
   banner: '/letterhead/Gabarits%20Smart%20Marina%202026%20-%20HEADER.jpg',
   footer: '/letterhead/Gabarits%20Smart%20Marina%202026_FOOTER.jpg',
   logo: '/letterhead/m3-logo.png',
-  // The signature slot existed in the renderer from the start but nothing ever
-  // filled it, so letters went out unsigned. 843x449px for a 40mm slot is well
-  // above the 300 dpi it needs.
-  signature: '/letterhead/Signature.png',
 };
+
+/**
+ * Letterhead images that must never be public, with the private copy every
+ * letter uses unless one is uploaded under Letterhead. They sit in the private
+ * bucket "invitation-files", which only verified admins and moderators can read
+ * (migration 20261017090000_invitation_campaigns), and are fetched through a
+ * short-lived signed URL. The signature used to ship in public/letterhead/ and
+ * was downloadable by anyone; it was uploaded there by hand instead (843x449px,
+ * well above the 300 dpi a 40mm slot needs).
+ */
+export const PRIVATE_LETTERHEAD_ASSETS = {
+  signature: { bucket: 'invitation-files', path: 'letterhead/signature.png' },
+} as const;

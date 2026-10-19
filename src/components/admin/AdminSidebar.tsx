@@ -69,6 +69,14 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
     { to: '/admin/expositions', label: 'Old exposition requests', icon: <Store className={ICON} />, adminOnly: true },
   ];
   const onArchives = archiveItems.some(i => path.startsWith(i.to));
+  // ---- WYS 2026 (guest-list event): Guest list and its Invitations, like the Smart 26 sub-tabs ----
+  // /admin/invitations (every campaign, any event) is not WYS 2026's: it highlights nothing.
+  const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations');
+  const onWys = path.startsWith('/admin/guest-list/wys26');
+  const wysChildren: (NavItem & { active: boolean })[] = [
+    { to: '/admin/guest-list/wys26', label: 'Guest list', icon: <ClipboardList className={ICON} />, active: onWys && !wysInvitations },
+    { to: '/admin/guest-list/wys26/invitations', label: 'Invitations', icon: <Mail className={ICON} />, active: wysInvitations },
+  ];
   const onWebinars = path.startsWith('/admin/webinars') || onWebinarList;
 
   // ---- Labelled groups ----
@@ -100,8 +108,9 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
 
   // Expansion state: the Events branches only. The one holding the current route opens.
   const [open, setOpen] = useState<Record<string, boolean>>(() => ({
-    onsite: onSm26 || isAdmin,           // on-site open by default for admins
+    onsite: onSm26 || onWys || isAdmin,  // on-site open by default for admins
     smart26: onSm26,
+    wys26: onWys,
     webinars: onWebinars,
     archives: onArchives,
   }));
@@ -110,6 +119,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
     setOpen(p => ({
       ...p,
       ...(onSm26 ? { onsite: true, smart26: true } : {}),
+      ...(onWys ? { onsite: true, wys26: true } : {}),
       ...(onWebinars ? { webinars: true } : {}),
       ...(onOnsiteList ? { onsite: true } : {}),
       ...(onArchives ? { archives: true } : {}),
@@ -196,8 +206,20 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
                     ))}
                   </div>
                 )}
-                {/* Guest-list events (invitation-only) */}
-                {renderItem({ to: '/admin/guest-list/wys26', label: 'WYS 2026', icon: <Mail className={ICON} /> })}
+                {/* Guest-list events (invitation-only): WYS 2026 expands to its guest list and invitations */}
+                <button type="button" onClick={() => toggle('wys26')} aria-expanded={!!open.wys26} className={cn(linkClass(onWys && !open.wys26), 'justify-between')}>
+                  <span className="flex items-center gap-3"><Mail className={ICON} /> WYS 2026</span>
+                  {caret(!!open.wys26)}
+                </button>
+                {open.wys26 && (
+                  <div className={nested}>
+                    {wysChildren.map(c => (
+                      <Link key={c.to} to={c.to} onClick={onNavigate} className={linkClass(c.active)} aria-current={c.active ? 'page' : undefined}>
+                        {c.icon}<span className="min-w-0 leading-tight">{c.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
                 {/* Add another on-site event */}
                 <Link to="/admin/events/new?type=on_site" onClick={onNavigate} className={quietLink}>
                   <Plus className={ICON} /> Add on-site event

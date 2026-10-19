@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } from './types';
 import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { ResourceM3EditionEditor } from './ResourceM3EditionEditor';
 
 interface Sector {
   id: string;
@@ -735,6 +736,8 @@ export function AdminResourceDetail() {
           />
         </CardContent>
       </Card>
+
+      {isAdmin && resourceId && <ResourceM3EditionEditor key={resourceId} resourceId={resourceId} />}
 
       {/* Published checkbox + Save */}
       <Card className="border-0 shadow-sm">

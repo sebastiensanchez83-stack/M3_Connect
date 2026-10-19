@@ -1,0 +1,58 @@
+{
+  "event": {
+    "name": "World Yachting Summit",
+    "edition": "2nd edition",
+    "date_iso": "2026-11-27",
+    "date_label": "27 November 2026",
+    "city": "Dubai",
+    "venue": "The Lana, Dorchester Collection",
+    "access": "Conference and Gala Dinner",
+    "schedule": [
+      { "label": "Conference and lunch", "time": "9:00 to 15:00" },
+      { "label": "Gala dinner", "time": "19:30 to 22:00" }
+    ],
+    "rsvp_deadline_iso": "2026-11-13",
+    "rsvp_deadline_label": "13 November 2026",
+    "rsvp_email": "events@m3monaco.com",
+    "hosts": "M3 Monaco and OMNIYAT",
+    "website": "www.worldyachtingsummit.com",
+    "contact_email_ticket": "contact@worldyachtingsummit.com",
+    "phone": "+377 97 98 41 82"
+  },
+  "ticket": {
+    "eyebrow": "M3 MONACO AND OMNIYAT HAVE THE PLEASURE OF INVITING",
+    "line_under_name": "to attend the 2nd edition of the World Yachting Summit in Dubai",
+    "fine_print": "Strictly by invitation. Personal and non transferable, valid for the guest named above.",
+    "stub_top": "WORLD YACHTING SUMMIT",
+    "stub_day": "27",
+    "stub_month_year": "NOVEMBER 2026",
+    "stub_city": "DUBAI",
+    "stub_edition": "2nd Edition"
+  },
+  "letter": {
+    "place": "Monaco",
+    "paragraphs": [
+      "On behalf of M3 Monaco and OMNIYAT, it is our great pleasure to invite you to the **2nd edition of the World Yachting Summit**, held on **27 November 2026** at **The Lana, Dorchester Collection, Dubai**.",
+      "After a first edition in Monaco, the Summit comes to Dubai to bring together waterfront and real estate developers, marina and yachting professionals, government and tourism authorities, yacht owners, investors and family offices. This edition looks at what yachting gives back to the region: its economy, its regional development and the growth of yachting tourism across the Gulf.",
+      "The day is built around open exchange rather than speeches:"
+    ],
+    "bullets": [
+      "An opening keynote and a data presentation on Gulf yachting in numbers",
+      "Two conferences: *The destination dividend, what a marina gives back to a city*, and *What a yacht cannot get here yet*",
+      "Four workshop tables in small groups, followed by an interactive lunch",
+      "A welcome cocktail and Gala Dinner in the evening"
+    ],
+    "closing_paragraphs": [
+      "Attendance is strictly by invitation and personal to the named guest. Kindly RSVP by **13 November 2026** to **events@m3monaco.com**. Your personal invitation card is enclosed with this letter.",
+      "We very much look forward to welcoming you in Dubai.",
+      "With our warmest regards,"
+    ],
+    "signatory_name": "Victor Meyer",
+    "signatory_title": "Sales & Events Manager, M3 Monaco",
+    "footer": "events@m3monaco.com   ·   +377 97 98 41 82   ·   www.worldyachtingsummit.com"
+  },
+  "email": {
+    "subject": "Join us in Dubai on 27 November",
+    "body": "Dear {{greeting}},\n\nI hope you are well.\n\nThis November, the World Yachting Summit returns to Dubai, and it would be a real pleasure to count you among our guests. We are bringing together a small circle of developers, marina operators, authorities and yachting leaders for a day of honest conversations about where the region is heading, followed by an evening together at the Gala Dinner.\n\nYou will find attached your invitation letter and your personal invitation card for 27 November at The Lana, Dorchester Collection.\n\nWhen you have a moment, could you let us know by 13 November if you can make it? Simply reply to events@m3monaco.com and we will take care of the rest.\n\nI would be very happy to see you there, and of course do not hesitate to reach out if you have any questions.\n\nWarm regards,\n\nVictor Meyer\nSales & Events Manager, M3 Monaco\n+377 97 98 41 82"
+  }
+}

@@ -7,6 +7,16 @@
 
 ## 1. Project at a Glance
 
+### M3 editorial feed — 16 October 2026
+
+- `/rss.xml` now requires a ready record in `resource_m3_editions`, in addition to a public, published resource with `share_to_m3=true`. Its `description` remains the source summary; `content:encoded` contains the distinct M3 analysis and tracked source attribution.
+- Verified admins edit and save this edition separately in the resource editor. Draft editions are private; public reads and all writes are protected by RLS. Concurrent edits are checked using the server timestamp.
+- The seven existing WordPress articles were enriched directly and their corresponding ready editions seeded. Source GUIDs, dates, images and WordPress URLs remain unchanged.
+- WordPress/WPeMatico automatically publishes new eligible items on its existing hourly schedule, after the feed cache refreshes (15 minutes). It deduplicates existing GUIDs: later edition edits do **not** overwrite already imported WordPress posts. Disabling sharing does not remove a published WordPress post.
+- The S3 feed keeps its separate full-source-article behaviour. Private/member resources must never be exported by either endpoint.
+- Checks: `node --experimental-strip-types --test tests/m3-rss.test.ts tests/rss.test.mjs` and TypeScript. The repository currently has no ESLint configuration.
+- Migration: `20261016101019_m3_resource_editorial_editions.sql`. Applied through the CLI using an isolated copy of the actual remote migration history, avoiding unrelated pending/missing history entries.
+
 | | |
 |---|---|
 | **Live URL** | https://smartmarinaconnect.com |

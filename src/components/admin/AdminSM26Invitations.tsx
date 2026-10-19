@@ -17,7 +17,7 @@ import { Pill } from '@/components/sm26/SM26ConsoleUI';
 import {
   REGISTERS, LETTER_TYPES, bodyParagraphs, complimentaryCloseFor, letterDateLong, salutationFor,
   subjectFor, signOffFor, addressPlaceholder, salutationWord,
-  SENDER_DEFAULT, SIGNATORY_DEFAULT, FOOTER_DEFAULT, BUNDLED_ASSETS,
+  SENDER_DEFAULT, SIGNATORY_DEFAULT, FOOTER_DEFAULT, BUNDLED_ASSETS, PRIVATE_LETTERHEAD_ASSETS,
   type EventFacts, type Lang, type Register, type LetterType,
 } from '@/lib/invitationTemplates';
 import { downloadInvitationPdf, invitationPdfBlobUrl, toDataUrl, type LetterAssets, type LetterData } from '@/lib/invitationPdf';
@@ -62,11 +62,13 @@ type AssetSlot = 'banner' | 'footerImage' | 'logo' | 'signature' | 'stamp';
 // The pixel widths are the ones needed for a crisp 300 dpi print at the size
 // each image is actually drawn. They are spelled out because the bundled M3
 // logo was 74px wide for a 20mm slot and printed visibly soft.
-const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: boolean }[] = [
+// bundled: a public default ships with the app. privateDefault: a default sits in
+// private storage (PRIVATE_LETTERHEAD_ASSETS), read by staff through a signed URL.
+const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: boolean; privateDefault?: boolean }[] = [
   { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page. Use at least 2480px wide.', bundled: true },
   { key: 'footerImage', label: 'Footer strip', hint: 'Full-width band at the foot of every page — partner logos. Use at least 2480px wide.', bundled: true },
   { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block. Use at least 240px wide, or it prints blurry.', bundled: true },
-  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name, at the foot of the letter. Kept private — never published on the website.', bundled: true },
+  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name, at the foot of the letter. Kept private — never published on the website.', privateDefault: true },
   { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature. Kept private — never published on the website.' },
 ];
 
@@ -120,6 +122,7 @@ export function AdminSM26Invitations() {
   const [event, setEvent] = useState<EventFacts & { id: string } | null>(null);
   const [letterhead, setLetterhead] = useState<Letterhead>({});
   const [assets, setAssets] = useState<LetterAssets>({});
+  const [assetsReady, setAssetsReady] = useState(false);
   const [rows, setRows] = useState<Invitation[]>([]);
   const [board, setBoard] = useState<Record<string, BoardRow>>({});
   const [openId, setOpenId] = useState<string | null>(null);
@@ -184,7 +187,13 @@ export function AdminSM26Invitations() {
       out.banner = await toDataUrl(BUNDLED_ASSETS.banner);
       out.footerImage = await toDataUrl(BUNDLED_ASSETS.footer);
       out.logo = await toDataUrl(BUNDLED_ASSETS.logo);
-      out.signature = await toDataUrl(BUNDLED_ASSETS.signature);
+      // The signature's default is private: a signed URL, staff only.
+      const sig = PRIVATE_LETTERHEAD_ASSETS.signature;
+      const { data: sigUrl } = await supabase.storage.from(sig.bucket).createSignedUrl(sig.path, 600);
+      if (sigUrl?.signedUrl) {
+        const url = await toDataUrl(sigUrl.signedUrl);
+        if (url) out.signature = url;
+      }
       // Only the four image slots are storage paths; sender/footer are text.
       const paths = ASSET_SLOTS.map(s => [s.key, letterhead[s.key]] as const).filter(([, v]) => !!v) as [AssetSlot, string][];
       for (const [k, p] of paths) {
@@ -194,7 +203,7 @@ export function AdminSM26Invitations() {
           if (url) out[k] = url;
         }
       }
-      if (!cancelled) setAssets(out);
+      if (!cancelled) { setAssets(out); setAssetsReady(true); }
     })();
     return () => { cancelled = true; };
   }, [letterhead]);
@@ -549,9 +558,11 @@ export function AdminSM26Invitations() {
   };
 
   // Only the two private slots can actually be missing; the rest ship with the app.
+  // The signature has a private default: missing only once it failed to load.
   const missingAssets = useMemo(
-    () => ASSET_SLOTS.filter(s => !s.bundled && !letterhead[s.key]).map(s => s.label.toLowerCase()),
-    [letterhead]);
+    () => ASSET_SLOTS.filter(s => !s.bundled && !letterhead[s.key] && !(s.privateDefault && (!assetsReady || assets[s.key])))
+      .map(s => s.label.toLowerCase()),
+    [letterhead, assets, assetsReady]);
 
   const counts = useMemo(() => Object.fromEntries(
     FILTERS.map(f => [f.key, rows.filter(r => matchesFilter(r, f.key)).length])
@@ -699,7 +710,9 @@ export function AdminSM26Invitations() {
                     ? <Pill label="uploaded" cls="bg-green-50 text-green-700 border-green-200" />
                     : s.bundled
                       ? <Pill label="ships with the app" cls="bg-blue-50 text-blue-700 border-blue-200" />
-                      : <Pill label="not set" cls="bg-amber-50 text-amber-700 border-amber-200" />}
+                      : s.privateDefault && assets[s.key]
+                        ? <Pill label="private copy on file" cls="bg-blue-50 text-blue-700 border-blue-200" />
+                        : <Pill label="not set" cls="bg-amber-50 text-amber-700 border-amber-200" />}
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   <input ref={el => { fileRefs.current[s.key] = el; }} type="file" accept="image/*" className="hidden"

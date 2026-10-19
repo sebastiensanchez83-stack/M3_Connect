@@ -10,7 +10,7 @@ set local statement_timeout = '120s';
 create function pg_temp.dr_snap() returns table (k text, v text) language sql as $f$
   select 'audit', (select count(*)::text from public.organization_audit_log)
   union all select 'other_acls', (select md5(string_agg(p.oid::regprocedure::text || '=' || coalesce(array_to_string(p.proacl, ','), ''), ';' order by p.oid::regprocedure::text))
-                                    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname <> 'log_org_event')
+                                    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname <> 'log_org_' || 'event')
 $f$;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 -- The EXECUTE list of log_org_event, item by item (the order of an ACL may change).

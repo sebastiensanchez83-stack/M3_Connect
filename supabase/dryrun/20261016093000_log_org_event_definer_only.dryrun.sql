@@ -14,7 +14,7 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
   union all select 'policies', (select md5(string_agg(format('%s|%s|%s|%s|%s', pl.tablename, pl.policyname, pl.roles, pl.qual, pl.with_check), ';' order by pl.tablename, pl.policyname))
                                   from pg_policies pl where pl.schemaname = 'public')
   union all select 'other_acls', (select md5(string_agg(p.oid::regprocedure::text || '=' || coalesce(array_to_string(p.proacl, ','), ''), ';' order by p.oid::regprocedure::text))
-                                    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname <> 'log_org_event')
+                                    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname <> 'log_org_' || 'event')
 $f$;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_snap();
 

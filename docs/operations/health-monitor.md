@@ -239,7 +239,7 @@ by hand, but no e-mail can go. Only the heartbeat (step 8) reports those.
 | `wys.door` | `gl_checkin` unchanged; both guest-list triggers enabled | F | the door may not work: technical contact at once |
 | `drift.function_pins` | 13 sensitive functions changed since pinned | W | planned change: re-pin; unplanned: investigate |
 | `drift.freeze` | migrations applied during the freeze window | W | was it planned? |
-| `drift.sm26_archive` | row counts of 7 `sm_*` tables against the baseline; since 20 Oct 2026 (migration `20261020170000`) `sm_invoice` may grow, as M3 still adds SM26 invoices, but fewer invoices or any change in the 6 other tables still fails | F | apart from new invoices the SM26 archive must never change; if the SM26 check-in page was opened, see "Re-baseline" |
+| `drift.sm26_archive` | row counts of 7 `sm_*` tables against the baseline; since 20 Oct 2026 (migration `20261020170000`) `sm_invoice` may grow, as M3 still adds SM26 invoices, but fewer invoices than the baseline, or any change in the 6 other tables, still fails | F | apart from new invoices the SM26 archive must never change; if the SM26 check-in page was opened, see "Re-baseline" |
 | `security.open_functions` | internal functions anyone can call through the API | W | today 2 (their names are in the report); decision in `backups.md`, section 4 |
 | `db.connections` | connections in use | W over 80 %, F over 95 % | a leak, or too much traffic for Micro compute |
 | `db.long_running` | queries over 5 min, transactions left open over 5 min | W | find them in `pg_stat_activity` |

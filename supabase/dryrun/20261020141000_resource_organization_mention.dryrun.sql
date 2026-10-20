@@ -190,7 +190,7 @@ $post$;
 do $cases$
 declare
   v_res uuid; v_draft uuid; v_mres uuid; v_marres uuid; v_org uuid; v_unl uuid; v_mod uuid; v_mem uuid; v_mar uuid;
-  v_st text; v_n integer; v_n2 integer; v_n3 integer; v_b boolean;
+  v_st text; v_st2 text; v_n integer; v_n2 integer; v_n3 integer; v_b boolean;
   r_ok boolean[] := '{}';
   r_lb text[] := '{}';
 begin

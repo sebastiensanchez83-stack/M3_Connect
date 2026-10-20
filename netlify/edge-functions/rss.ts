@@ -80,6 +80,9 @@ export function renderFeed(articles: Article[], feed: Feed = FEEDS[0]): string {
   if (feed.column === 'share_to_m3') articles = articles.filter(a =>
     a.resource_m3_editions?.is_ready && hasM3Editorial(cleanM3Editorial(a.resource_m3_editions.content_html)));
   const items = articles.map((a) => {
+    // By id, for good, even once articles have readable addresses (20 Oct 2026): WordPress dedupes
+    // the imported items on the guid (and some importers on the link), and /resources/<id> answers
+    // with a 301 to the article's current address (netlify/edge-functions/seo.ts).
     const url = `${SITE_URL}/resources/${a.id}`;
     const tracked = `${url}?${feed.tracking}`;
     const title = (a.title || 'Article').trim();

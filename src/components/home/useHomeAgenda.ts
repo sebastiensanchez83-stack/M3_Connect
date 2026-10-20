@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { WYS26_PATH, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import { boardDate } from '@/lib/boardDate';
+import { eventPath } from '@/lib/seoMeta';
+import { withSlug } from '@/lib/slugRoutes';
 
 /**
  * The home page's agenda, from real data (public rows, read anonymously):
@@ -33,6 +35,8 @@ export interface AgendaEntry {
 
 interface EventRow {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   date_time: string;
   event_type: string | null;
@@ -53,14 +57,15 @@ export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boole
   useEffect(() => {
     let alive = true;
     (async () => {
-      const res = await supabase
+      // Slugs when the database has them (withSlug: id links before the slug migration).
+      const res = await withSlug('events', (slug) => supabase
         .from('events')
-        .select('id, title, date_time, event_type, location, invitation_only, published')
+        .select(`id, title, date_time, event_type, location, invitation_only, published${slug}`)
         .gte('date_time', new Date().toISOString())
         .order('date_time', { ascending: true })
-        .limit(8);
+        .limit(8));
       if (!alive) return;
-      setEvents(!res.error && Array.isArray(res.data) ? (res.data as EventRow[]) : []);
+      setEvents(!res.error && Array.isArray(res.data) ? (res.data as unknown as EventRow[]) : []);
     })().catch(() => alive && setEvents([]));
     return () => {
       alive = false;
@@ -96,7 +101,7 @@ export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boole
         spoken: boardDate(e.date_time, lang),
         title: wys ? t('brand.events.wys.title', 'World Yachting Summit 2026') : e.title,
         sub: parts.join(' · '),
-        href: wys ? WYS26_PATH : `/events/${e.id}`,
+        href: wys ? WYS26_PATH : eventPath(e),
       };
     });
     if (wys26Upcoming(now) && !published.some((e) => isWys26Event(e.title))) {

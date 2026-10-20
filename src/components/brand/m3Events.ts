@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import { WYS26_PATH, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { SITE_IMAGES } from '@/lib/siteMedia';
+import { RENDEZVOUS_6TH_PATH, WYS26_EVENT_ID } from '@/lib/seoMeta';
 import type { EventCardItem } from './EventCard';
 
 /**
@@ -14,17 +15,21 @@ import type { EventCardItem } from './EventCard';
  * No patronage line until Victor has checked its wording.
  */
 
-/** The 6th edition's event page (events.id, stable even if the title is edited). */
-export const RENDEZVOUS_2026_PATH = '/events/f55f7b2f-96ac-4c5e-b620-358624e52240';
+/**
+ * The 6th edition's event page, at its readable address (src/lib/seoMeta.ts: the id and the
+ * slug live there, next to the canonical of /sm26/agenda). It opens before the slug migration
+ * too: the page knows this slug's id.
+ */
+export const RENDEZVOUS_2026_PATH = RENDEZVOUS_6TH_PATH;
 export const WEBINARS_PATH = '/events?type=webinar';
 
 /**
- * The World Yachting Summit 2026's row in the events table (unpublished on
- * purpose). The Summit has ONE page, /wys26 (Victor, 8 Oct 2026): /events never
- * lists this row (the WYS card stands for it) and /events/<this id> redirects
- * to /wys26 (EventDetailPage).
+ * The World Yachting Summit 2026's row in the events table (published since mid-October). The
+ * Summit has ONE page, /wys26 (Victor, 8 Oct 2026): /events never lists this row (the WYS card
+ * stands for it) and its event address redirects to /wys26 (the edge function, EventDetailPage).
+ * Defined in src/lib/seoMeta.ts, which the edge functions share.
  */
-export const WYS26_EVENT_ID = '5ba8d690-3a73-4f30-bb3d-52dabead7119';
+export { WYS26_EVENT_ID };
 
 /**
  * Items for the hero's floating event card (EventCard), in the order they turn: the next

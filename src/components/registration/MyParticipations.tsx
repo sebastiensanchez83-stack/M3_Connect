@@ -11,6 +11,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
+import { eventPath } from '@/lib/seoMeta';
+import { withSlug } from '@/lib/slugRoutes';
 import { humanize } from '@/components/account/format';
 import {
   GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, fetchMyParticipations, registrationErrorText, statusPagePath,
@@ -58,6 +60,8 @@ function roleText(p: Participation, t: (key: string, fallback: string) => string
 
 interface EventExtra {
   id: string;
+  /** events.slug, the event page's readable address (absent before the slug migration). Not Participation.slug (the registration's). */
+  slug?: string | null;
   description: string | null;
   replay_url: string | null;
   is_full_day: boolean | null;
@@ -87,9 +91,9 @@ function DateTile({ iso, endIso, locale, past }: { iso: string | null; endIso: s
   );
 }
 
-/** Where a row's title leads: the event page, or the event's own page (the World Yachting Summit). */
-function eventHref(p: Participation): string | null {
-  if (p.event_id) return `/events/${p.event_id}`;
+/** Where a row's title leads: the event page (its readable address when known), or the event's own page (the World Yachting Summit). */
+function eventHref(p: Participation, extra: EventExtra | null): string | null {
+  if (p.event_id) return eventPath({ id: p.event_id, slug: extra?.slug });
   if (p.engine === 'sm26') return RENDEZVOUS_2026_PATH;
   if (p.slug && GUEST_LIST_PAGES[p.slug]) return GUEST_LIST_PAGES[p.slug];
   return null;
@@ -131,9 +135,9 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
       const ids = [...new Set(list.map((r) => r.event_id).filter((x): x is string => !!x))];
       let extraMap = new Map<string, EventExtra>();
       if (ids.length > 0) {
-        const { data } = await supabase.from('events').select('id, description, replay_url, is_full_day').in('id', ids);
+        const { data } = await withSlug('events', (slug) => supabase.from('events').select(`id, description, replay_url, is_full_day${slug}`).in('id', ids));
         if (!alive) return;
-        extraMap = new Map(((data ?? []) as EventExtra[]).map((e) => [e.id, e]));
+        extraMap = new Map(((data ?? []) as unknown as EventExtra[]).map((e) => [e.id, e]));
       }
       setRows(list);
       setLinks(new Map(access.filter((a) => a.is_registered).map((a) => [a.event_id, { meeting: a.meeting_url, replay: a.replay_url ?? null }])));
@@ -294,7 +298,7 @@ function ParticipationCard({
   const display = p.status_display;
   const confirmed = display === 'confirmed';
   const closed = display === 'cancelled' || display === 'declined' || display === 'not_accepted';
-  const href = eventHref(p);
+  const href = eventHref(p, extra);
   const title = p.title ?? t('accountArea.events.untitled', 'Event details unavailable');
   const meeting = !past && isWebinar && confirmed ? link?.meeting ?? null : null;
   const replay = past ? link?.replay ?? extra?.replay_url ?? null : null;

@@ -16,16 +16,30 @@
  *     /conditions-commerciales) and two SM26 pages that used to show the home
  *     page's title: /sm26/agenda (canonical: the 6th edition's event page) and
  *     /sm26/register (noindex), see PLAIN_PAGES in src/lib/seoMeta.ts;
- *   - /organizations/:slug, /events/:id and /resources/:id, read from
+ *   - /organizations/:slug, /events/:slug and /resources/:slug, read from
  *     Supabase with the public anon key (netlify/lib/supabase-rest.ts).
+ *
+ * Readable addresses (20 Oct 2026, supabase/migrations/20261020160000_readable_slugs.sql):
+ * an article or event address given by id (/resources/<uuid>, every link before that date,
+ * the RSS feeds, the e-mails of the registration functions) or by an address the record had
+ * before (resource_slug_lookup / event_slug_lookup) answers with a 301 to its current
+ * /resources/<slug> or /events/<slug>, the query string kept (the browser keeps the #hash);
+ * so does a company given by id (/organizations/<uuid>) and an event address of the World
+ * Yachting Summit (to /wys26). Never for an unpublished event, nor for a record an anonymous
+ * reader cannot see (those keep the page as it is; the page itself redirects a signed-in reader
+ * who may see it). The canonical URL and og:url are the slug address. While the slug column does
+ * not exist (the migration not applied) every lookup reads by id as before: the database refuses
+ * the column, and that refusal (a 4xx) sends the function back to the old reads.
  * The words and the tags come from src/i18n/seo.ts (English) and
  * src/lib/seoMeta.ts, the same code the pages run in the browser, and every
  * tag is marked data-rh="true" so react-helmet-async replaces it rather than
  * adding a copy.
  *
- * Safety: it never changes a route, a status code or the page body. It only
- * runs on the paths listed in `config` (end of this file), GET only. A lookup
- * gets 800 ms; after that, or on any error, the HTML goes out untouched. A
+ * Safety: it never changes the page body, and the only status code it changes
+ * is the 301 above (a 200 page of the app only). It only runs on the paths
+ * listed in `config` (end of this file), GET only. A lookup gets 800 ms, the
+ * whole answer 900; after that, or on any error, the HTML goes out untouched
+ * (the page then moves the address itself, in the browser). A
  * record that Supabase says does not exist (to an anonymous reader) gets a
  * noindex tag, not a 404: a signed-in member may still be allowed to see it.
  * If the function itself fails (a crash, the CPU limit, a module that does
@@ -49,7 +63,7 @@
  * (netlify.toml itself cannot depend on the host).
  *
  * The response header X-SMC-SEO says what happened: page, organization, event,
- * resource, not-found, or fallback:<reason>. Check it with a GET, not
+ * resource, redirect, not-found, or fallback:<reason>. Check it with a GET, not
  * `curl -I` (HEAD never reaches this function):
  *   curl -s -D - -o /dev/null <site>/about
  *
@@ -61,21 +75,28 @@ import { SEO_STRINGS } from '../../src/i18n/seo.ts';
 import { withSiteSuffix } from '../../src/lib/seoText.ts';
 import {
   EVENT_SEO_COLUMNS,
+  KNOWN_EVENT_SLUGS,
   ORG_SEO_COLUMNS,
   RESOURCE_SEO_COLUMNS,
+  WYS26_EVENT_ID,
+  WYS26_PAGE_PATH,
   eventMeta,
+  eventPath,
   fixedPageMeta,
   headHtml,
   isPreviewHostname,
+  isUuid,
   makeSeoTr,
+  orgPath,
   organizationMeta,
   resourceMeta,
+  resourcePath,
   type EventSeoInput,
   type OrgSeoInput,
   type PageMeta,
   type ResourceSeoInput,
 } from '../../src/lib/seoMeta.ts';
-import { selectRows, supabaseEnv, withDeadline } from '../lib/supabase-rest.ts';
+import { getRest, selectRows, selectRowsOr, supabaseEnv, withDeadline, type SupabaseEnv } from '../lib/supabase-rest.ts';
 
 /** Netlify's edge context: only the part used here. */
 interface Context {
@@ -100,17 +121,17 @@ export function isPreviewHost(url: URL): boolean {
   return isPreviewHostname(url.hostname);
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 type Route =
   | { kind: 'page'; meta: PageMeta }
-  | { kind: 'organization'; slug: string }
-  | { kind: 'event'; id: string }
-  | { kind: 'resource'; id: string };
+  | { kind: 'organization'; key: string }
+  | { kind: 'event'; key: string }
+  | { kind: 'resource'; key: string };
 
 interface Resolved {
   meta: PageMeta | null;
   source: string;
+  /** The path this address moves to for good: a 301, the query string going along. */
+  redirect?: string;
 }
 
 /** The page a URL is, or null when this function has nothing to say about it. */
@@ -127,8 +148,8 @@ export function routeFor(url: URL): Route | null {
     return null;
   }
   if (!param) return null;
-  if (match[1] === 'organizations') return { kind: 'organization', slug: param };
-  return match[1] === 'events' ? { kind: 'event', id: param } : { kind: 'resource', id: param };
+  if (match[1] === 'organizations') return { kind: 'organization', key: param };
+  return match[1] === 'events' ? { kind: 'event', key: param } : { kind: 'resource', key: param };
 }
 
 /** A record an anonymous reader cannot see: kept out of the index, nothing else changed. */
@@ -140,46 +161,121 @@ function notFoundMeta(): PageMeta {
   };
 }
 
-export async function resolve(route: Route): Promise<Resolved> {
-  if (route.kind === 'page') return { meta: route.meta, source: 'page' };
-  // Event and resource ids are UUIDs: anything else is a wrong link.
-  if (route.kind !== 'organization' && !UUID.test(route.id)) return { meta: notFoundMeta(), source: 'not-found' };
+const notFound = (): Resolved => ({ meta: notFoundMeta(), source: 'not-found' });
+const noAnswer = (): Resolved => ({ meta: null, source: 'fallback:lookup' });
+const movedTo = (path: string): Resolved => ({ meta: null, source: 'redirect', redirect: path });
+const enc = encodeURIComponent;
 
-  const env = supabaseEnv();
-  if (!env) return { meta: null, source: 'fallback:no-env' };
+type EventRow = EventSeoInput & { published?: boolean | null };
 
-  if (route.kind === 'organization') {
-    const rows = await selectRows<OrgSeoInput>(
-      env, 'organizations',
-      `select=${ORG_SEO_COLUMNS}&slug=eq.${encodeURIComponent(route.slug)}&limit=1`,
-      LOOKUP_TIMEOUT_MS,
-    );
-    if (rows === null) return { meta: null, source: 'fallback:lookup' };
-    if (rows.length === 0 || !rows[0].name || !rows[0].slug) return { meta: notFoundMeta(), source: 'not-found' };
-    return { meta: organizationMeta(rows[0], tr), source: 'organization' };
-  }
+/** An event row as a head, or as a move to its own address. */
+function eventAnswer(row: EventRow | undefined, key: string): Resolved {
+  if (!row || !row.title) return notFound();
+  // The World Yachting Summit 2026 has one page, /wys26.
+  if (row.id.toLowerCase() === WYS26_EVENT_ID) return movedTo(WYS26_PAGE_PATH);
+  const meta = eventMeta(row, tr, 'en-GB');
+  // Unpublished: staff can open it, nobody should find it, and its address never moves here.
+  if (row.published === false) return { meta: { ...meta, noindex: true }, source: 'not-found' };
+  if (row.slug && row.slug !== key) return movedTo(eventPath(row));
+  return { meta, source: 'event' };
+}
 
-  if (route.kind === 'event') {
-    const rows = await selectRows<EventSeoInput & { published?: boolean | null }>(
-      env, 'events',
-      `select=${EVENT_SEO_COLUMNS}&id=eq.${encodeURIComponent(route.id)}&limit=1`,
-      LOOKUP_TIMEOUT_MS,
-    );
-    if (rows === null) return { meta: null, source: 'fallback:lookup' };
-    if (rows.length === 0 || !rows[0].title) return { meta: notFoundMeta(), source: 'not-found' };
-    const meta = eventMeta(rows[0], tr, 'en-GB');
-    // Unpublished: staff can open it, nobody should find it.
-    return rows[0].published === false ? { meta: { ...meta, noindex: true }, source: 'not-found' } : { meta, source: 'event' };
-  }
+/**
+ * The current address of an old one, through resource_slug_lookup / event_slug_lookup (they
+ * answer only for a record an anonymous reader may open, never for an unpublished event).
+ * null: none; undefined: no answer in time.
+ */
+async function currentSlug(env: SupabaseEnv, fn: 'resource_slug_lookup' | 'event_slug_lookup', slug: string): Promise<string | null | undefined> {
+  const { body, status } = await getRest(env, `rpc/${fn}`, `p_slug=${enc(slug)}`, LOOKUP_TIMEOUT_MS);
+  if (status === 0) return undefined;
+  return typeof body === 'string' && body ? body : null;
+}
 
-  const rows = await selectRows<ResourceSeoInput>(
-    env, 'resources',
-    `select=${RESOURCE_SEO_COLUMNS}&id=eq.${encodeURIComponent(route.id)}&published=eq.true&limit=1`,
+/**
+ * /events/<slug | id | an old slug>. While the slug column does not exist (the migration not
+ * applied: the database refuses the read), ids as before, and the slugs the code links to
+ * (KNOWN_EVENT_SLUGS) by their id.
+ */
+async function resolveEvent(env: SupabaseEnv, key: string): Promise<Resolved> {
+  const byId = isUuid(key);
+  if (byId && key.toLowerCase() === WYS26_EVENT_ID) return movedTo(WYS26_PAGE_PATH);
+  const slug = key.toLowerCase();
+  const first = await selectRowsOr<EventRow>(
+    env, 'events',
+    `select=${EVENT_SEO_COLUMNS},slug&${byId ? `id=eq.${enc(key)}` : `slug=eq.${enc(slug)}`}&limit=1`,
     LOOKUP_TIMEOUT_MS,
   );
-  if (rows === null) return { meta: null, source: 'fallback:lookup' };
-  if (rows.length === 0 || !rows[0].title) return { meta: notFoundMeta(), source: 'not-found' };
-  return { meta: resourceMeta(rows[0], tr), source: 'resource' };
+  if (first.rows === null) {
+    if (!first.refused) return noAnswer();
+    const id = byId ? key : KNOWN_EVENT_SLUGS[slug];
+    if (!id) return notFound();
+    const rows = await selectRows<EventRow>(env, 'events', `select=${EVENT_SEO_COLUMNS}&id=eq.${enc(id)}&limit=1`, LOOKUP_TIMEOUT_MS);
+    return rows === null ? noAnswer() : eventAnswer(rows[0], key);
+  }
+  if (first.rows.length === 0 && !byId) {
+    const current = await currentSlug(env, 'event_slug_lookup', slug);
+    if (current === undefined) return noAnswer();
+    if (current && current !== key) return movedTo(eventPath({ id: current, slug: current }));
+    const known = KNOWN_EVENT_SLUGS[slug];
+    if (known) {
+      const rows = await selectRows<EventRow>(env, 'events', `select=${EVENT_SEO_COLUMNS},slug&id=eq.${enc(known)}&limit=1`, LOOKUP_TIMEOUT_MS);
+      return rows === null ? noAnswer() : eventAnswer(rows[0], key);
+    }
+  }
+  return eventAnswer(first.rows[0], key);
+}
+
+/** /resources/<slug | id | an old slug>, published articles only. Before the slug migration, ids as before. */
+async function resolveResource(env: SupabaseEnv, key: string): Promise<Resolved> {
+  const byId = isUuid(key);
+  const slug = key.toLowerCase();
+  const first = await selectRowsOr<ResourceSeoInput>(
+    env, 'resources',
+    `select=${RESOURCE_SEO_COLUMNS},slug&${byId ? `id=eq.${enc(key)}` : `slug=eq.${enc(slug)}`}&published=eq.true&limit=1`,
+    LOOKUP_TIMEOUT_MS,
+  );
+  let rows = first.rows;
+  if (rows === null) {
+    if (!first.refused) return noAnswer();
+    // No slug column yet: only ids lead to articles.
+    if (!byId) return notFound();
+    rows = await selectRows<ResourceSeoInput>(
+      env, 'resources', `select=${RESOURCE_SEO_COLUMNS}&id=eq.${enc(key)}&published=eq.true&limit=1`, LOOKUP_TIMEOUT_MS,
+    );
+    if (rows === null) return noAnswer();
+  } else if (rows.length === 0 && !byId) {
+    const current = await currentSlug(env, 'resource_slug_lookup', slug);
+    if (current === undefined) return noAnswer();
+    if (current && current !== key) return movedTo(resourcePath({ id: current, slug: current }));
+  }
+  const row = rows[0];
+  if (!row || !row.title) return notFound();
+  if (row.slug && row.slug !== key) return movedTo(resourcePath(row));
+  return { meta: resourceMeta(row, tr), source: 'resource' };
+}
+
+/** /organizations/<slug>. An id, or a slug typed in capitals, moves to the company's own address. */
+async function resolveOrganization(env: SupabaseEnv, key: string): Promise<Resolved> {
+  const rows = await selectRows<OrgSeoInput>(env, 'organizations', `select=${ORG_SEO_COLUMNS}&slug=eq.${enc(key)}&limit=1`, LOOKUP_TIMEOUT_MS);
+  if (rows === null) return noAnswer();
+  if (rows.length > 0 && rows[0].name && rows[0].slug) return { meta: organizationMeta(rows[0], tr), source: 'organization' };
+  if (isUuid(key) || key !== key.toLowerCase()) {
+    const filter = isUuid(key) ? `id=eq.${enc(key)}` : `slug=eq.${enc(key.toLowerCase())}`;
+    const other = await selectRows<{ slug: string | null }>(env, 'organizations', `select=slug&${filter}&limit=1`, LOOKUP_TIMEOUT_MS);
+    if (other === null) return noAnswer();
+    const own = other[0]?.slug;
+    if (own && own !== key) return movedTo(orgPath(own));
+  }
+  return notFound();
+}
+
+export async function resolve(route: Route): Promise<Resolved> {
+  if (route.kind === 'page') return { meta: route.meta, source: 'page' };
+  const env = supabaseEnv();
+  if (!env) return { meta: null, source: 'fallback:no-env' };
+  if (route.kind === 'organization') return resolveOrganization(env, route.key);
+  if (route.kind === 'event') return resolveEvent(env, route.key);
+  return resolveResource(env, route.key);
 }
 
 /**
@@ -226,12 +322,29 @@ function tagged(response: Response, source: string | null, preview = false): Res
   }
 }
 
+/**
+ * The 301 to a record's own address: same host (a preview stays a preview), the query string
+ * kept (links of the WYS and SM26 pages carry their tokens there; the browser keeps the #hash
+ * itself). Null when it would point at the address asked (never a loop).
+ */
+function movedResponse(from: URL, path: string, preview: boolean): Response | null {
+  const target = new URL(path, from.origin);
+  target.search = from.search;
+  if (target.pathname === from.pathname.replace(/\/+$/, '')) return null;
+  const headers = outgoingHeaders(new Headers(), 'redirect', preview ? PREVIEW_ROBOTS : null, preview);
+  headers.set('Location', target.toString());
+  // An hour, not for ever: an address an article takes back later must not loop in a browser's cache.
+  headers.set('Cache-Control', 'public, max-age=3600');
+  return new Response(null, { status: 301, headers });
+}
+
 export default async function seo(request: Request, context: Context): Promise<Response | undefined> {
   let route: Route | null = null;
   let preview = false;
+  let url: URL | null = null;
   try {
     if (request.method === 'GET') {
-      const url = new URL(request.url);
+      url = new URL(request.url);
       route = routeFor(url);
       preview = isPreviewHost(url);
     }
@@ -239,7 +352,7 @@ export default async function seo(request: Request, context: Context): Promise<R
     route = null;
   }
   // Not a page this function describes: returning nothing lets Netlify carry on as if it were not here.
-  if (!route) return undefined;
+  if (!route || !url) return undefined;
 
   // The page and the lookup run side by side; the lookup never waits more than 800 ms.
   const lookup = withDeadline(resolve(route), LOOKUP_TIMEOUT_MS + 100);
@@ -250,6 +363,13 @@ export default async function seo(request: Request, context: Context): Promise<R
     const type = response.headers.get('content-type') ?? '';
     if (response.status !== 200 || !type.includes('text/html')) return tagged(response, null, preview);
     const resolved = await lookup;
+    if (resolved?.redirect) {
+      const moved = movedResponse(url, resolved.redirect, preview);
+      if (moved) {
+        await response.body?.cancel();
+        return moved;
+      }
+    }
     if (!resolved || !resolved.meta) return tagged(response, resolved?.source ?? 'fallback:timeout', preview);
     untouched = response.clone();
     // A preview is never indexed: the head says noindex (and drops its canonical), and so does the header.

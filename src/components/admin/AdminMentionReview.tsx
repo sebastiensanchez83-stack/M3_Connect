@@ -8,6 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { htmlToText, mentionContext, suggestMentions, type MentionOrg } from '@/lib/companyMentions';
 import { confirmMention, fetchMentionCandidates, fetchSkips, skipSuggestion } from '@/lib/mentionActions';
 import type { Resource } from './types';
+import { resourcePath } from '@/lib/seoMeta';
 import { ADMIN_BTN, ADMIN_BTN_PRIMARY, AdminEmpty, AdminLoading, AdminPanel } from './AdminUI';
 
 /**
@@ -156,7 +157,7 @@ export function AdminMentionReview({ resources }: { resources: Resource[] }) {
           actions={(
             <>
               <a
-                href={`/resources/${r.id}`}
+                href={resourcePath(r)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[13px] font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold"

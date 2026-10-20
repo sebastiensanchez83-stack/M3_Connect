@@ -50,11 +50,19 @@ export function supabaseEnv(): SupabaseEnv | null {
 }
 
 /**
- * GET /rest/v1/<table>?<query>. The rows, or null on any failure: missing
- * table or column, refused by RLS with an error, network error, or no answer
- * within `timeoutMs` (the body included). An empty array means "no such row".
+ * The answer to one GET: the parsed JSON body (null on any failure), and the HTTP status
+ * (0 when there was no answer: network error, or nothing within the time allowed).
  */
-export async function selectRows<T>(env: SupabaseEnv, table: string, query: string, timeoutMs: number): Promise<T[] | null> {
+export interface RestAnswer {
+  body: unknown;
+  status: number;
+}
+
+/**
+ * GET /rest/v1/<path>?<query>: a table, or `rpc/<function>` for a STABLE function called
+ * with its arguments in the query string. Never throws.
+ */
+export async function getRest(env: SupabaseEnv, path: string, query: string, timeoutMs: number): Promise<RestAnswer> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -62,18 +70,36 @@ export async function selectRows<T>(env: SupabaseEnv, table: string, query: stri
     // A legacy anon key is a JWT and goes in Authorization too; a new
     // publishable key (sb_publishable_…) must not.
     if (env.key.startsWith('eyJ')) headers.Authorization = `Bearer ${env.key}`;
-    const res = await fetch(`${env.url}/rest/v1/${table}?${query}`, { headers, signal: controller.signal });
+    const res = await fetch(`${env.url}/rest/v1/${path}?${query}`, { headers, signal: controller.signal });
     if (!res.ok) {
       await res.body?.cancel();
-      return null;
+      return { body: null, status: res.status };
     }
-    const rows: unknown = await res.json();
-    return Array.isArray(rows) ? (rows as T[]) : null;
+    return { body: (await res.json()) as unknown, status: res.status };
   } catch {
-    return null;
+    return { body: null, status: 0 };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * GET /rest/v1/<table>?<query>. The rows, or null on any failure: missing
+ * table or column, refused by RLS with an error, network error, or no answer
+ * within `timeoutMs` (the body included). An empty array means "no such row".
+ */
+export async function selectRows<T>(env: SupabaseEnv, table: string, query: string, timeoutMs: number): Promise<T[] | null> {
+  const { body } = await getRest(env, table, query, timeoutMs);
+  return Array.isArray(body) ? (body as T[]) : null;
+}
+
+/**
+ * As selectRows, and whether a failure was the database answering 4xx (a column or function
+ * that does not exist yet, typically) rather than no answer at all: `refused`.
+ */
+export async function selectRowsOr<T>(env: SupabaseEnv, table: string, query: string, timeoutMs: number): Promise<{ rows: T[] | null; refused: boolean }> {
+  const { body, status } = await getRest(env, table, query, timeoutMs);
+  return { rows: Array.isArray(body) ? (body as T[]) : null, refused: status >= 400 && status < 500 };
 }
 
 /** `promise`, or null if it has not settled (or has failed) after `ms`. */

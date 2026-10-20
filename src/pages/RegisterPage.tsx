@@ -27,6 +27,7 @@ import {
 import { useRegistrationFlags } from '@/lib/flags';
 import { withSiteSuffix } from '@/lib/seoText';
 import { cn } from '@/lib/utils';
+import { eventPath } from '@/lib/seoMeta';
 
 /**
  * /register/:slug — registering for one event, with that event's own questions
@@ -90,7 +91,8 @@ function RegisterContent({ slug }: { slug: string }) {
   }, [form, navigate]);
 
   const ev = form?.event ?? null;
-  const eventHref = ev?.event_id ? `/events/${ev.event_id}` : null;
+  // The registration function knows the event by id: the event page puts its readable address in the bar.
+  const eventHref = ev?.event_id ? eventPath({ id: ev.event_id }) : null;
   const isWebinar = ev?.kind === 'webinar';
   const when = ev ? whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'), false, eventZone(ev)) : '';
   const where = ev ? (isWebinar ? t('reg.online', 'Online') : ev.location || t('reg.venueTbd', 'Venue to be announced')) : '';

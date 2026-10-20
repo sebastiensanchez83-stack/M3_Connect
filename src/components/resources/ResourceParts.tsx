@@ -7,6 +7,7 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { CardShell, CardMedia } from '@/components/brand/CardShell';
 import { getTheme, type Theme, type ThemeKey } from '@/lib/themes';
 import { readMinutes } from '@/lib/readTime';
+import { resourcePath, type SlugRef } from '@/lib/seoMeta';
 
 /**
  * The pieces of the resource library (src/pages/ResourcesPage.tsx) and of the
@@ -18,6 +19,8 @@ import { readMinutes } from '@/lib/readTime';
 
 export interface ResourceCardData {
   id: string;
+  /** The readable address (/resources/<slug>); the id stands in when it is not loaded. */
+  slug?: string | null;
   title: string;
   summary: string | null;
   type: string;
@@ -248,10 +251,10 @@ function MetaLine({
 }
 
 /** The card's one link: the title, its ::after covers the card. Carries `fromList` so Back returns to the filtered view. */
-function CardLink({ id, fromList, className, children }: { id: string; fromList: boolean; className?: string; children: ReactNode }) {
+function CardLink({ resource, fromList, className, children }: { resource: SlugRef; fromList: boolean; className?: string; children: ReactNode }) {
   return (
     <Link
-      to={`/resources/${id}`}
+      to={resourcePath(resource)}
       state={fromList ? { fromList: true } : undefined}
       className={cn('stretched-link focus-visible:outline-none', className)}
     >
@@ -300,7 +303,7 @@ export function ResourceCard({
       <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
         <MetaLine resource={resource} formatDate={formatDate} showFormat={showFormat} />
         <h3 className="mt-2 text-card-title text-navy">
-          <CardLink id={resource.id} fromList={fromList} className="line-clamp-2">
+          <CardLink resource={resource} fromList={fromList} className="line-clamp-2">
             <span className="card-ul">{resource.title}</span>
           </CardLink>
         </h3>
@@ -370,7 +373,7 @@ export function FeaturedResource({
           </p>
         )}
         <h2 className={cn('text-h2-sm text-navy xl:text-h2', themes.length > 0 && 'mt-3')}>
-          <CardLink id={resource.id} fromList>
+          <CardLink resource={resource} fromList>
             <span className="card-ul">{resource.title}</span>
           </CardLink>
         </h2>

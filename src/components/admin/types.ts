@@ -28,6 +28,8 @@ export interface AdminProfile {
 
 export interface Resource {
   id: string;
+  /** The public address /resources/<slug> (absent before the slug migration). */
+  slug?: string | null;
   title: string;
   summary: string;
   content: string | null;
@@ -64,6 +66,8 @@ export interface ProfileSearchResult {
 
 export interface Event {
   id: string;
+  /** The public address /events/<slug> (absent before the slug migration). */
+  slug?: string | null;
   title: string;
   description: string;
   date_time: string;

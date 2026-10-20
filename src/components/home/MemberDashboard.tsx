@@ -38,6 +38,7 @@ import { TodoList, type TodoItem } from './dashboard/TodoList';
 import { PublishDialog } from './dashboard/teamDialogs';
 import { AccountStatus } from './dashboard/AccountStatus';
 import { useDashboardData } from './dashboard/useDashboardData';
+import { resourcePath } from '@/lib/seoMeta';
 
 /**
  * The signed-in member's dashboard, right under "Welcome back" on the home
@@ -719,7 +720,7 @@ export default function MemberDashboard() {
                   </CardMedia>
                   <div className="flex flex-1 flex-col p-4">
                     <h4 className="text-[16px] font-semibold leading-6 text-navy">
-                      <StretchedLink to={`/resources/${r.id}`} arrow={false} className="[overflow-wrap:anywhere]">{r.title}</StretchedLink>
+                      <StretchedLink to={resourcePath(r)} arrow={false} className="[overflow-wrap:anywhere]">{r.title}</StretchedLink>
                     </h4>
                     {r.summary && <p className="mt-1.5 line-clamp-2 text-[14px] leading-5 text-meta">{r.summary}</p>}
                   </div>

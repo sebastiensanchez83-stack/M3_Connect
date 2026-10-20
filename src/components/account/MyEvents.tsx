@@ -10,6 +10,8 @@ import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { BTN, BTN_OUTLINE, FOCUS, MemberEmpty, MemberPanel, RowSkeleton, StatusPill, type PillTone } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { eventPath } from '@/lib/seoMeta';
+import { withSlug } from '@/lib/slugRoutes';
 import { toast } from '@/hooks/use-toast';
 import { cn, type CalendarEventInput } from '@/lib/utils';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
@@ -33,6 +35,8 @@ import { humanize, uiLocale } from './format';
 
 interface RegisteredEvent {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   description: string | null;
   date_time: string | null;
@@ -96,11 +100,12 @@ function LegacyMyEvents() {
     if (firstLoad.current) setLoading(true);
     (async () => {
       try {
-        const { data } = await supabase
+        // The event's slug when the database has it (withSlug: id links before the slug migration).
+        const { data } = await withSlug('events', (slug) => supabase
           .from('event_registrations')
-          .select('id, event_id, created_at, payment_status, registration_type, amount_due_cents, events(id, title, description, date_time, end_date_time, is_full_day, location, event_type, replay_url, meeting_url, published)')
+          .select(`id, event_id, created_at, payment_status, registration_type, amount_due_cents, events(id, title, description, date_time, end_date_time, is_full_day, location, event_type, replay_url, meeting_url, published${slug})`)
           .eq('user_id', uid)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }));
         if (alive && data) setRegistrations(data as unknown as EventRegistration[]);
       } catch (err) {
         if (import.meta.env.DEV) console.error('My events failed:', err);
@@ -325,7 +330,7 @@ function RegistrationCard({
             <PaymentStatusPill status={reg.payment_status} />
           </div>
           <h4 className="group mt-1.5 text-[17px] font-semibold leading-6 text-navy">
-            <Link to={`/events/${reg.event_id}`} className={cn('rounded', FOCUS)}>
+            <Link to={eventPath({ id: reg.event_id, slug: ev?.slug })} className={cn('rounded', FOCUS)}>
               <span className="card-ul">{title}</span>
             </Link>
           </h4>
@@ -386,7 +391,7 @@ function RegistrationCard({
 
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
-            <Link to={`/events/${reg.event_id}`}>
+            <Link to={eventPath({ id: reg.event_id, slug: ev?.slug })}>
               {t('accountArea.events.eventPage', 'Event page')}
               <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
             </Link>

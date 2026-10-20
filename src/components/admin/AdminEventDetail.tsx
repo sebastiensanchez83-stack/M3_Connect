@@ -23,6 +23,7 @@ import { supabase } from '@/lib/supabase';
 import { resizeImage, fileMeta } from '@/lib/image';
 import { eventCover } from '@/lib/siteMedia';
 import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { SlugAddressPanel } from './SlugAddressPanel';
 import { toast } from '@/hooks/use-toast';
 import type { Event, EventPricingRow } from './types';
 import { DEFAULT_PRICING } from './types';
@@ -68,6 +69,8 @@ export function AdminEventDetail() {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [event, setEvent] = useState<Event | null>(null);
+  // Bumped on every (re)load: the web address panel reads the slug again (a draft's follows its title).
+  const [slugVersion, setSlugVersion] = useState(0);
 
   // Form
   const [form, setForm] = useState({
@@ -141,6 +144,7 @@ export function AdminEventDetail() {
       is_full_day: evt.is_full_day || false,
       published: evt.published !== false,
     });
+    setSlugVersion((n) => n + 1);
     setSpeakers(evt.speakers || []);
     setPdfUrl(evt.pdf_url || null);
     setImageUrl(evt.image_url || null);
@@ -502,6 +506,10 @@ export function AdminEventDetail() {
           <div className="space-y-2">
             <Label>Title *</Label>
             <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Event title" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="event-slug">Event page address</Label>
+            <SlugAddressPanel table="events" recordId={isNew ? null : id ?? null} title={form.title} version={slugVersion} inputId="event-slug" />
           </div>
           <div className="space-y-2">
             <Label>Description</Label>

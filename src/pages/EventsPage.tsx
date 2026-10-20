@@ -35,6 +35,7 @@ import {
 } from '@/lib/registration';
 import { ParticipateCardAction } from '@/components/registration/ParticipateCardAction';
 import { withSiteSuffix } from '@/lib/seoText';
+import { eventPath } from '@/lib/seoMeta';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 
 /**
@@ -469,7 +470,7 @@ export function EventsPage() {
     const isRegistered = registeredSet.has(e.id);
     const hasAccess = canAccess(e.access_level);
     const smPath = smPaths[e.id];
-    const detail = `/events/${e.id}`;
+    const detail = eventPath(e);
     const onNavy = mode === 'featured';
     const size = onNavy ? 'default' : 'sm';
     const main = onNavy ? 'ctaOnDark' : 'ctaNavy';
@@ -520,6 +521,7 @@ export function EventsPage() {
           verified={isVerified}
           onNavy={onNavy}
           onRegistered={() => setPartsVersion((v) => v + 1)}
+          eventHref={detail}
         />
       );
     }

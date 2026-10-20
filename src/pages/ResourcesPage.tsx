@@ -26,6 +26,7 @@ import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { openSignup } from '@/lib/authModal';
 import { cn } from '@/lib/utils';
+import { withSlug } from '@/lib/slugRoutes';
 import '@/styles/refonte-content.css';
 
 /** The library holds articles: its search suggests articles only. */
@@ -58,6 +59,8 @@ interface Sector {
 
 interface Resource {
   id: string;
+  /** The readable address (absent before the slug migration). */
+  slug?: string | null;
   title: string;
   summary: string | null;
   content: string | null;
@@ -125,14 +128,15 @@ export function ResourcesPage() {
       setLoading(true);
       setLoadFailed(false);
       const [resRes, secRes] = await Promise.all([
-        supabase
+        // The slug when the database has it (withSlug: id links before the slug migration).
+        withSlug('resources', (slug) => supabase
           .from('resources')
-          .select('id, title, summary, content, type, access_level, thumbnail_url, created_at, published_at, tags, resource_speakers(id, full_name, display_order), resource_sectors(sector_id)')
+          .select(`id, title, summary, content, type, access_level, thumbnail_url, created_at, published_at, tags${slug}, resource_speakers(id, full_name, display_order), resource_sectors(sector_id)`)
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false })
           // published_at is stamped by a DB trigger on first publish (and was
           // backfilled from created_at); creation date only breaks ties.
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })),
         supabase.from('sectors').select('id, slug, label').eq('is_active', true).order('label'),
       ]);
       if (!alive) return;
@@ -140,7 +144,7 @@ export function ResourcesPage() {
         if (import.meta.env.DEV) console.error('Error fetching resources:', resRes.error);
         setLoadFailed(true);
       }
-      setResources((resRes.data ?? []) as Resource[]);
+      setResources((resRes.data ?? []) as unknown as Resource[]);
       setSectors((secRes.data ?? []) as Sector[]);
       setLoading(false);
     })();

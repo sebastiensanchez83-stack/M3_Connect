@@ -26,6 +26,7 @@ import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } fro
 import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
 import { ResourceM3EditionEditor } from './ResourceM3EditionEditor';
 import { ResourceMentionsPanel } from './ResourceMentionsPanel';
+import { SlugAddressPanel } from './SlugAddressPanel';
 
 interface Sector {
   id: string;
@@ -79,6 +80,8 @@ export function AdminResourceDetail() {
 
   // Existing resource reference
   const [resourceId, setResourceId] = useState<string | null>(null);
+  // Bumped on every (re)load: the web address panel reads the slug again (a draft's follows its title).
+  const [slugVersion, setSlugVersion] = useState(0);
 
   // Load all active sectors once
   useEffect(() => {
@@ -112,6 +115,7 @@ export function AdminResourceDetail() {
       thumbnail_url: r.thumbnail_url || '', file_url: r.file_url || '',
       seo_keywords: r.seo_keywords || '', published: r.published, share_to_m3: r.share_to_m3 === true, share_to_s3: r.share_to_s3 === true,
     });
+    setSlugVersion((n) => n + 1);
 
     // Load speakers
     const { data: speakerData } = await supabase
@@ -565,6 +569,12 @@ export function AdminResourceDetail() {
             <Label>Title *</Label>
             <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Resource title" />
           </div>
+          {!isDraft && (
+            <div className="space-y-2">
+              <Label htmlFor="resource-slug">Web address</Label>
+              <SlugAddressPanel table="resources" recordId={isNew ? null : resourceId} title={form.title} version={slugVersion} inputId="resource-slug" />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Summary *</Label>
             <Textarea value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} rows={2} />

@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
 import type { ReactNode, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
-import { organizationMeta } from '@/lib/seoMeta';
+import { isUuid, orgPath, organizationMeta, resourcePath } from '@/lib/seoMeta';
+import { withSlug } from '@/lib/slugRoutes';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
@@ -185,6 +186,8 @@ interface SimilarOrg {
 /** An article of the library, with the themes its sectors touch. */
 interface RelatedArticle {
   id: string;
+  /** The readable address (absent before the slug migration): resourcePath(). */
+  slug?: string | null;
   title: string;
   type: string;
   access_level: string;
@@ -389,6 +392,14 @@ export function OrganizationPublicPage() {
   // Visitors: "Sign up to contact …" opens the sign-up form here (and the sign-in form
   // from it), as the article pages do, rather than sending them off the page.
   const navigate = useNavigate();
+  // Moving to another address of the same company keeps the query string, the hash and the state.
+  const routerLocation = useLocation();
+  const locationRef = useRef(routerLocation);
+  locationRef.current = routerLocation;
+  const moveTo = (pathname: string) => {
+    const loc = locationRef.current;
+    navigate({ pathname, search: loc.search, hash: loc.hash }, { replace: true, state: loc.state });
+  };
   const [signupOpen, setSignupOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -427,7 +438,21 @@ export function OrganizationPublicPage() {
           if (import.meta.env.DEV) console.error('Error fetching organization:', orgError);
           // PGRST116: .single() found no row, so the organization does not
           // exist (for this reader). Anything else is a failed read.
-          if (orgError.code !== 'PGRST116') setLoadFailed(true);
+          if (orgError.code !== 'PGRST116') {
+            setLoadFailed(true);
+          } else if (isUuid(slug) || slug !== slug.toLowerCase()) {
+            // /organizations/<id> (an old or hand-made link) or a slug typed in capitals: the
+            // company's own address, if there is one.
+            const { data: byKey } = isUuid(slug)
+              ? await supabase.from('organizations').select('slug').eq('id', slug).maybeSingle()
+              : await supabase.from('organizations').select('slug').eq('slug', slug.toLowerCase()).maybeSingle();
+            if (!alive) return;
+            const ownSlug = (byKey as { slug?: string | null } | null)?.slug;
+            if (ownSlug && ownSlug !== slug) {
+              moveTo(orgPath(ownSlug));
+              return;
+            }
+          }
           setLoading(false);
           return;
         }
@@ -444,7 +469,7 @@ export function OrganizationPublicPage() {
             if (!alive) return;
             const keptSlug = (kept as { slug?: string | null } | null)?.slug;
             if (keptSlug && keptSlug !== slug) {
-              navigate(`/organizations/${keptSlug}`, { replace: true });
+              moveTo(orgPath(keptSlug));
               return;
             }
           }
@@ -649,13 +674,14 @@ export function OrganizationPublicPage() {
     let alive = true;
     (async () => {
       try {
-        const { data, error } = await supabase
+        // The article's own slug when the database has it (withSlug: id links before the slug migration).
+        const { data, error } = await withSlug('resources', (slug) => supabase
           .from('resources')
-          .select('id, title, type, access_level, thumbnail_url, created_at, published_at, resource_sectors(sectors(slug))')
+          .select(`id, title, type, access_level, thumbnail_url, created_at, published_at${slug}, resource_sectors(sectors(slug))`)
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
-          .limit(40);
+          .limit(40));
         if (error) throw error;
         type Row = Omit<RelatedArticle, 'themes'> & { resource_sectors: { sectors: { slug: string | null } | null }[] | null };
         const wanted = new Set<ThemeKey>(orgThemes);
@@ -683,20 +709,20 @@ export function OrganizationPublicPage() {
     let alive = true;
     (async () => {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await withSlug('resources', (slug) => supabase
           .from('resource_organization_mention')
-          .select('resource_id, resources!inner(id, title, type, access_level, thumbnail_url, created_at, published_at, resource_sectors(sectors(slug)))')
+          .select(`resource_id, resources!inner(id, title, type, access_level, thumbnail_url, created_at, published_at${slug}, resource_sectors(sectors(slug)))`)
           .eq('organization_id', extrasOrgId)
           .eq('resources.published', true)
           .eq('resources.access_level', 'public')
-          .limit(24);
+          .limit(24));
         if (error) throw error;
         type Res = Omit<RelatedArticle, 'themes'> & { resource_sectors: { sectors: { slug: string | null } | null }[] | null };
         const rows = ((data ?? []) as unknown as { resources: Res | Res[] | null }[])
           .map((r) => (Array.isArray(r.resources) ? r.resources[0] : r.resources))
           .filter((r): r is Res => !!r)
           .map((r): RelatedArticle => ({
-            id: r.id, title: r.title, type: r.type, access_level: r.access_level, thumbnail_url: r.thumbnail_url,
+            id: r.id, slug: r.slug ?? null, title: r.title, type: r.type, access_level: r.access_level, thumbnail_url: r.thumbnail_url,
             created_at: r.created_at, published_at: r.published_at,
             themes: themesForSectors((r.resource_sectors ?? []).map((rs) => rs.sectors?.slug)),
           }))
@@ -1863,7 +1889,7 @@ function ArticleCard({ resource: r }: { resource: RelatedArticle }) {
         <span className="tabular shrink-0">{boardDate(r.published_at || r.created_at, 'en-GB')}</span>
       </div>
       <h3 lang="en" className="mt-2 text-[18px] font-semibold leading-[26px] text-navy">
-        <StretchedLink to={`/resources/${r.id}`} className="line-clamp-3 rounded-sm">
+        <StretchedLink to={resourcePath(r)} className="line-clamp-3 rounded-sm">
           {r.title}
         </StretchedLink>
       </h3>

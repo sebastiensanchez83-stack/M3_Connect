@@ -10,6 +10,7 @@ import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { eventCover, type SiteImage } from '@/lib/siteMedia';
+import { eventPath } from '@/lib/seoMeta';
 import { getTheme, type ThemeKey } from '@/lib/themes';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,8 @@ import { cn } from '@/lib/utils';
 
 export interface ListEvent {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   description: string | null;
   date_time: string | null;
@@ -225,7 +228,7 @@ export function FeaturedEventPanel(props: EventViewProps & { calendarUrl: string
             </div>
 
             <h3 className="mt-5 text-[28px] font-semibold leading-[34px] tracking-[-0.02em] md:text-[34px] md:leading-[40px]">
-              <StretchedLink to={`/events/${event.id}`} tone="light">{event.title}</StretchedLink>
+              <StretchedLink to={eventPath(event)} tone="light">{event.title}</StretchedLink>
             </h3>
 
             <ul className="mt-5 space-y-2.5 text-[15px] leading-6 text-white/90">
@@ -254,7 +257,7 @@ export function FeaturedEventPanel(props: EventViewProps & { calendarUrl: string
             <div className="relative z-10 mt-7 flex flex-wrap items-center gap-x-4 gap-y-3">
               {action}
               {extra}
-              <UnderlineLink to={`/events/${event.id}`} tone="light">{t('eventsPage.seeDetails', 'See details')}</UnderlineLink>
+              <UnderlineLink to={eventPath(event)} tone="light">{t('eventsPage.seeDetails', 'See details')}</UnderlineLink>
             </div>
 
             {/* Three calendar buttons on wider screens; phones get the compact .ics button next to the action. */}
@@ -339,7 +342,7 @@ export function EventListCard(props: EventViewProps) {
           <Flags event={event} accessLabel={props.accessLabel} isModerator={props.isModerator} />
         </div>
         <h3 className="mt-3 line-clamp-3 text-card-title text-navy">
-          <StretchedLink to={`/events/${event.id}`}>{event.title}</StretchedLink>
+          <StretchedLink to={eventPath(event)}>{event.title}</StretchedLink>
         </h3>
         <ul className="mt-3 space-y-1.5 text-sm leading-5 text-meta">
           <li className="flex items-start gap-2">

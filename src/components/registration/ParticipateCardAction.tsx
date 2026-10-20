@@ -9,6 +9,7 @@ import {
   type OpenRegistration, type Participation,
 } from '@/lib/registration';
 import { cn } from '@/lib/utils';
+import { eventPath } from '@/lib/seoMeta';
 
 /**
  * The one action of an event card on /events for an event of the unified
@@ -26,6 +27,7 @@ export function ParticipateCardAction({
   verified,
   onNavy = false,
   onRegistered,
+  eventHref,
 }: {
   reg: OpenRegistration;
   mine: Participation | null;
@@ -35,6 +37,8 @@ export function ParticipateCardAction({
   /** On the marine "next event" panel. */
   onNavy?: boolean;
   onRegistered?: () => void;
+  /** The event page's own address (eventPath(): its slug), from the list's row; else /events/<id>, which redirects there. */
+  eventHref?: string;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -43,7 +47,8 @@ export function ParticipateCardAction({
   const main = onNavy ? 'ctaOnDark' : 'ctaNavy';
   const second = onNavy ? 'ctaLight' : 'ctaOutline';
   const quiet = cn('inline-flex min-h-11 items-center gap-1.5 text-sm', onNavy ? 'text-white/85' : 'text-meta');
-  const detail = reg.event_id ? `/events/${reg.event_id}` : `/register/${reg.slug}`;
+  // reg.slug is the registration page's (gl_event), not the event page's.
+  const detail = eventHref ?? (reg.event_id ? eventPath({ id: reg.event_id }) : `/register/${reg.slug}`);
   const form = `/register/${reg.slug}?from=event`;
 
   // The member's own registration, whatever it became (a request M3 did not accept included):

@@ -9,6 +9,7 @@ import { WYS26_PATH, isWys26Event, wys26Upcoming } from '@/components/events/Wys
 import { THEMES, themeForSector, getTheme } from '@/lib/themes';
 import { displayCase } from '@/lib/displayCase';
 import { englishCountryName } from '@/lib/countryNames';
+import { eventPath, resourcePath } from '@/lib/seoMeta';
 import {
   PER_GROUP, PER_GROUP_COMPACT, cacheKey, cachedSuggestions, fetchSuggestions, fold, hasAllWords, matchCountries, matchRank, searchWords,
   type SuggestGroup, type SuggestResults, type SuggestScope,
@@ -174,7 +175,7 @@ export function useSuggestionSections({
           group: 'articles',
           label: r.title,
           sub: [kind(r.type), date(r.published_at)].filter(Boolean).join(' · '),
-          href: `/resources/${r.id}`,
+          href: resourcePath(r),
           visual: { kind: 'icon', icon: FileText },
         }));
         if (options.length) out.push({ group: g, title: t('brand.suggest.articles', 'Articles'), options });
@@ -206,7 +207,7 @@ export function useSuggestionSections({
             at: Date.parse(e.date_time),
             label: e.title,
             sub: [webinar ? t('brand.news.webinar', 'Webinar') : t('brand.news.event', 'Event'), date(e.date_time)].filter(Boolean).join(' · '),
-            href: `/events/${e.id}`,
+            href: eventPath(e),
             visual: { kind: 'icon', icon: CalendarDays },
           });
         }

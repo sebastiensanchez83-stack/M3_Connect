@@ -5,7 +5,8 @@ import { readMinutes } from '@/lib/readTime';
 import { Helmet } from 'react-helmet-async';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
-import { resourceMeta } from '@/lib/seoMeta';
+import { isUuid, resourceMeta, resourcePath, type SlugRef } from '@/lib/seoMeta';
+import { currentSlugFor, isMissingSlugColumn, noteMissingSlugColumn } from '@/lib/slugRoutes';
 import DOMPurify from 'dompurify';
 import { Button } from '@/components/ui/button';
 import { AuthDialog } from '@/components/auth/AuthDialog';
@@ -53,10 +54,17 @@ import '@/styles/refonte-content.css';
  * (resource_organization_mention) are listed under the text, logo and name, each linking to its
  * page; the first time each name appears in the text it links there too. The links are added at
  * render time, after DOMPurify (src/lib/companyMentions.ts): the stored article never changes.
+ *
+ * Address (20 Oct 2026): /resources/<slug>. The page also opens /resources/<id> and any address
+ * the article had before (resource_slug_lookup), then puts the current one in the address bar
+ * (replace; query string, hash and state kept). Before the slug migration it reads by id as it
+ * always did.
  */
 
 interface Resource {
   id: string;
+  /** The readable address (absent before the slug migration). */
+  slug?: string | null;
   title: string;
   summary: string;
   content: string | null;
@@ -84,12 +92,19 @@ interface ResourceSpeaker {
 }
 
 export function ResourceDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  // The article's slug, its id, or an address it had before.
+  const { id: key } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   // Opened from the library list: going back returns to that exact filtered
   // view (theme, sector, search, scroll). Opened any other way (a shared link,
   // the dashboard), "Back to Resources" means the library itself.
-  const cameFromList = (useLocation().state as { fromList?: boolean } | null)?.fromList === true;
+  const cameFromList = (location.state as { fromList?: boolean } | null)?.fromList === true;
+  // The latest location, for the address replacement made from inside the load.
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  // The article on screen: the replacement of its address must not load it again.
+  const shownRef = useRef<{ id: string; slug: string | null } | null>(null);
   const { t } = useTranslation();
   const seoTr = useSeoTr();
   const { user, profile, isVerified } = useAuth();
@@ -110,22 +125,52 @@ export function ResourceDetailPage() {
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
   useEffect(() => {
+    /** The article's own address in the address bar, query string, hash and state kept (no new history entry). */
+    const showAddressOf = (ref: SlugRef) => {
+      const loc = locationRef.current;
+      navigate({ pathname: resourcePath(ref), search: loc.search, hash: loc.hash }, { replace: true, state: loc.state });
+    };
+
     const fetchResource = async () => {
-      if (!id) return;
+      if (!key) return;
+      const shown = shownRef.current;
+      if (shown && (shown.id === key || shown.slug === key)) {
+        // The article already on screen, under another of its addresses: nothing to load again.
+        if (shown.slug && key !== shown.slug) showAddressOf(shown);
+        return;
+      }
       setLoading(true);
+      window.scrollTo(0, 0);
+      let moved = false;
       try {
+        // An id (old links, e-mails, the RSS feeds) or a slug (every link since 20 Oct 2026).
+        const byId = isUuid(key);
         const { data, error } = await supabase
           .from('resources')
           .select('*')
-          .eq('id', id)
+          .eq(byId ? 'id' : 'slug', byId ? key : key.toLowerCase())
           .eq('published', true)
-          .single();
+          .maybeSingle();
 
+        if (isMissingSlugColumn(error)) noteMissingSlugColumn('resources');
+        if (!data && !byId && !error) {
+          // An address the article had before: it leads to the current one, for ever.
+          const current = await currentSlugFor('resources', key);
+          if (current && current !== key) {
+            moved = true;
+            showAddressOf({ id: current, slug: current });
+            return;
+          }
+        }
         if (error || !data) {
           navigate('/resources', { replace: true });
           return;
         }
-        setResource(data as Resource);
+        const article = data as Resource;
+        const id = article.id;
+        shownRef.current = { id, slug: article.slug ?? null };
+        setResource(article);
+        if (article.slug && key !== article.slug) showAddressOf(article);
 
         // Fetch speakers
         const { data: speakerData } = await supabase
@@ -166,25 +211,26 @@ export function ResourceDetailPage() {
         // Fetch related resources
         const { data: related } = await supabase
           .from('resources')
-          .select('id, title, summary, type, topic, thumbnail_url, access_level, created_at, published_at, tags')
+          // The slug only when the database has it (select('*') above says so).
+          .select(`id, title, summary, type, topic, thumbnail_url, access_level, created_at, published_at, tags${'slug' in article ? ', slug' : ''}`)
           .eq('published', true)
           .neq('id', id)
-          .or(`type.eq.${data.type},topic.eq.${data.topic}`)
+          .or(`type.eq.${article.type},topic.eq.${article.topic}`)
           .order('published_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
           .limit(3);
 
-        setRelatedResources((related || []) as Resource[]);
+        setRelatedResources((related || []) as unknown as Resource[]);
       } catch {
         navigate('/resources', { replace: true });
       } finally {
-        setLoading(false);
+        // Moved to the current address: that load keeps the skeleton up.
+        if (!moved) setLoading(false);
       }
     };
 
     fetchResource();
-    window.scrollTo(0, 0);
-  }, [id, navigate]);
+  }, [key, navigate]);
 
   // The article's HTML, sanitized, with the first occurrence of each mentioned company linked.
   const articleHtml = useMemo(
@@ -230,11 +276,13 @@ export function ResourceDetailPage() {
   const share = async () => {
     if (!resource) return;
     try {
+      // The article's own address (its slug), without whatever query string brought the reader here.
+      const url = `${window.location.origin}${resourcePath(resource)}`;
       if (navigator.share) {
-        await navigator.share({ title: resource.title, url: window.location.href });
+        await navigator.share({ title: resource.title, url });
         return;
       }
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
       window.clearTimeout(copiedTimer.current);
       copiedTimer.current = window.setTimeout(() => setCopied(false), 2200);

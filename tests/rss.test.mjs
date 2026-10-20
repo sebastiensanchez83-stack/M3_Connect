@@ -67,3 +67,17 @@ test('S3 body is allowlisted and ends with the first-published line',()=>{
   for(const bad of ['onclick','javascript:','<script','<iframe','<h1']) assert.ok(!enc.toLowerCase().includes(bad),bad);
   assert.ok(enc.endsWith('<p><em>Article first published on <a href="https://smartmarinaconnect.com/resources/public-1?utm_source=s3monaco.com&amp;utm_medium=rss&amp;utm_campaign=article_feed">Smart Marina Connect</a>.</em></p>'));
 });
+test('Readable addresses (20 Oct 2026) leave every item identity untouched: guid and link stay by id',()=>{
+  // WordPress (m3monaco.com, s3monaco.com) dedupes imported items on the guid, and some importers
+  // on the link: an article that gets a slug must never come back as a new item.
+  const withSlug={...article,slug:'marinas-and-standards'};
+  for(const feed of [s3,{path:'/rss.xml',column:'share_to_m3',tracking:'utm_source=m3monaco.com&utm_medium=rss&utm_campaign=article_feed',fullContent:false}]){
+    const editions=feed.column==='share_to_m3'?{resource_m3_editions:{is_ready:true,content_html:'<h2>M3 view</h2><p>Analysis.</p>'}}:{};
+    const before=renderFeed([{...article,...editions}],feed);
+    const after=renderFeed([{...withSlug,...editions}],feed);
+    assert.equal(after,before);
+    assert.ok(after.includes('<guid isPermaLink="true">https://smartmarinaconnect.com/resources/public-1</guid>'));
+    assert.ok(after.includes(`<link>https://smartmarinaconnect.com/resources/public-1?${feed.tracking.replace(/&/g,'&amp;')}</link>`));
+    assert.ok(!after.includes('marinas-and-standards'));
+  }
+});

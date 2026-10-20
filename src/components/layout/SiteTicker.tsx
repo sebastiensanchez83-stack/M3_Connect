@@ -8,6 +8,7 @@ import { WYS26_PATH, isWys26Event, wys26Upcoming } from '@/components/events/Wys
 import { useNewsTicker, TICKER_PER_KIND, type TickerData } from '@/hooks/useNewsTicker';
 import { displayCase } from '@/lib/displayCase';
 import { englishCountryName } from '@/lib/countryNames';
+import { eventPath, resourcePath } from '@/lib/seoMeta';
 
 /**
  * The site-wide news ticker (Victor, 9 Oct 2026): the latest articles, the newest
@@ -119,7 +120,7 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
         at: e.date_time,
         kind: webinar ? t('brand.news.webinar', 'Webinar') : t('brand.news.event', 'Event'),
         text: [clip(e.title), date(e.date_time)].filter(Boolean).join(' · '),
-        href: `/events/${e.id}`,
+        href: eventPath(e),
       });
     }
     if (wys26Upcoming(Date.now()) && !events.some((x) => x.id === 'wys26')) events.push(wysItem());
@@ -142,7 +143,7 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
       id: `article-${r.id}`,
       kind: articleKind(r.type),
       text: clip(r.title),
-      href: `/resources/${r.id}`,
+      href: resourcePath(r),
     }));
 
     // ── Newest members: "Name, Marina, Spain" ──

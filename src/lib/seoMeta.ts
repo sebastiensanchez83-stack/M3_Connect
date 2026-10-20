@@ -42,15 +42,64 @@ export const PUBLISHER = { '@type': 'Organization', '@id': `${SITE_URL}/#m3`, na
 
 // ------------------------------------------------------------------ URLs
 
-export const orgPath = (slug: string) => `/organizations/${encodeURIComponent(slug)}`;
-export const eventPath = (id: string) => `/events/${encodeURIComponent(id)}`;
-export const resourcePath = (id: string) => `/resources/${encodeURIComponent(id)}`;
+/**
+ * An article or an event, as far as its address goes. Since 20 Oct 2026 both have a readable
+ * slug (supabase/migrations/20261020160000_readable_slugs.sql): /resources/<slug>,
+ * /events/<slug>. Until the slug is loaded (a query that does not select it, or the database
+ * before that migration), the address is the id: an id address keeps working for ever (the edge
+ * function answers it with a 301, the page replaces it in the address bar).
+ */
+export interface SlugRef {
+  id: string;
+  /** The readable address (events.slug / resources.slug); null or absent when not loaded. */
+  slug?: string | null;
+}
 
-/** The events row of the Monaco Smart & Sustainable Marina Rendezvous, 6th edition (same id as RENDEZVOUS_2026_PATH in components/brand/m3Events.ts). */
+const slugOrId = (ref: SlugRef) => ref.slug?.trim() || ref.id;
+
+export const orgPath = (slug: string) => `/organizations/${encodeURIComponent(slug)}`;
+/** Every link to an event page: /events/<slug>, else /events/<id>. */
+export const eventPath = (event: SlugRef) => `/events/${encodeURIComponent(slugOrId(event))}`;
+/** Every link to an article page: /resources/<slug>, else /resources/<id>. */
+export const resourcePath = (resource: SlugRef) => `/resources/${encodeURIComponent(slugOrId(resource))}`;
+
+/** An events, resources or organizations id. A slug never has this shape (the database refuses it), so a page reads such a value as an id. */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (value: string | null | undefined): boolean => !!value && UUID_RE.test(value);
+
+/** The events row of the Monaco Smart & Sustainable Marina Rendezvous, 6th edition. */
 export const RENDEZVOUS_6TH_EVENT_ID = 'f55f7b2f-96ac-4c5e-b620-358624e52240';
 
-/** The path of that event's page: the canonical URL of its agenda (/sm26/agenda). */
-export const RENDEZVOUS_6TH_PATH = eventPath(RENDEZVOUS_6TH_EVENT_ID);
+/**
+ * Its readable address. The migration sets it by name (not only from the title), so this
+ * constant and the database agree; the dry run checks it.
+ */
+export const RENDEZVOUS_6TH_SLUG = 'monaco-smart-and-sustainable-marina-2026-6th-edition';
+
+/** The path of that event's page: every link to it, and the canonical URL of its agenda (/sm26/agenda). */
+export const RENDEZVOUS_6TH_PATH = eventPath({ id: RENDEZVOUS_6TH_EVENT_ID, slug: RENDEZVOUS_6TH_SLUG });
+
+/** An event page's canonical path: its slug address, the Rendezvous' even when its slug is not loaded (before the migration). */
+export const eventCanonicalPath = (event: SlugRef): string =>
+  (!event.slug && event.id === RENDEZVOUS_6TH_EVENT_ID ? RENDEZVOUS_6TH_PATH : eventPath(event));
+
+/**
+ * The World Yachting Summit 2026's row in the events table. The Summit has ONE page, /wys26
+ * (Victor, 8 Oct 2026): /events never lists this row, and its event address, by id or by slug,
+ * redirects to /wys26 (the edge function with a 301, EventDetailPage in the browser), query
+ * string and hash kept.
+ */
+export const WYS26_EVENT_ID = '5ba8d690-3a73-4f30-bb3d-52dabead7119';
+export const WYS26_PAGE_PATH = '/wys26';
+
+/**
+ * Slugs the code itself links to, with the id of their row: the page and the edge function open
+ * them by id while the slug column does not exist yet (before the migration), and if the row's
+ * address were ever changed.
+ */
+export const KNOWN_EVENT_SLUGS: Readonly<Record<string, string>> = {
+  [RENDEZVOUS_6TH_SLUG]: RENDEZVOUS_6TH_EVENT_ID,
+};
 
 /** The directory and the library are browsed by theme: ?theme= is the only query string a canonical URL keeps. */
 export const themedPath = (base: '/directory' | '/resources', themeKey: string | null | undefined) =>
@@ -401,6 +450,8 @@ export function organizationMeta(org: OrgSeoInput, tr: SeoTr): PageMeta {
 
 export interface EventSeoInput {
   id: string;
+  /** The readable address; the id stands in when it is not loaded. */
+  slug?: string | null;
   title: string;
   description?: string | null;
   date_time?: string | null;
@@ -411,6 +462,7 @@ export interface EventSeoInput {
   image_url?: string | null;
 }
 
+/** Without slug: the edge function adds it, and reads without it while the column does not exist. */
 export const EVENT_SEO_COLUMNS = 'id,title,description,date_time,end_date_time,location,event_type,location_details,image_url,published';
 
 /**
@@ -432,7 +484,7 @@ export function eventMeta(event: EventSeoInput, tr: SeoTr, locale: string): Page
   const text = event.id === RENDEZVOUS_6TH_EVENT_ID ? EVENTS_STRINGS.en.eventDetail.rendezvousAbout : event.description;
   const summary = text ? cutAtWord(text, 400) : '';
   const description = cutAtWord(tr(`event.description${summary ? '' : 'NoSummary'}${where ? '' : 'NoPlace'}`, { when, where, summary }));
-  const path = eventPath(event.id);
+  const path = eventCanonicalPath(event);
   const pageUrl = absoluteUrl(path);
 
   let jsonLd: JsonLd | null = null;
@@ -467,6 +519,8 @@ export function eventMeta(event: EventSeoInput, tr: SeoTr, locale: string): Page
 
 export interface ResourceSeoInput {
   id: string;
+  /** The readable address; the id stands in when it is not loaded. */
+  slug?: string | null;
   title: string;
   summary?: string | null;
   thumbnail_url?: string | null;
@@ -476,6 +530,7 @@ export interface ResourceSeoInput {
   updated_at?: string | null;
 }
 
+/** Without slug: the edge function adds it, and reads without it while the column does not exist. */
 export const RESOURCE_SEO_COLUMNS = 'id,title,summary,thumbnail_url,language,published_at,created_at,updated_at';
 
 export function resourceMeta(resource: ResourceSeoInput, tr: SeoTr): PageMeta {
@@ -483,7 +538,7 @@ export function resourceMeta(resource: ResourceSeoInput, tr: SeoTr): PageMeta {
   const description = resource.summary
     ? cutAtWord(resource.summary)
     : cutAtWord(tr('resource.descriptionNoSummary', { title: resource.title }));
-  const path = resourcePath(resource.id);
+  const path = resourcePath(resource);
   const pageUrl = absoluteUrl(path);
   const published = resource.published_at || resource.created_at || undefined;
   const jsonLd: JsonLd = {

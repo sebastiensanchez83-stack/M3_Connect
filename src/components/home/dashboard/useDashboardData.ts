@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { withSlug } from '@/lib/slugRoutes';
 import type { RequestKind } from '@/lib/accountNav';
 import { isActiveStatus, statusPagePath, type Participation } from '@/lib/registration';
 
@@ -25,6 +26,8 @@ export interface Opportunity {
 
 export interface DashEvent {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   description: string | null;
   date_time: string;
@@ -39,6 +42,8 @@ export interface DashEvent {
 
 export interface DashResource {
   id: string;
+  /** The readable address (absent before the slug migration): resourcePath(). */
+  slug?: string | null;
   title: string;
   summary: string | null;
   type: string;
@@ -206,10 +211,11 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         // e-mail before I had an account; for webinars, the join link (never
         // read from the events table: registrants and staff only).
         safe<{ event_id: string; is_registered: boolean; meeting_url: string | null }[]>(supabase.rpc('get_my_event_access', { p_event_ids: null })),
-        safe<(Omit<DashResource, 'matches'> & { resource_sectors?: { sector_id: string }[] })[]>(supabase.from('resources')
-          .select('id, title, summary, type, thumbnail_url, published_at, resource_sectors(sector_id)')
+        // Slugs when the database has them (withSlug: id links before the slug migration).
+        safe<(Omit<DashResource, 'matches'> & { resource_sectors?: { sector_id: string }[] })[]>(withSlug('resources', (slug) => supabase.from('resources')
+          .select(`id, title, summary, type, thumbnail_url, published_at${slug}, resource_sectors(sector_id)`)
           .eq('published', true).order('published_at', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false }).limit(12)),
+          .order('created_at', { ascending: false }).limit(12))),
         safe<OrgBrand>(meterOn ? supabase.from('organizations').select('id, logo_url, banner_url, description, gallery').eq('id', orgId).maybeSingle() : null),
         safe<unknown>(meterOn ? supabase.from('organization_members').select('id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
         safe<unknown>(meterOn ? supabase.from(orgSectorTable).select('sector_id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
@@ -245,9 +251,9 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       const joinLinks = new Map((accessRes.data ?? []).filter((a) => a.is_registered).map((a) => [a.event_id, a.meeting_url] as const));
       type EventRow = Omit<DashEvent, 'meeting_url' | 'is_full_day' | 'date_time'> & { date_time: string | null; is_full_day: boolean | null; published: boolean | null };
       const myEventRows = joinLinks.size > 0
-        ? (await safe<EventRow[]>(supabase.from('events')
-          .select('id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, image_url')
-          .in('id', [...joinLinks.keys()]))).data ?? []
+        ? (await safe<EventRow[]>(withSlug('events', (slug) => supabase.from('events')
+          .select(`id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, image_url${slug}`)
+          .in('id', [...joinLinks.keys()])))).data ?? []
         : [];
       if (!alive) return;
       let upcomingCount = 0;
@@ -258,7 +264,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         if (isUpcoming(e, now)) {
           upcomingCount += 1;
           upcomingRegistered.push({
-            id: e.id, title: e.title, description: e.description ?? null, date_time: e.date_time,
+            id: e.id, slug: e.slug ?? null, title: e.title, description: e.description ?? null, date_time: e.date_time,
             end_date_time: e.end_date_time, location: e.location, event_type: e.event_type,
             is_full_day: !!e.is_full_day, meeting_url: joinLinks.get(e.id) ?? null, image_url: e.image_url ?? null,
           });
@@ -282,7 +288,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
 
       // Resources — sector matches first; without sectors, simply the newest (stable sort).
       const resources = (resRes.data ?? []).map((r) => ({
-        id: r.id, title: r.title, summary: r.summary, type: r.type, thumbnail_url: r.thumbnail_url,
+        id: r.id, slug: r.slug ?? null, title: r.title, summary: r.summary, type: r.type, thumbnail_url: r.thumbnail_url,
         matches: (r.resource_sectors ?? []).some((s) => mySectors.has(s.sector_id)),
       }));
       resources.sort((a, b) => Number(b.matches) - Number(a.matches));

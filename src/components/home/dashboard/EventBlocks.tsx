@@ -13,6 +13,7 @@ import { WYS26_PATH } from '@/components/events/WysInvitationCard';
 import { useHomeAgenda } from '@/components/home/useHomeAgenda';
 import { eventCover } from '@/lib/siteMedia';
 import { cn, type CalendarEventInput } from '@/lib/utils';
+import { eventPath } from '@/lib/seoMeta';
 import { DEFAULT_DURATION_MS, type DashEvent } from './useDashboardData';
 
 /** Small date tile: day and month, in the signage face. */
@@ -90,7 +91,7 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
 
       <div className="md:grid md:flex-1 md:grid-cols-5">
         {/* The picture repeats the title link below, so it stays out of the tab order. */}
-        <Link to={`/events/${event.id}`} tabIndex={-1} aria-hidden="true" className="block md:col-span-2">
+        <Link to={eventPath(event)} tabIndex={-1} aria-hidden="true" className="block md:col-span-2">
           <CoverImage
             src={cover?.src ?? null}
             focusY={cover?.focusY}
@@ -111,7 +112,7 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
         <div className="space-y-4 p-5 md:col-span-3">
           <div className="group">
             <h4 className="text-card-title text-navy [overflow-wrap:anywhere]">
-              <Link to={`/events/${event.id}`} className={cn('rounded', FOCUS)}>
+              <Link to={eventPath(event)} className={cn('rounded', FOCUS)}>
                 <span className="card-ul">{event.title}</span>
                 <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
               </Link>

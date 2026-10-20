@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { withSlug } from '@/lib/slugRoutes';
 import { SPONSOR_TIERS } from '@/types/database';
 import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 import { countryKey, countryParts, rawCountryOf } from '@/lib/networkStats';
@@ -67,6 +68,8 @@ export interface CompanyRow {
 
 export interface ArticleRow {
   id: string;
+  /** The readable address (absent before the slug migration): resourcePath(). */
+  slug?: string | null;
   title: string;
   type: string | null;
   published_at: string | null;
@@ -74,6 +77,8 @@ export interface ArticleRow {
 
 export interface EventRow {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   date_time: string;
   event_type: string | null;
@@ -366,20 +371,25 @@ async function askDatabase(
 
   const articles = (() => {
     if (!want('articles')) return nothing;
-    let query = supabase.from('resources').select('id, title, type, published_at').eq('published', true);
-    for (const w of words) query = query.ilike(titleColumn, contains(w));
-    return withSignal(query.order('published_at', { ascending: false, nullsFirst: false }).limit(12));
+    // The slug when the database has it (withSlug: id links before the slug migration).
+    return withSlug('resources', (slug) => {
+      let query = supabase.from('resources').select(`id, title, type, published_at${slug}`).eq('published', true);
+      for (const w of words) query = query.ilike(titleColumn, contains(w));
+      return withSignal(query.order('published_at', { ascending: false, nullsFirst: false }).limit(12));
+    });
   })();
 
   const events = (() => {
     if (!want('events')) return nothing;
-    let query = supabase
-      .from('events')
-      .select('id, title, date_time, event_type')
-      .not('published', 'is', false)
-      .neq('id', WYS26_EVENT_ID);
-    for (const w of words) query = query.ilike(titleColumn, contains(w));
-    return withSignal(query.order('date_time', { ascending: false }).limit(12));
+    return withSlug('events', (slug) => {
+      let query = supabase
+        .from('events')
+        .select(`id, title, date_time, event_type${slug}`)
+        .not('published', 'is', false)
+        .neq('id', WYS26_EVENT_ID);
+      for (const w of words) query = query.ilike(titleColumn, contains(w));
+      return withSignal(query.order('date_time', { ascending: false }).limit(12));
+    });
   })();
 
   const [c, [a, e]] = await Promise.all([companies, Promise.allSettled([articles, events])]);

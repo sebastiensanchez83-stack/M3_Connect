@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { withSlug } from '@/lib/slugRoutes';
 import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 
 /**
@@ -24,6 +25,8 @@ import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 
 export interface TickerArticle {
   id: string;
+  /** The readable address (absent before the slug migration, and in copies stored before it): resourcePath(). */
+  slug?: string | null;
   title: string;
   type: string | null;
   published_at: string | null;
@@ -40,6 +43,8 @@ export interface TickerMember {
 
 export interface TickerEvent {
   id: string;
+  /** The readable address (absent before the slug migration, and in copies stored before it): eventPath(). */
+  slug?: string | null;
   title: string;
   date_time: string;
   event_type: string | null;
@@ -101,13 +106,14 @@ function peek(scope: TickerScope): Entry | null {
 async function fetchTicker(): Promise<TickerData | null> {
   const now = new Date().toISOString();
   const [articles, members, events] = await Promise.allSettled([
-    supabase
+    // Slugs when the database has them (withSlug: id links before the slug migration).
+    withSlug('resources', (slug) => supabase
       .from('resources')
-      .select('id, title, type, published_at')
+      .select(`id, title, type, published_at${slug}`)
       .eq('published', true)
       .order('published_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
-      .limit(TICKER_PER_KIND),
+      .limit(TICKER_PER_KIND)),
     supabase
       .from('organizations')
       .select('id, slug, name, organization_type, country, headquarters_country')
@@ -115,14 +121,14 @@ async function fetchTicker(): Promise<TickerData | null> {
       .not('owner_user_id', 'is', null)
       .order('created_at', { ascending: false })
       .limit(TICKER_PER_KIND),
-    supabase
+    withSlug('events', (slug) => supabase
       .from('events')
-      .select('id, title, date_time, event_type, location')
+      .select(`id, title, date_time, event_type, location${slug}`)
       .not('published', 'is', false)
       .neq('id', WYS26_EVENT_ID)
       .gte('date_time', now)
       .order('date_time', { ascending: true })
-      .limit(TICKER_PER_KIND),
+      .limit(TICKER_PER_KIND)),
   ]);
   const rows = <T,>(r: PromiseSettledResult<{ data: unknown; error: unknown }>): T[] | null =>
     r.status === 'fulfilled' && !r.value.error && Array.isArray(r.value.data) ? (r.value.data as T[]) : null;

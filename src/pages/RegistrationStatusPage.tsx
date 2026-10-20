@@ -37,6 +37,7 @@ import { useRegistrationFlags } from '@/lib/flags';
 import { withSiteSuffix } from '@/lib/seoText';
 import { cn } from '@/lib/utils';
 import { Seo } from '@/components/seo/Seo';
+import { eventPath } from '@/lib/seoMeta';
 
 /**
  * /registration — one registration, in two ways (spec §6):
@@ -288,7 +289,8 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   const active = !['cancelled', 'declined', 'rejected'].includes(reg.status);
   const when = whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'), false, eventZone(ev));
   const where = isWebinar ? t('reg.online', 'Online') : ev.location || t('reg.venueTbd', 'Venue to be announced');
-  const eventHref = ev.event_id ? `/events/${ev.event_id}` : null;
+  // The registration function knows the event by id: the event page puts its readable address in the bar.
+  const eventHref = ev.event_id ? eventPath({ id: ev.event_id }) : null;
   const title = ev.title ?? t('reg.status.eyebrow', 'Your registration');
   const needsInfo = reg.status === 'needs_info' && !readOnly;
 

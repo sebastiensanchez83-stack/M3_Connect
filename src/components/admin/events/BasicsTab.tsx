@@ -15,6 +15,8 @@ import { Block, ChoiceCards, EDITOR_BTN, Field, INPUT, Note, TEXTAREA } from './
 import { StaffAlertBlock } from './EmailsTab';
 import { TIMEZONE_VALUES, addMinutesToWall, formatInZone, slugify, timezoneLabel, wallToIso, type RegistrationMode } from './eventAdmin';
 import { placeLine, type BasicsForm, type EmailsForm, type FormIssue, type Visibility } from './editorModel';
+import { SlugAddressPanel } from '../SlugAddressPanel';
+import { eventPath } from '@/lib/seoMeta';
 
 interface SectorRow { id: string; label: string }
 
@@ -34,6 +36,7 @@ export function BasicsTab({
   eventId,
   savedVisibility,
   kindOpensOldEditor,
+  savedTitle,
   onsiteEditor = false,
   staff,
   hiddenTest,
@@ -66,6 +69,8 @@ export function BasicsTab({
   savedVisibility: Visibility | null;
   /** New event, editor not forced: a type whose switch is off opens the current editor instead. */
   kindOpensOldEditor: { webinar: boolean; onsite: boolean } | null;
+  /** The title as saved: when it changes (a save), the event page address is read again. */
+  savedTitle?: string;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -214,7 +219,7 @@ export function BasicsTab({
               </button>
               {eventId && (
                 <a
-                  href={`/events/${eventId}`}
+                  href={eventPath({ id: eventId })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-11 items-center rounded-pill px-3 font-semibold text-navy underline-offset-2 hover:underline focus:outline-none focus-visible:shadow-focus"
@@ -229,6 +234,17 @@ export function BasicsTab({
               {t('adminEvents.basics.linkLater', 'The registration link appears here once the event is published (or saved as a hidden test).')}
             </p>
           )}
+        </Field>
+
+        {/* The event page's own address (events.slug), not the registration's above. Saved on its own. */}
+        <Field label={t('adminEvents.basics.pageAddress', 'Event page address')} htmlFor="ev-page-slug">
+          <SlugAddressPanel
+            table="events"
+            recordId={isNew ? null : eventId}
+            title={v.title}
+            version={`${savedVisibility ?? ''}|${savedTitle ?? ''}`}
+            inputId="ev-page-slug"
+          />
         </Field>
 
         <Field label={t('adminEvents.basics.description', 'Description')} htmlFor="ev-desc" optional>

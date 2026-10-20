@@ -600,6 +600,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             canPublish={canPublish}
             eventId={eventId}
             savedVisibility={isNew ? null : initial.basics.visibility}
+            savedTitle={isNew ? undefined : initial.basics.title}
             kindOpensOldEditor={isNew && !forced ? { webinar: !flags.webinar_v2, onsite: !flags.onsite_v2 } : null}
             onsiteEditor={onsiteEditor}
             staff={onsiteEditor ? { value: form.emails, onChange: (v) => setSection('emails', v), mode: form.registration.mode } : undefined}

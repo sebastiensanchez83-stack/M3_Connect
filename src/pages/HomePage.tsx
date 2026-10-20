@@ -22,6 +22,7 @@ import type { HomeResource } from '@/components/home/ResourcesAgenda';
 import { fetchSponsorLogos, type SponsorLogo } from '@/lib/sponsors';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { openSignup } from '@/lib/authModal';
+import { withSlug } from '@/lib/slugRoutes';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
@@ -120,14 +121,15 @@ export function HomePage() {
         supabase.from('sectors').select('id, slug'),
         // Every published resource's sectors, for the theme counts and the total.
         supabase.from('resources').select('id, resource_sectors(sector_id)').eq('published', true),
-        // The latest six for the logbook, in the library's own order.
-        supabase
+        // The latest six for the logbook, in the library's own order; their slugs when the
+        // database has them (withSlug: id links before the slug migration).
+        withSlug('resources', (slug) => supabase
           .from('resources')
-          .select('id, title, summary, type, access_level, thumbnail_url, created_at, published_at, resource_sectors(sector_id)')
+          .select(`id, title, summary, type, access_level, thumbnail_url, created_at, published_at${slug}, resource_sectors(sector_id)`)
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
-          .limit(6),
+          .limit(6)),
         // How many of the listed marinas are members (an owner on the platform):
         // most of the listed ones were imported and nobody has claimed them yet.
         supabase
@@ -186,8 +188,9 @@ export function HomePage() {
       }
 
       type ResRow = Omit<HomeResource, 'themes'> & { resource_sectors?: { sector_id: string }[] | null };
-      setFeaturedResources(((ok(featuredRes)?.data ?? []) as ResRow[]).map((r) => ({
+      setFeaturedResources(((ok(featuredRes)?.data ?? []) as unknown as ResRow[]).map((r) => ({
         id: r.id,
+        slug: r.slug ?? null,
         title: r.title,
         summary: r.summary,
         type: r.type,

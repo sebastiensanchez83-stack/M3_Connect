@@ -13,6 +13,7 @@ import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { useMediaQuery } from '@/components/motion/useReducedMotion';
 import { THEMES, getTheme, type ThemeKey } from '@/lib/themes';
 import { useHomeAgenda, type AgendaEntry } from './useHomeAgenda';
+import { resourcePath } from '@/lib/seoMeta';
 
 /**
  * Latest resources and the agenda, side by side from lg (8 + 4 columns):
@@ -29,6 +30,8 @@ import { useHomeAgenda, type AgendaEntry } from './useHomeAgenda';
  */
 export interface HomeResource {
   id: string;
+  /** The readable address (absent before the slug migration): resourcePath(). */
+  slug?: string | null;
   title: string;
   summary: string | null;
   type: string;
@@ -165,7 +168,7 @@ function ArticleCard({ resource: r, lang, className }: { resource: HomeResource;
         <span className="tabular shrink-0">{boardDate(r.published_at || r.created_at, lang)}</span>
       </div>
       <h3 lang="en" className="mt-2 text-[18px] font-semibold leading-[26px] text-navy">
-        <StretchedLink to={`/resources/${r.id}`} className="line-clamp-3 rounded-sm">
+        <StretchedLink to={resourcePath(r)} className="line-clamp-3 rounded-sm">
           {r.title}
         </StretchedLink>
       </h3>

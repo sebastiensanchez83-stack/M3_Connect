@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
-import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
+import { useParams, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
-import { eventMeta } from '@/lib/seoMeta';
+import {
+  KNOWN_EVENT_SLUGS, RENDEZVOUS_6TH_EVENT_ID, WYS26_EVENT_ID, WYS26_PAGE_PATH, eventMeta, eventPath, isUuid,
+} from '@/lib/seoMeta';
+import { currentSlugFor, isMissingSlugColumn, noteMissingSlugColumn, slugColumnMayExist, withSlug } from '@/lib/slugRoutes';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertCircle, CalendarDays, CalendarPlus, CheckCircle2, Clock, Download,
@@ -23,7 +26,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { LogoTile } from '@/components/brand/OrgCard';
 import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
-import { featuredEventItems, RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
+import { featuredEventItems } from '@/components/brand/m3Events';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { SponsorsBand } from '@/components/home/SponsorsBand';
 import {
@@ -48,12 +51,6 @@ import {
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
 import { GUEST_LIST_PAGES } from '@/lib/registration';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
-// The World Yachting Summit's events row redirects to its one page (/wys26).
-import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
-import { WYS26_PATH } from '@/components/events/WysInvitationCard';
-
-/** The Monaco Smart & Sustainable Marina Rendezvous, 6th edition: the page that carries the figures and the sponsors. */
-const RENDEZVOUS_2026_ID = RENDEZVOUS_2026_PATH.split('/').pop();
 /** The edition's public site, as linked from the home page. */
 const RENDEZVOUS_SITE = 'https://sustainablesmartmarina.com';
 
@@ -117,6 +114,8 @@ interface LocationDetails {
 
 interface EventDetail {
   id: string;
+  /** The readable address (absent before the slug migration): eventPath(). */
+  slug?: string | null;
   title: string;
   description: string | null;
   date_time: string | null;
@@ -249,16 +248,158 @@ function useReached(ref: React.RefObject<Element>, enabled: boolean, slack: numb
   return reached;
 }
 
-export function EventDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  // The World Yachting Summit 2026 has one page, /wys26 (Victor, 8 Oct 2026):
-  // its events row (a draft) is never shown here.
-  if (id === WYS26_EVENT_ID) return <Navigate to={WYS26_PATH} replace />;
-  return <EventDetailContent />;
+/** "Event not found": no such event for this reader (or a draft), kept out of search engines. */
+function EventNotFound() {
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-[60vh] bg-page px-4 py-16">
+      <Seo title={withSiteSuffix(t('eventsPage.notFound', 'Event not found'))} noindex />
+      <CardShell className="mx-auto max-w-md items-center p-8 text-center">
+        <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
+          <CalendarDays className="h-7 w-7" aria-hidden="true" />
+        </span>
+        <h1 className="mb-2 text-h3 text-navy">{t('eventsPage.notFound', 'Event not found')}</h1>
+        <p className="mb-6 text-sm text-meta">{t('eventsPage.notFoundBody', 'This event may have been removed, or it is not published yet.')}</p>
+        <Button asChild variant="cta" size="sm">
+          <Link to="/events">{t('eventsPage.backToEvents', 'Back to events')}</Link>
+        </Button>
+      </CardShell>
+    </div>
+  );
 }
 
-function EventDetailContent() {
-  const { id } = useParams<{ id: string }>();
+/** A failed read (network, timeout, server error) is not "no such event": Retry, and no noindex. */
+function EventLoadFailed({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
+  // No <Seo> here: the head the edge function wrote stays as it is.
+  return (
+    <div className="min-h-[60vh] bg-page px-4 py-16">
+      <CardShell className="mx-auto max-w-md items-center p-8 text-center">
+        <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
+          <CalendarDays className="h-7 w-7" aria-hidden="true" />
+        </span>
+        <h1 className="mb-2 text-h3 text-navy">{t('common.loadFailedTitle', 'This page could not be loaded')}</h1>
+        <p className="mb-6 text-sm text-meta">{t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}</p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button asChild variant="ctaOutline" size="sm" arrow={false}>
+            <Link to="/events">{t('eventsPage.backToEvents', 'Back to events')}</Link>
+          </Button>
+          <Button variant="cta" size="sm" arrow={false} onClick={onRetry}>
+            {t('common.retry', 'Try again')}
+          </Button>
+        </div>
+      </CardShell>
+    </div>
+  );
+}
+
+/** What an event address leads to, once resolved. */
+type EventTarget =
+  | { kind: 'loading' }
+  | { kind: 'event'; id: string; row?: EventDetail | null }
+  | { kind: 'moved'; slug: string }
+  | { kind: 'missing' }
+  | { kind: 'failed' };
+
+/** slug -> id of the events this tab has opened: putting the readable address in the bar never reads the event twice. */
+const eventIdBySlug = new Map<string, string>();
+
+/**
+ * The event a slug names: the event itself (read whole, so the page does not read it again), an
+ * address it had before (event_slug_lookup: never an unpublished event, except for staff), or a
+ * slug the code links to (KNOWN_EVENT_SLUGS: they open by id before the slug migration too).
+ */
+async function resolveEventSlug(key: string): Promise<Exclude<EventTarget, { kind: 'loading' }>> {
+  const slug = key.toLowerCase();
+  const known = KNOWN_EVENT_SLUGS[slug];
+  if (slugColumnMayExist('events')) {
+    const { data, error } = await supabase.from('events').select(`${EVENT_COLUMNS}, slug`).eq('slug', slug).maybeSingle();
+    if (data) {
+      const row = data as EventDetail;
+      return { kind: 'event', id: row.id, row };
+    }
+    if (isMissingSlugColumn(error)) {
+      noteMissingSlugColumn('events');
+    } else if (error) {
+      return { kind: 'failed' };
+    } else {
+      const current = await currentSlugFor('events', key);
+      if (current && current !== key) return { kind: 'moved', slug: current };
+    }
+  }
+  return known ? { kind: 'event', id: known } : { kind: 'missing' };
+}
+
+/**
+ * /events/:id — the parameter is the event's slug (every link since 20 Oct 2026), its id (older
+ * links, e-mails sent by the registration functions) or an address it had before. Each resolves
+ * to the event, whose own address then replaces the one in the bar (query string, hash and state
+ * kept). Before the slug migration everything reads by id, as it always did.
+ */
+export function EventDetailPage() {
+  const { id: key = '' } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [resolved, setResolved] = useState<{ key: string; target: EventTarget } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  // An id, or a slug this tab already knows: no lookup.
+  const direct = isUuid(key) ? key : eventIdBySlug.get(key) ?? null;
+
+  useEffect(() => {
+    if (direct || !key) return;
+    let alive = true;
+    setResolved({ key, target: { kind: 'loading' } });
+    resolveEventSlug(key).then(
+      (target) => { if (alive) setResolved({ key, target }); },
+      () => { if (alive) setResolved({ key, target: { kind: 'failed' } }); },
+    );
+    return () => { alive = false; };
+  }, [key, direct, attempt]);
+
+  // The event on screen gets its own address in the bar (no new history entry).
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const onLoaded = useCallback((ev: EventDetail) => {
+    if (!ev.slug) return;
+    eventIdBySlug.set(ev.slug, ev.id);
+    if (key === ev.slug) return;
+    const loc = locationRef.current;
+    navigate({ pathname: eventPath(ev), search: loc.search, hash: loc.hash }, { replace: true, state: loc.state });
+  }, [key, navigate]);
+
+  const target: EventTarget = direct
+    ? { kind: 'event', id: direct }
+    : resolved?.key === key ? resolved.target : { kind: 'loading' };
+
+  // The World Yachting Summit 2026 has one page, /wys26 (Victor, 8 Oct 2026): its events row,
+  // by id or by slug, is never shown here. The query string and the hash go along.
+  if (target.kind === 'event' && target.id.toLowerCase() === WYS26_EVENT_ID) {
+    return <Navigate to={{ pathname: WYS26_PAGE_PATH, search: location.search, hash: location.hash }} replace />;
+  }
+  if (target.kind === 'moved') {
+    return (
+      <Navigate
+        to={{ pathname: eventPath({ id: target.slug, slug: target.slug }), search: location.search, hash: location.hash }}
+        replace
+        state={location.state}
+      />
+    );
+  }
+  // A whole screen tall (same loader as the lazy routes): the footer stays below the fold.
+  if (target.kind === 'loading') return <LoadingSkeleton variant="screen" />;
+  if (target.kind === 'missing') return <EventNotFound />;
+  if (target.kind === 'failed') return <EventLoadFailed onRetry={() => setAttempt((n) => n + 1)} />;
+  return <EventDetailContent id={target.id} preloaded={target.row ?? null} onLoaded={onLoaded} />;
+}
+
+function EventDetailContent({ id, preloaded, onLoaded }: {
+  /** The event's id (always a UUID: the wrapper resolved the address). */
+  id: string;
+  /** The event, already read by the wrapper's slug lookup: not read a second time. */
+  preloaded: EventDetail | null;
+  /** Called with the event each time it is shown (the wrapper puts its address in the bar). */
+  onLoaded: (event: EventDetail) => void;
+}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user, profile, isModerator } = useAuth();
@@ -360,16 +501,34 @@ function EventDetailContent() {
   const loadedIdRef = useRef<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
   useEffect(() => {
     if (!id) return;
     let alive = true;
+    const show = (ev: EventDetail) => {
+      // Hide unpublished events from non-admins
+      const visible = ev.published === false && !isModerator ? null : ev;
+      setEvent(visible);
+      setLoadFailed(false);
+      loadedIdRef.current = id;
+      if (visible) onLoadedRef.current(visible);
+    };
+    // Read already by the wrapper (a slug address): shown as it is. A later run (the moderator
+    // flag arriving, Retry) reads it again.
+    if (preloaded && preloaded.id === id && loadedIdRef.current !== id) {
+      show(preloaded);
+      setLoading(false);
+      return;
+    }
     if (loadedIdRef.current !== id) setLoading(true);
     (async () => {
-      const { data, error } = await supabase
+      // The slug when the database has it (withSlug: as before the slug migration otherwise).
+      const { data, error } = await withSlug('events', (slug) => supabase
         .from('events')
-        .select(EVENT_COLUMNS)
+        .select(EVENT_COLUMNS + slug)
         .eq('id', id)
-        .single();
+        .single());
       if (!alive) return;
 
       if (error) {
@@ -387,16 +546,12 @@ function EventDetailContent() {
           setLoadFailed(true);
         }
       } else {
-        const ev = data as EventDetail;
-        // Hide unpublished events from non-admins
-        setEvent(ev.published === false && !isModerator ? null : ev);
-        setLoadFailed(false);
-        loadedIdRef.current = id;
+        show(data as unknown as EventDetail);
       }
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [id, isModerator, loadAttempt]);
+  }, [id, isModerator, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps -- `preloaded` serves the first read of an id only
 
   // Fetch packages for on-site events
   useEffect(() => {
@@ -533,7 +688,7 @@ function EventDetailContent() {
   };
 
   // The Rendezvous page also shows the event sponsors, by tier (the home page's read).
-  const isRendezvous = !!id && id === RENDEZVOUS_2026_ID;
+  const isRendezvous = id === RENDEZVOUS_6TH_EVENT_ID;
   const { sponsors, loading: sponsorsLoading } = useEventSponsors(isRendezvous);
 
   // People have no page of their own: a speaker or an attendee links to their
@@ -547,46 +702,9 @@ function EventDetailContent() {
   // A whole screen tall (same loader as the lazy routes): the footer stays below the fold, so the page arriving does not shift.
   if (loading) return <LoadingSkeleton variant="screen" />;
 
-  if (!event && loadFailed) {
-    // No <Seo> here: the head the edge function wrote stays as it is.
-    return (
-      <div className="min-h-[60vh] bg-page px-4 py-16">
-        <CardShell className="mx-auto max-w-md items-center p-8 text-center">
-          <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
-            <CalendarDays className="h-7 w-7" aria-hidden="true" />
-          </span>
-          <h1 className="mb-2 text-h3 text-navy">{t('common.loadFailedTitle', 'This page could not be loaded')}</h1>
-          <p className="mb-6 text-sm text-meta">{t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}</p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button asChild variant="ctaOutline" size="sm" arrow={false}>
-              <Link to="/events">{t('eventsPage.backToEvents', 'Back to events')}</Link>
-            </Button>
-            <Button variant="cta" size="sm" arrow={false} onClick={() => setLoadAttempt((n) => n + 1)}>
-              {t('common.retry', 'Try again')}
-            </Button>
-          </div>
-        </CardShell>
-      </div>
-    );
-  }
+  if (!event && loadFailed) return <EventLoadFailed onRetry={() => setLoadAttempt((n) => n + 1)} />;
 
-  if (!event) {
-    return (
-      <div className="min-h-[60vh] bg-page px-4 py-16">
-        <Seo title={withSiteSuffix(t('eventsPage.notFound', 'Event not found'))} noindex />
-        <CardShell className="mx-auto max-w-md items-center p-8 text-center">
-          <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
-            <CalendarDays className="h-7 w-7" aria-hidden="true" />
-          </span>
-          <h1 className="mb-2 text-h3 text-navy">{t('eventsPage.notFound', 'Event not found')}</h1>
-          <p className="mb-6 text-sm text-meta">{t('eventsPage.notFoundBody', 'This event may have been removed, or it is not published yet.')}</p>
-          <Button asChild variant="cta" size="sm">
-            <Link to="/events">{t('eventsPage.backToEvents', 'Back to events')}</Link>
-          </Button>
-        </CardShell>
-      </div>
-    );
-  }
+  if (!event) return <EventNotFound />;
 
   // ---------------------------------------------------------------- derived
   const isWebinar = event.event_type === 'webinar';
@@ -1417,9 +1535,11 @@ function EventDetailContent() {
     ...(showSponsors && !sponsorsLoading ? [{ id: 'sponsors', label: t('eventDetail.nav.sponsors', 'Sponsors') }] : []),
   ];
 
-  // The M3 events other than this one: the home page's three meeting points.
+  // The M3 events other than this one: the home page's three meeting points (linked by slug,
+  // the Rendezvous' even before the slug is loaded, or by id).
+  const ownHrefs = [eventPath(event), eventPath({ id: event.id }), ...(isRendezvous ? [eventMeta(event, seoTr, locale).path] : [])];
   const otherEvents = featuredEventItems(t).filter((item) =>
-    item.href !== `/events/${event.id}` && !(isWebinar && item.id === 'webinars'));
+    !ownHrefs.includes(item.href) && !(isWebinar && item.id === 'webinars'));
 
   const participation = (
     <div

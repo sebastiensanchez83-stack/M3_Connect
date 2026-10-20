@@ -353,6 +353,10 @@ export function OrganizationPublicPage() {
   const { user, profile, organization, organizations, isVerified, can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  // Member count of a validated company from org_public_member_counts (anyone): the count
+  // signed-out visitors see once organization_members is signed-in only
+  // (supabase/migrations/held/directory_signed_in_only.sql, contract §11.6).
+  const [publicMemberCount, setPublicMemberCount] = useState(0);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [futurePlans, setFuturePlans] = useState<FuturePlan[]>([]);
@@ -392,6 +396,7 @@ export function OrganizationPublicPage() {
       // Another organization: drop the previous one's data so nothing leaks across.
       setOrg(null);
       setMembers([]);
+      setPublicMemberCount(0);
       setMarinaDetails(null);
       setSectors([]);
       setFuturePlans([]);
@@ -422,14 +427,20 @@ export function OrganizationPublicPage() {
           found = true;
           setOrg(o);
 
-          // Members with job_title
-          const { data: membersData } = await supabase
-            .from('organization_members')
-            .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, persona, job_title, avatar_url)')
-            .eq('organization_id', o.id)
-            .order('joined_at', { ascending: true });
+          // Members with job_title (the team: signed-in readers), and the public count
+          // (anyone; a validated company only).
+          const [{ data: membersData }, { data: countRows }] = await Promise.all([
+            supabase
+              .from('organization_members')
+              .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, persona, job_title, avatar_url)')
+              .eq('organization_id', o.id)
+              .order('joined_at', { ascending: true }),
+            supabase.rpc('org_public_member_counts', { p_org_ids: [o.id] }),
+          ]);
           if (!alive) return;
           if (membersData) setMembers(membersData as unknown as MemberRow[]);
+          const countRow = ((countRows ?? []) as { organization_id: string; members: number }[]).find((r) => r.organization_id === o.id);
+          setPublicMemberCount(countRow ? Number(countRow.members) || 0 : 0);
 
           // Marina details if marina org
           if (o.organization_type === 'marina') {
@@ -823,7 +834,10 @@ export function OrganizationPublicPage() {
   const headquarters = englishCountryName(org.headquarters_country);
   const location = [displayCase(org.city), country].filter(Boolean).join(', ');
   const websiteHref = org.website ? externalUrl(org.website) : null;
-  const membersLabel = plural('orgProfile.members', members.length, '{{count}} member', '{{count}} members');
+  // The count everyone sees: the team read when it came back (signed-in readers), else the public
+  // count (signed-out visitors once organization_members is signed-in only).
+  const memberCount = members.length > 0 ? members.length : publicMemberCount;
+  const membersLabel = plural('orgProfile.members', memberCount, '{{count}} member', '{{count}} members');
   const recommendedLabel = plural(
     'orgProfile.recommendedBy', confirmedReferences.length,
     'Recommended by {{count}} marina', 'Recommended by {{count}} marinas',
@@ -927,7 +941,7 @@ export function OrganizationPublicPage() {
   if (headquarters && headquarters !== country) {
     glance.push({ key: 'hq', icon: Landmark, label: t('orgProfile.fields.headquarters', 'Headquarters'), value: headquarters });
   }
-  if (members.length > 0) glance.push({ key: 'team', icon: Users, label: t('orgProfile.fields.team', 'Team'), value: membersLabel });
+  if (memberCount > 0) glance.push({ key: 'team', icon: Users, label: t('orgProfile.fields.team', 'Team'), value: membersLabel });
   if (sectors.length > 0) {
     glance.push({
       key: 'sectors', icon: Layers, label: navLabels.sectors.label,
@@ -968,7 +982,7 @@ export function OrganizationPublicPage() {
     if (marinaHasDetails) {
       membersOnlyItems.push({ key: 'marina', icon: Anchor, label: t('orgProfile.membersOnlyMarina', "The marina's detailed profile") });
     }
-    if (members.length > 0) {
+    if (memberCount > 0) {
       membersOnlyItems.push({ key: 'team', icon: Users, label: t('orgProfile.membersOnlyTeam', 'The team behind {{name}}', { name }) });
     }
     if (org.owner_user_id && !isMemberOfThisOrg) {

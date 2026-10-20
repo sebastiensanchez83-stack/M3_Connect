@@ -359,17 +359,25 @@ export function DirectoryPage() {
         const orgIds = orgRows.map((o) => o.id);
 
         // Member counts, then service sectors (suppliers) and interest sectors (marinas).
+        // The counts come from org_public_member_counts (anyone, 500 ids per call), not from
+        // organization_members, which becomes signed-in only
+        // (supabase/migrations/held/directory_signed_in_only.sql, contract §11.6).
         type LinkRow = { organization_id: string; sector_id: string; sectors: SectorRef | null };
-        const [{ data: memberRows }, { data: serviceRows }, { data: interestRows }] = await Promise.all([
-          supabase.from('organization_members').select('organization_id').in('organization_id', orgIds),
+        type CountRow = { organization_id: string; members: number };
+        const idChunks: string[][] = [];
+        for (let i = 0; i < orgIds.length; i += 500) idChunks.push(orgIds.slice(i, i + 500));
+        const [countResults, { data: serviceRows }, { data: interestRows }] = await Promise.all([
+          Promise.all(idChunks.map((ids) => supabase.rpc('org_public_member_counts', { p_org_ids: ids }))),
           supabase.from('organization_service_sectors').select('organization_id, sector_id, sectors(id, slug, label)').in('organization_id', orgIds),
           supabase.from('organization_interest_sectors').select('organization_id, sector_id, sectors(id, slug, label)').in('organization_id', orgIds),
         ]);
         if (!alive) return;
 
         const memberCount: Record<string, number> = {};
-        for (const row of (memberRows ?? []) as { organization_id: string }[]) {
-          memberCount[row.organization_id] = (memberCount[row.organization_id] || 0) + 1;
+        for (const res of countResults) {
+          for (const row of (res.data ?? []) as CountRow[]) {
+            memberCount[row.organization_id] = Number(row.members) || 0;
+          }
         }
 
         const toMap = (rows: unknown) => {

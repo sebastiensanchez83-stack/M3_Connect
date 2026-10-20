@@ -143,9 +143,9 @@ export type RequestKind = (typeof REQUEST_KINDS)[number];
 /**
  * The rows and sections of the "My company" panel an address can point at:
  * a row (branding = the logo, details = the name, gallery = the photos,
- * documents) or the full editor ("more", and its capital / thesis sections).
+ * documents, sm26 = the Smart Marina 2026 details) or the full editor ("more", and its capital / thesis sections).
  */
-export const COMPANY_SECTIONS = ['branding', 'details', 'gallery', 'documents', 'more', 'capital', 'thesis'] as const;
+export const COMPANY_SECTIONS = ['branding', 'details', 'gallery', 'documents', 'sm26', 'more', 'capital', 'thesis'] as const;
 
 /** Where the old organisation editor's sections live now: "team" is its own tile. */
 function organizationTarget(section?: string | null): { panel: HomePanel; section?: string } {

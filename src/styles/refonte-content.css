@@ -100,6 +100,9 @@
 }
 .smc-article a:hover { background-color: rgb(var(--gold) / 0.18); }
 .smc-article a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 2px; }
+/* A company the article mentions, linked to its page (src/lib/companyMentions.ts): a teal rule instead of the gold one. */
+.smc-article a.smc-mention { text-decoration-color: rgb(var(--teal)); }
+.smc-article a.smc-mention:hover { background-color: rgb(var(--teal) / 0.12); }
 .smc-article blockquote {
   margin: 1.8em 0;
   padding: 1rem 1.25rem 1rem 1.5rem;

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { BTN_TOUCH, InfoList, InfoRow, NotFilled, useSavedFlash } from './EditKit';
 import { DocumentsDialog, FieldsDialog, GalleryDialog, PictureDialog, SectorsDialog } from './fieldDialogs';
 import { SwitchCompanyDialog } from './teamDialogs';
+import { SM26ShowcaseRow } from './SM26ShowcaseRow';
 import { useCompanyDetails } from './useCompany';
 
 // The full editor (every field, marina facts, capital raise, investment thesis…): only when asked.
@@ -32,7 +33,8 @@ const OrganizationWorkspace = lazyWithRetry(() => import('@/components/account/O
  * audience, headquarters, sponsoring, ownership) stays in the full editor,
  * behind "More settings" at the bottom. The address can point at a row
  * (section=branding: the logo, details: the name, gallery: the photos,
- * documents) or at the full editor (section=more, capital, thesis).
+ * documents, sm26: the Smart Marina 2026 details, whose window opens) or at
+ * the full editor (section=more, capital, thesis).
  *
  * No company yet: the full editor's own "create your organisation" form.
  */
@@ -279,6 +281,12 @@ export function CompanyPanel({
             actionLabel={isOwner ? t('dash.manageDocs', 'Manage documents') : t('dash.seeDocs', 'See documents')}
             onAction={() => setEditing('documents')}
             highlight={highlight === 'documents'}
+          />
+          {/* Only for a company with a Smart Marina 2026 startup or architecture entry. */}
+          <SM26ShowcaseRow
+            orgId={orgId}
+            version={`${reloadKey}:${version}`}
+            autoOpen={initialSection === 'sm26'}
           />
           <InfoRow
             label={t('dash.checkedByM3', 'Checked by M3')}

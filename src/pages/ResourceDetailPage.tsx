@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { readMinutes } from '@/lib/readTime';
@@ -26,6 +26,8 @@ import { getTheme, themesForSectors, type Theme } from '@/lib/themes';
 import { cn } from '@/lib/utils';
 import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
+import { LogoTile } from '@/components/brand/OrgCard';
+import { linkFirstMentions, mentionHref, type MentionOrg } from '@/lib/companyMentions';
 import '@/styles/refonte-content.css';
 
 /**
@@ -46,6 +48,11 @@ import '@/styles/refonte-content.css';
  * "marina" ones a verified marina, developer or investor. Locked, the reader gets
  * a blurred beginning and a panel to sign up or sign in. The article's HTML is
  * sanitized (DOMPurify) and styled by `.smc-article` (src/styles/refonte-content.css).
+ *
+ * Companies mentioned (Victor, 20 Oct 2026): the companies M3 confirmed in the editor
+ * (resource_organization_mention) are listed under the text, logo and name, each linking to its
+ * page; the first time each name appears in the text it links there too. The links are added at
+ * render time, after DOMPurify (src/lib/companyMentions.ts): the stored article never changes.
  */
 
 interface Resource {
@@ -89,6 +96,8 @@ export function ResourceDetailPage() {
   const [resource, setResource] = useState<Resource | null>(null);
   const [relatedResources, setRelatedResources] = useState<Resource[]>([]);
   const [speakers, setSpeakers] = useState<ResourceSpeaker[]>([]);
+  // The companies M3 confirmed this article mentions (only verified, listed ones are readable).
+  const [mentions, setMentions] = useState<MentionOrg[]>([]);
   // People have no page of their own: an author links to their company's page.
   const speakerOrgs = usePeopleOrgs(speakers.map((sp) => sp.profile_id));
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -126,6 +135,18 @@ export function ResourceDetailPage() {
           .order('display_order');
         setSpeakers((speakerData || []) as ResourceSpeaker[]);
 
+        // Companies mentioned. Best effort: without them the article reads as before.
+        const { data: mentionRows } = await supabase
+          .from('resource_organization_mention')
+          .select('organization_id, organizations(id, name, slug, logo_url, organization_type)')
+          .eq('resource_id', id);
+        setMentions(
+          ((mentionRows ?? []) as unknown as { organizations: MentionOrg | MentionOrg[] | null }[])
+            .map((m) => (Array.isArray(m.organizations) ? m.organizations[0] : m.organizations))
+            .filter((o): o is MentionOrg => !!o && !!o.slug)
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+
         // The article's themes, from its sectors: for the header's eyebrow. Best
         // effort: without them the header shows the type alone.
         const { data: sectorRows } = await supabase
@@ -159,6 +180,22 @@ export function ResourceDetailPage() {
     fetchResource();
     window.scrollTo(0, 0);
   }, [id, navigate]);
+
+  // The article's HTML, sanitized, with the first occurrence of each mentioned company linked.
+  const articleHtml = useMemo(
+    () => (resource?.content ? linkFirstMentions(DOMPurify.sanitize(resource.content), mentions) : ''),
+    [resource?.content, mentions],
+  );
+
+  /** A company link inside the article opens its page in the app (no full reload). */
+  const onArticleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const link = (e.target as Element | null)?.closest?.('a[data-org-mention]');
+    const href = link?.getAttribute('href');
+    if (!href || !href.startsWith('/organizations/')) return;
+    e.preventDefault();
+    navigate(href);
+  };
 
   const canAccess = (level: string) => {
     if (level === 'public') return true;
@@ -351,9 +388,31 @@ export function ResourceDetailPage() {
                   <article className={cn(resource.summary && 'mt-8 border-t border-rule pt-8')}>
                     <div
                       className="smc-article"
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
+                      onClick={onArticleClick}
+                      dangerouslySetInnerHTML={{ __html: articleHtml }}
                     />
                   </article>
+                )}
+                {mentions.length > 0 && (
+                  <section aria-labelledby="mentions-heading" className="mt-10 max-w-[68ch] border-t border-rule pt-6">
+                    <h2 id="mentions-heading" className="text-meta-caps">{t('resourceDetail.mentionsTitle', 'Companies in this article')}</h2>
+                    <ul className="mt-4 flex flex-wrap gap-3">
+                      {mentions.map((o) => {
+                        const label = displayCase(o.name) || o.name;
+                        return (
+                          <li key={o.id}>
+                            <Link
+                              to={mentionHref(o.slug)}
+                              className="group inline-flex min-h-11 items-center gap-2.5 rounded-pill border border-rule bg-white py-1.5 pl-1.5 pr-4 text-[15px] font-semibold text-navy transition-colors hover:border-navy/40 focus:outline-none focus-visible:shadow-focus"
+                            >
+                              <LogoTile src={o.logo_url} name={label} type={o.organization_type ?? null} size={32} className="!rounded-pill !p-1" />
+                              <span className="underline decoration-transparent underline-offset-4 transition-colors group-hover:decoration-gold">{label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
                 )}
                 {resource.file_url && (
                   <div className="mt-10">

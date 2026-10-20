@@ -10,7 +10,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
   ClipboardList, Clock, ConciergeBell, Droplets, ExternalLink, GraduationCap, PencilLine, HardHat, Info, Landmark,
-  Layers, Leaf, Link2, Lock, MapPin, Newspaper, Ruler, Sailboat, Ship, Tag, Target,
+  Layers, Leaf, Lightbulb, Link2, Lock, MapPin, Newspaper, Ruler, Sailboat, Ship, Tag, Target,
   TrendingUp, Users, UtensilsCrossed, Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
 import { useSM26MarinaTexts } from '@/components/organization/useSM26MarinaTexts';
+import { SM26ShowcaseBlocks, SM26ShowcaseHiddenNote, showcaseCount, useSM26Showcase } from '@/components/organization/SM26Showcase';
 import { TextTiles, type TextTileItem } from '@/components/organization/TextTiles';
 import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
@@ -102,6 +103,11 @@ registerOrgRefonteStrings();
  * so with a next step instead of leaving a void. The team is photo, name and job
  * title, with no link: people have no page of their own. A connection request
  * goes to the whole company (marina_organization_id), and any member answers.
+ *
+ * Smart Marina 2026 and the news (Victor, 20 Oct 2026): a startup's or an architecture
+ * practice's texts from its 2026 e-catalogue and jury dossier ("Smart Marina 2026", what the
+ * database allows and the company chose: src/lib/sm26Showcase.ts), and "In the news", the
+ * published public articles M3 tagged with this company (resource_organization_mention).
  *
  * Messaging (Victor, 9 Oct 2026): "Request to connect" became "Send a message", a
  * short first message (500 characters) open to any verified member of a company
@@ -193,7 +199,9 @@ type SectionId =
   | 'gallery'
   | 'marina'
   | 'sustainability'
+  | 'smartmarina'
   | 'recommendations'
+  | 'news'
   | 'team';
 
 const TYPE_ICON: Record<string, LucideIcon> = {
@@ -585,6 +593,8 @@ export function OrganizationPublicPage() {
   // (or an organization with nothing to relate to) just leaves the section out.
   const [similar, setSimilar] = useState<SimilarOrg[]>([]);
   const [related, setRelated] = useState<RelatedArticle[]>([]);
+  // "In the news": the published public articles M3 tagged with this company.
+  const [news, setNews] = useState<RelatedArticle[]>([]);
   const extrasOrgId = org?.id ?? null;
   const extrasType = org?.organization_type ?? null;
   const extrasCountry = org?.country ?? null;
@@ -663,6 +673,40 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [loading, extrasOrgId, sectorSlugsKey]);
 
+  useEffect(() => {
+    if (loading || !extrasOrgId) {
+      setNews([]);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('resource_organization_mention')
+          .select('resource_id, resources!inner(id, title, type, access_level, thumbnail_url, created_at, published_at, resource_sectors(sectors(slug)))')
+          .eq('organization_id', extrasOrgId)
+          .eq('resources.published', true)
+          .eq('resources.access_level', 'public')
+          .limit(24);
+        if (error) throw error;
+        type Res = Omit<RelatedArticle, 'themes'> & { resource_sectors: { sectors: { slug: string | null } | null }[] | null };
+        const rows = ((data ?? []) as unknown as { resources: Res | Res[] | null }[])
+          .map((r) => (Array.isArray(r.resources) ? r.resources[0] : r.resources))
+          .filter((r): r is Res => !!r)
+          .map((r): RelatedArticle => ({
+            id: r.id, title: r.title, type: r.type, access_level: r.access_level, thumbnail_url: r.thumbnail_url,
+            created_at: r.created_at, published_at: r.published_at,
+            themes: themesForSectors((r.resource_sectors ?? []).map((rs) => rs.sectors?.slug)),
+          }))
+          .sort((a, b) => (b.published_at || b.created_at || '').localeCompare(a.published_at || a.created_at || ''));
+        if (alive) setNews(rows.slice(0, 6));
+      } catch {
+        if (alive) setNews([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [loading, extrasOrgId]);
+
   // After "Send a message": connected at once (sectors match) or waiting for their answer.
   const handleMessageSent = (sent: { id: string; connected: boolean }) => {
     setConnection({ id: sent.id, status: sent.connected ? 'accepted' : 'pending', direction: 'sent' });
@@ -680,6 +724,9 @@ export function OrganizationPublicPage() {
   const canConnect = user && mayMessage && !isMemberOfThisOrg && !hasExistingRequest;
   const conversationHref = connection ? `/?open=inbox&thread=${connection.id}` : '/?open=inbox';
   const canEdit = !!organization && !!org && isMemberOfThisOrg;
+
+  // The Smart Marina 2026 texts (anyone), and for the company's own members whether some are hidden.
+  const sm26Show = useSM26Showcase(org?.id ?? null, canEdit);
 
   // ------------------------------------------------------------------ sections
   // Which sections this organization has. Worked out before any early return,
@@ -710,6 +757,11 @@ export function OrganizationPublicPage() {
   const marinaHasDetails = isMarina && marinaHasContent(marinaDetails, futurePlans);
   const showMarina = isVerified && marinaHasDetails;
   const showSustain = isMarina && sm26.items.length > 0;
+  const showSmartMarina = !!sm26Show.showcase;
+  const smartMarinaCount = showcaseCount(sm26Show.showcase);
+  const showNews = news.length > 0;
+  // An article tagged with this company is in "In the news"; it is not repeated in "Related articles".
+  const relatedShown = related.filter((r) => !news.some((n) => n.id === r.id));
   const showRefs = orgType === 'partner' && confirmedReferences.length > 0;
   const showTeam = isVerified && members.length > 0;
 
@@ -723,7 +775,9 @@ export function OrganizationPublicPage() {
         showSectors && 'sectors',
         showGallery && 'gallery',
         showSustain && 'sustainability',
+        showSmartMarina && 'smartmarina',
         showRefs && 'recommendations',
+        showNews && 'news',
         showTeam && 'team',
       ].filter(Boolean) as SectionId[])
     : [];
@@ -890,6 +944,8 @@ export function OrganizationPublicPage() {
     gallery: { label: t('orgProfile.nav.gallery', 'Gallery'), icon: Camera, count: gallery.length },
     marina: { label: t('orgProfile.nav.marina', 'Marina details'), icon: Anchor },
     sustainability: { label: t('orgProfile.nav.sustainability', 'Sustainability'), icon: Leaf, count: sm26.items.length },
+    smartmarina: { label: t('orgProfile.nav.smartmarina', 'Smart Marina 2026'), icon: Lightbulb, count: smartMarinaCount },
+    news: { label: t('orgProfile.nav.news', 'In the news'), icon: Newspaper, count: news.length },
     recommendations: { label: t('orgProfile.nav.recommendations', 'Recommendations'), icon: Award, count: confirmedReferences.length },
     team: { label: t('orgProfile.nav.team', 'Team'), icon: Users, count: members.length },
   };
@@ -904,7 +960,7 @@ export function OrganizationPublicPage() {
   // A thin page (a line of description, nothing else to read) used to leave a large
   // empty card under "About". It now says so calmly, with the one useful next step.
   const descriptionLength = org.description?.trim().length ?? 0;
-  const thin = descriptionLength < 200 && !showGallery && !showInvestment && !showSustain && !org.audience_description;
+  const thin = descriptionLength < 200 && !showGallery && !showInvestment && !showSustain && !showSmartMarina && !org.audience_description;
   // Unclaimed pages carry the claim invitation: beside the text, or in the thin-page
   // block when there is one (never both).
   const showClaimCard = !claimed && !thin;
@@ -1341,6 +1397,21 @@ export function OrganizationPublicPage() {
           </ProfileSection>
         )}
 
+        {/* Smart Marina 2026: the e-catalogue and jury texts the company lets visitors read */}
+        {showSmartMarina && sm26Show.showcase && (
+          <ProfileSection
+            id="smartmarina"
+            number={numberOf('smartmarina')}
+            label={navLabels.smartmarina.label}
+            title={t('orgProfile.sm26show.title', 'At Smart Marina 2026')}
+            count={smartMarinaCount}
+          >
+            <SM26ShowcaseBlocks showcase={sm26Show.showcase} name={name} canManage={canEdit} />
+          </ProfileSection>
+        )}
+        {/* Its own members only: the texts exist but the page does not show them */}
+        {!showSmartMarina && canEdit && sm26Show.hiddenForOwner && <SM26ShowcaseHiddenNote />}
+
         {/* Recommended by — confirmed marina references for partners */}
         {showRefs && (
           <ProfileSection id="recommendations" number={numberOf('recommendations')} label={navLabels.recommendations.label} title={recommendedLabel}>
@@ -1368,6 +1439,19 @@ export function OrganizationPublicPage() {
                       )}
                     </p>
                   </div>
+                </li>
+              ))}
+            </ul>
+          </ProfileSection>
+        )}
+
+        {/* In the news: the published public articles that mention this company */}
+        {showNews && (
+          <ProfileSection id="news" number={numberOf('news')} label={navLabels.news.label} title={t('orgProfile.news.title', 'In the news')} count={news.length}>
+            <ul className="grid gap-5 md:grid-cols-3 md:gap-6">
+              {news.map((r) => (
+                <li key={r.id} className="flex">
+                  <ArticleCard resource={r} />
                 </li>
               ))}
             </ul>
@@ -1428,7 +1512,7 @@ export function OrganizationPublicPage() {
       </div>
 
       {/* ── Related articles: the library's latest pieces in this organization's themes ── */}
-      {related.length > 0 && (
+      {relatedShown.length > 0 && (
         <section aria-labelledby="org-related-heading" className="border-t border-rule bg-page pb-16 pt-14 md:pb-24 md:pt-20">
           <div className={WRAP}>
             <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
@@ -1445,7 +1529,7 @@ export function OrganizationPublicPage() {
               </Reveal>
             </div>
             <RevealGroup as="ul" className="mt-8 grid gap-5 md:grid-cols-3 md:gap-6">
-              {related.map((r) => (
+              {relatedShown.map((r) => (
                 <li key={r.id} className="flex">
                   <ArticleCard resource={r} />
                 </li>

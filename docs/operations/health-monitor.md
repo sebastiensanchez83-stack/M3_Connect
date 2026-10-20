@@ -180,8 +180,8 @@ The door function `gl_checkin` is checked separately against its frozen md5
 admin pages (replacing or removing a file). Opening the SM26 check-in page
 (`/admin/sm26/checkin`) runs `sm_ensure_badges`, which can add or remove `sm_badge` rows
 (on 15 Oct it would change nothing). After such a change, `storage.event_media` or
-`drift.sm26_archive` fails every run until the baseline is taken again. First make sure the
-change was planned (who, which screen, which files); then:
+`drift.sm26_archive` fails every run until the baseline is taken again (a new SM26 invoice does
+not: `sm_invoice` may grow). First make sure the change was planned (who, which screen, which files); then:
 
 ```sql
 update public.platform_settings ps
@@ -239,7 +239,7 @@ by hand, but no e-mail can go. Only the heartbeat (step 8) reports those.
 | `wys.door` | `gl_checkin` unchanged; both guest-list triggers enabled | F | the door may not work: technical contact at once |
 | `drift.function_pins` | 13 sensitive functions changed since pinned | W | planned change: re-pin; unplanned: investigate |
 | `drift.freeze` | migrations applied during the freeze window | W | was it planned? |
-| `drift.sm26_archive` | row counts of 7 `sm_*` tables against the baseline | F | the SM26 archive must never change; if the SM26 check-in page was opened, see "Re-baseline" |
+| `drift.sm26_archive` | row counts of 7 `sm_*` tables against the baseline; since 20 Oct 2026 (migration `20261020170000`) `sm_invoice` may grow, as M3 still adds SM26 invoices, but fewer invoices or any change in the 6 other tables still fails | F | apart from new invoices the SM26 archive must never change; if the SM26 check-in page was opened, see "Re-baseline" |
 | `security.open_functions` | internal functions anyone can call through the API | W | today 2 (their names are in the report); decision in `backups.md`, section 4 |
 | `db.connections` | connections in use | W over 80 %, F over 95 % | a leak, or too much traffic for Micro compute |
 | `db.long_running` | queries over 5 min, transactions left open over 5 min | W | find them in `pg_stat_activity` |

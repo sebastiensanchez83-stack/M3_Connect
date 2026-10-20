@@ -99,6 +99,13 @@
   transition: background-color 0.3s var(--ease-out-smc);
 }
 .smc-article a:hover { background-color: rgb(var(--gold) / 0.18); }
+/* A company of the platform named in the article (src/lib/orgMentions.ts): a
+   dotted teal underline, so it reads as a tag rather than as the editor's link. */
+.smc-article a.smc-org-mention {
+  text-decoration-style: dotted;
+  text-decoration-color: rgb(var(--teal));
+}
+.smc-article a.smc-org-mention:hover { background-color: rgb(var(--teal) / 0.12); }
 .smc-article a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 2px; }
 .smc-article blockquote {
   margin: 1.8em 0;

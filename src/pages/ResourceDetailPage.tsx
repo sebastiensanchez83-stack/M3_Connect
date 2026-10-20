@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { readMinutes } from '@/lib/readTime';
 import { Helmet } from 'react-helmet-async';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
-import { resourceMeta } from '@/lib/seoMeta';
+import { orgPath, resourceMeta } from '@/lib/seoMeta';
 import DOMPurify from 'dompurify';
 import { Button } from '@/components/ui/button';
 import { AuthDialog } from '@/components/auth/AuthDialog';
@@ -19,6 +19,7 @@ import { AdBanner } from '@/components/ui/AdBanner';
 import { PageHero } from '@/components/ui/PageHero';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { LogoTile } from '@/components/brand/OrgCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { Reveal } from '@/components/motion/Reveal';
 import { ResourceCard, type ResourceCardData } from '@/components/resources/ResourceParts';
@@ -26,6 +27,7 @@ import { getTheme, themesForSectors, type Theme } from '@/lib/themes';
 import { cn } from '@/lib/utils';
 import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
+import { linkOrgMentions, useMentionOrgs, type MentionOrg } from '@/lib/orgMentions';
 import '@/styles/refonte-content.css';
 
 /**
@@ -201,6 +203,24 @@ export function ResourceDetailPage() {
     }
   };
 
+  // Companies of the platform named in the article: the first mention of each links to
+  // its page, and they are listed under the article (src/lib/orgMentions.ts).
+  const mentionOrgs = useMentionOrgs(!!resource?.content);
+  const article = useMemo(() => {
+    const clean = resource?.content ? DOMPurify.sanitize(resource.content) : '';
+    if (!mentionOrgs) return { html: clean, mentioned: [] as MentionOrg[] };
+    const linked = linkOrgMentions(clean, mentionOrgs);
+    // Sanitized again after the re-serialisation, belt and braces.
+    return linked.html === clean ? linked : { ...linked, html: DOMPurify.sanitize(linked.html) };
+  }, [resource?.content, mentionOrgs]);
+  // Those links stay inside the app (no full reload); a modified click keeps the browser's own behaviour.
+  const onArticleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement | null)?.closest?.('a[data-org-mention]');
+    if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navigate(link.getAttribute('href') || '/directory');
+  };
+
   if (loading) {
     // A whole screen tall (same loader as the lazy routes): the footer stays below the fold, so the page arriving does not shift.
     return <LoadingSkeleton variant="screen" />;
@@ -349,11 +369,33 @@ export function ResourceDetailPage() {
               <>
                 {resource.content && (
                   <article className={cn(resource.summary && 'mt-8 border-t border-rule pt-8')}>
+                    {/* Links added by linkOrgMentions are built with DOM methods on the sanitized HTML. */}
                     <div
                       className="smc-article"
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
+                      onClick={onArticleClick}
+                      dangerouslySetInnerHTML={{ __html: article.html }}
                     />
                   </article>
+                )}
+                {article.mentioned.length > 0 && (
+                  <section aria-labelledby="mentioned-heading" className="mt-10 max-w-[68ch] border-t border-rule pt-6">
+                    <h2 id="mentioned-heading" className="text-[13px] font-semibold uppercase leading-4 tracking-[0.08em] text-meta">
+                      {t('resourceDetail.mentioned', 'Companies in this article')}
+                    </h2>
+                    <ul className="mt-3 flex flex-wrap gap-2">
+                      {article.mentioned.map((o) => (
+                        <li key={o.id} className="min-w-0 max-w-full">
+                          <Link
+                            to={orgPath(o.slug)}
+                            className="focus-ring inline-flex h-10 max-w-full items-center gap-2 rounded-pill border border-rule bg-white pl-1 pr-3.5 text-sm font-medium text-navy transition-colors duration-300 hover:border-navy/40"
+                          >
+                            <LogoTile src={o.logo_url} name={o.name} type={o.organization_type} size={30} className="rounded-pill border-0 p-0.5 [&>span]:text-[11px]" />
+                            <span className="truncate">{o.name}</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 )}
                 {resource.file_url && (
                   <div className="mt-10">

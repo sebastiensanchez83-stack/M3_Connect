@@ -10,7 +10,6 @@ import { supabase } from '@/lib/supabase';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
 import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
-import { SPONSOR_TIERS, isSponsorTier, type OrgTier } from '@/types/database';
 import { SplitHero, HeroIn } from '@/components/brand/SplitHero';
 import { EventCard } from '@/components/brand/EventCard';
 import { SearchField, ALL_SUGGESTIONS } from '@/components/brand/SearchField';
@@ -20,7 +19,7 @@ import { LineReveal } from '@/components/motion/LineReveal';
 import { FiguresBand, type HomeFigures } from '@/components/home/FiguresBand';
 import type { ProviderCardData } from '@/components/home/NeedPanel';
 import type { HomeResource } from '@/components/home/ResourcesAgenda';
-import type { SponsorLogo } from '@/components/home/SponsorsBand';
+import { fetchSponsorLogos, type SponsorLogo } from '@/lib/sponsors';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { openSignup } from '@/lib/authModal';
 
@@ -70,8 +69,6 @@ const MemberDashboard = lazyWithRetry(() => import('@/components/home/MemberDash
 
 type HomeStats = HomeFigures;
 
-type FeaturedOrgRow = { id: string; slug: string; name: string; logo_url: string | null; tier: OrgTier | null; organization_type: string | null };
-
 /* ─── Helpers ────────────────────────────────────────────────────── */
 
 /** Six members for the providers row: those with a logo first, in a fresh order on each visit. */
@@ -113,7 +110,7 @@ export function HomePage() {
     const fetchAll = async () => {
       const [
         settingsRes, orgStatsRes, sectorsRes, resIndexRes, featuredRes,
-        featuredOrgRes, memberMarinasRes, providersRes, sponsorsRes,
+        memberMarinasRes, providersRes, sponsorsRes,
       ] = await Promise.allSettled([
         // Admin-editable display stats: used as they are when the admin has
         // set `override: true`, otherwise only as a fallback for a failed live count.
@@ -130,14 +127,6 @@ export function HomePage() {
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
-          .limit(6),
-        // Organisations an admin has featured on the home page: their sponsor
-        // tiers join the logo band (only paying tiers are "partners").
-        supabase
-          .from('organizations')
-          .select('id, slug, name, logo_url, tier, organization_type')
-          .eq('access_status', 'verified')
-          .eq('featured_partner', true)
           .limit(6),
         // How many of the listed marinas are members (an owner on the platform):
         // most of the listed ones were imported and nobody has claimed them yet.
@@ -156,12 +145,8 @@ export function HomePage() {
           .not('owner_user_id', 'is', null)
           .order('created_at', { ascending: false })
           .limit(30),
-        // Event sponsors (paying tiers), same rule as the Partners page.
-        supabase
-          .from('organizations')
-          .select('id, slug, name, logo_url, tier')
-          .eq('access_status', 'verified')
-          .in('tier', SPONSOR_TIERS),
+        // Event sponsors: the one list of the Partners page (src/lib/sponsors.ts).
+        fetchSponsorLogos(),
       ]);
       if (!alive) return;
 
@@ -213,17 +198,8 @@ export function HomePage() {
         themes: themesOf(r.resource_sectors),
       })).slice(0, 6));
 
-      // ── Sponsors: paying tiers only, from the sponsor query and the featured orgs ──
-      const byId = new Map<string, SponsorLogo>();
-      const sponsorRows = [
-        ...((ok(sponsorsRes)?.data ?? []) as FeaturedOrgRow[]),
-        ...((ok(featuredOrgRes)?.data ?? []) as FeaturedOrgRow[]),
-      ];
-      for (const o of sponsorRows) {
-        const tier = (o.tier || 'member') as OrgTier;
-        if (isSponsorTier(tier) && !byId.has(o.id)) byId.set(o.id, { id: o.id, slug: o.slug, name: o.name, logo_url: o.logo_url, tier });
-      }
-      setSponsors([...byId.values()].sort((a, b) => a.name.localeCompare(b.name)));
+      // ── Sponsors: the paying tiers, the same list as /partners ──
+      setSponsors(sponsorsRes.status === 'fulfilled' ? sponsorsRes.value : []);
 
       // ── Service-provider members for the need panel ──
       setProviders(pickProviders((ok(providersRes)?.data ?? []) as ProviderCardData[]));

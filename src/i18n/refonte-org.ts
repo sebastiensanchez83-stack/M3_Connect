@@ -58,7 +58,7 @@ export const ORG_REFONTE_STRINGS = {
         mediaLink: 'Are you a media outlet?',
       },
       contactLine: 'Sponsorship is handled directly by the M3 team.',
-      emptyHint: 'Sponsors appear here, grouped by tier, as soon as they have a logo and a profile.',
+      emptyHint: 'Sponsors appear here, grouped by tier, as soon as their sponsorship is confirmed.',
     },
     oppRefonte: {
       toolbarLabel: 'Filter the opportunities',

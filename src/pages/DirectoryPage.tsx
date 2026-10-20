@@ -32,10 +32,12 @@ import { featuredEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone } from '@/components/brand/OrgCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { WinnerLine } from '@/components/brand/AwardBadge';
 import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { SheetDrawer } from '@/components/directory/SheetDrawer';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { useAwardWins, type AwardWinsByOrg } from '@/lib/awardWins';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
 import { useNetworkFigures, formatFigure, countryKey, countryKeysOf, countryParts, rawCountryOf } from '@/lib/networkStats';
@@ -869,7 +871,9 @@ export function DirectoryPage() {
   const tabValue = activeType ?? 'all';
   /** Counts show only once the list is really in (never "0" after a failed load). */
   const dataReady = !loading && !loadFailed;
-  const cardProps = { openTheme: activeTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar: openShortlist };
+  // Smart Marina award winners: a gold line on their card (read once, shared with the company page).
+  const awardWins = useAwardWins();
+  const cardProps = { openTheme: activeTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar: openShortlist, awardWins };
   // Cards in one row arrive 80 ms apart: how many fit in a row depends on the grid.
   const columns = useColumns();
 
@@ -1978,7 +1982,7 @@ function CardSkeleton() {
  * and investor members).
  */
 function DirectoryCard({
-  org, openTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar,
+  org, openTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar, awardWins,
 }: {
   org: Indexed;
   openTheme: Theme | null;
@@ -1987,9 +1991,11 @@ function DirectoryCard({
   themeLabel: (th: Theme) => string;
   visitor: boolean;
   onVisitorStar: (name: string) => void;
+  awardWins: AwardWinsByOrg;
 }) {
   const { t } = useTranslation();
   const blurb = org.description || org.audience_description;
+  const wins = awardWins.get(org.id) ?? [];
   const paying = isPaying(org.tier);
   const tone = orgTypeTone(org.organization_type);
 
@@ -2072,6 +2078,8 @@ function DirectoryCard({
             </span>
           )}
         </p>
+
+        <WinnerLine wins={wins} className="mt-2" />
 
         {/* No presentation written: its sectors, or a short neutral line, rather than a void before "View profile". */}
         {blurb ? (

@@ -8,7 +8,10 @@ import { LogoMarquee, type MarqueeGroup } from '@/components/motion/LogoMarquee'
 import { MotionPauseToggle } from '@/components/motion/MotionPauseToggle';
 import { Reveal } from '@/components/motion/Reveal';
 import { useMotion } from '@/components/motion/MotionProvider';
-import { TIER_LABELS, type OrgTier } from '@/types/database';
+import { TIER_LABELS } from '@/types/database';
+import { PARTNERS_PATH, SPONSOR_TIER_ORDER, type SponsorLogo } from '@/lib/sponsors';
+
+export type { SponsorLogo };
 
 /**
  * Event sponsors — "partners" in our vocabulary, and only them — as a slow
@@ -20,22 +23,13 @@ import { TIER_LABELS, type OrgTier } from '@/types/database';
  * under reduced motion, and when there are too few logos to drift
  * (LogoMarquee).
  */
-export interface SponsorLogo {
-  id: string;
-  slug: string;
-  name: string;
-  logo_url: string | null;
-  tier: OrgTier;
-}
-
-const TIER_ORDER: OrgTier[] = ['main_sponsor', 'premium_sponsor', 'premium_partner', 'associate_partner', 'innovation_partner'];
 
 export function SponsorsBand({ sponsors, loading, sectionNo }: { sponsors: SponsorLogo[]; loading: boolean; sectionNo?: string }) {
   const { t } = useTranslation();
   const { reduced } = useMotion();
   // A tier shows once it has at least one logo; a sponsor of that tier without a
   // logo yet is written out by name, so nobody who paid for visibility is left out.
-  const groups: MarqueeGroup[] = TIER_ORDER.map((tier) => {
+  const groups: MarqueeGroup[] = SPONSOR_TIER_ORDER.map((tier) => {
     const ofTier = sponsors.filter((s) => s.tier === tier);
     return {
       tier: TIER_LABELS[tier],
@@ -70,7 +64,7 @@ export function SponsorsBand({ sponsors, loading, sectionNo }: { sponsors: Spons
           </div>
           <Reveal delay={160} className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-5 lg:justify-end">
             <Button asChild variant="ctaOutline">
-              <Link to="/partners">{t('homePage.sponsors.link', 'See the partners')}</Link>
+              <Link to={PARTNERS_PATH}>{t('homePage.sponsors.link', 'See the partners')}</Link>
             </Button>
             {/* Sponsoring is sold by the M3 team: the sponsorship page explains it and takes the deck request. */}
             <UnderlineLink to="/sponsor">{t('homeSections.becomePartner', 'Sponsor an event')}</UnderlineLink>

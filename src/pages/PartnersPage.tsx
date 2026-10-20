@@ -12,6 +12,7 @@ import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { PageHero } from '@/components/ui/PageHero';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { SPONSOR_TIERS, TIER_LABELS, type OrgTier } from '@/types/database';
+import { SPONSOR_TIER_ORDER as TIER_ORDER } from '@/lib/sponsors';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
@@ -31,20 +32,22 @@ registerOrgRefonteStrings();
 const SPONSOR_SUGGESTIONS: readonly SuggestGroup[] = ['companies'];
 
 /**
- * /partners — the companies that sponsor M3's events (refonte v2).
+ * /partners — THE list of the companies that sponsor M3's events (refonte v2).
  *
- * Who is listed has not changed: every verified organization on a paying tier
- * (whatever its type), plus media outlets an admin has tagged as event media
- * partners. "Partners" are paying event sponsors and nobody else, so the page
- * reads like the sponsors band of the home page, in full:
+ * The one list (20 Oct 2026): every verified organization on a paying tier
+ * (whatever its type, src/lib/sponsors.ts), plus media outlets an admin has
+ * tagged as event media partners. "Partners" are paying event sponsors and
+ * nobody else. The home page's band, the Rendezvous page, /sponsor, the
+ * directory's "Event partners" row and the tier badge on a company page all
+ * send people here:
  *
  *   - a compact banner with the search (?q=, replacing history while typing);
  *   - the sponsors grouped by tier, highest first (Main Sponsor down to
- *     Innovation Partner). A tier shows once at least one of its sponsors has a
- *     logo; each sponsor sits on a card of the same shape, its logo normalised
- *     in a fixed box (never stretched, never cropped), with the shortlist star,
- *     the type and place, and up to two sectors. A sponsor of a tier without a
- *     single logo yet is not listed here (same rule as the home page);
+ *     Innovation Partner); each sponsor sits on a card of the same shape, its
+ *     logo normalised in a fixed box (never stretched, never cropped; its name
+ *     when it has no logo yet), with the shortlist star, the type and place,
+ *     and up to two sectors. Unlike the home page's logo band, a tier is listed
+ *     even before any of its sponsors has a logo: this page is the full list;
  *   - the media outlets that cover the events, then a band that sends everyone
  *     else to the directory, then the sponsorship panel and the M3 contact.
  *
@@ -88,8 +91,7 @@ const TYPE_META: Record<TypeKey, { icon: LucideIcon; oneKey: string; oneFallback
 const TYPE_KEYS = Object.keys(TYPE_META) as TypeKey[];
 const typeMeta = (type: string | null | undefined) => (type && type in TYPE_META ? TYPE_META[type as TypeKey] : null);
 
-/** Biggest packages first, as on the home page's sponsors band. */
-const TIER_ORDER: OrgTier[] = ['main_sponsor', 'premium_sponsor', 'premium_partner', 'associate_partner', 'innovation_partner'];
+/** Biggest packages first (TIER_ORDER, from src/lib/sponsors.ts), as on the home page's sponsors band. */
 const TIER_RANK: Record<string, number> = {
   main_sponsor: 0, premium_sponsor: 1, premium_partner: 2, associate_partner: 3, innovation_partner: 4, member: 5,
 };
@@ -120,10 +122,7 @@ export function PartnersPage() {
   // The search pill shows only once there are enough companies to search
   // (SEARCH_MIN): over two cards it was a field for nothing (design audit,
   // 8 Oct 2026). A ?q= with no field on screen to show it is ignored.
-  const listedCount = useMemo(() => {
-    const tiers = new Set(TIER_ORDER.filter((tier) => partners.some((p) => !isMediaPartner(p) && p.tier === tier && p.logo_url)));
-    return partners.filter((p) => isMediaPartner(p) || tiers.has(p.tier)).length;
-  }, [partners]);
+  const listedCount = partners.length;
   const searchable = !loading && listedCount >= SEARCH_MIN;
   const search = searchable ? params.get('q') ?? '' : '';
   const setSearch = (value: string) => {
@@ -260,16 +259,12 @@ export function PartnersPage() {
     );
   }, [partners, search, t]);
 
-  // Tiers with at least one logo (whatever the search): a tier without any is not shown, as on the home page.
-  const logoTiers = useMemo(
-    () => TIER_ORDER.filter((tier) => partners.some((p) => !isMediaPartner(p) && p.tier === tier && p.logo_url)),
-    [partners],
-  );
+  // Every tier that has a sponsor (this page is the full list, logo or not).
   const tierGroups = useMemo(
-    () => logoTiers
+    () => TIER_ORDER
       .map((tier) => ({ tier, items: filteredPartners.filter((p) => !isMediaPartner(p) && p.tier === tier) }))
       .filter((g) => g.items.length > 0),
-    [logoTiers, filteredPartners],
+    [filteredPartners],
   );
   const media = filteredPartners.filter(isMediaPartner);
   const shownCount = tierGroups.reduce((n, g) => n + g.items.length, 0) + media.length;
@@ -334,7 +329,7 @@ export function PartnersPage() {
             </h2>
             {!searching && (
               <p className="mx-auto mt-2 max-w-[460px] text-[15px] leading-6 text-meta">
-                {t('partnersRefonte.emptyHint', 'Sponsors appear here, grouped by tier, as soon as they have a logo and a profile.')}
+                {t('partnersRefonte.emptyHint', 'Sponsors appear here, grouped by tier, as soon as their sponsorship is confirmed.')}
               </p>
             )}
             <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">

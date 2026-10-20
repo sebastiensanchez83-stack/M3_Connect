@@ -727,18 +727,15 @@ export function AdminOrganizationDetail() {
                     <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="mt-1 text-xs text-gray-500">
+                  A paying tier puts a verified organisation on the one sponsors list: the <Link to="/partners" className="text-primary hover:underline">Partners page</Link>, the
+                  home page band and the event pages, grouped by tier. Member = not listed.
+                </p>
               </div>
               <div>
                 <Label className="text-xs">Max Seats</Label>
                 <Input type="number" value={maxSeats} onChange={e => setMaxSeats(parseInt(e.target.value) || 1)} min={1} className="h-9 w-24" />
               </div>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <Checkbox checked={featured} onCheckedChange={v => setFeatured(!!v)} className="mt-0.5" />
-                <span>
-                  <span className="text-sm font-medium text-gray-800">Feature on home page</span>
-                  <span className="block text-xs text-gray-500">Show this organisation in the "Our Partners" showcase on the public home page.</span>
-                </span>
-              </label>
               <label className="flex items-start gap-2 cursor-pointer">
                 <Checkbox checked={mediaPartner} onCheckedChange={v => setMediaPartner(!!v)} className="mt-0.5" />
                 <span>

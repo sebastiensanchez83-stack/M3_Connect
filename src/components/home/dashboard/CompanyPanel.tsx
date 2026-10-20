@@ -18,6 +18,7 @@ import { DocumentsDialog, FieldsDialog, GalleryDialog, PictureDialog, SectorsDia
 import { SwitchCompanyDialog } from './teamDialogs';
 import { SM26ShowcaseRow } from './SM26ShowcaseRow';
 import { useCompanyDetails } from './useCompany';
+import { MemberBadgeCard } from './MemberBadgeCard';
 
 // The full editor (every field, marina facts, capital raise, investment thesis…): only when asked.
 const OrganizationWorkspace = lazyWithRetry(() => import('@/components/account/OrganizationWorkspace').then((m) => ({ default: m.OrganizationWorkspace })));
@@ -296,6 +297,9 @@ export function CompanyPanel({
           />
         </InfoList>
       )}
+
+      {/* The badge for the company's own website: once M3 has verified the company. */}
+      {verified && org.slug && <MemberBadgeCard org={{ slug: org.slug, name: org.name }} />}
 
       {/* Everything else, in the full editor. */}
       <div className="rounded-card border border-dashed border-rule bg-white/60 px-4 py-3 sm:px-5">

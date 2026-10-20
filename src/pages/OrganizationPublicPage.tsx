@@ -41,6 +41,8 @@ import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { LogoTile, OrgCard, TYPE_RGB, VerifiedBadge, orgTypeTone, seedOf } from '@/components/brand/OrgCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { WinnerBadge } from '@/components/brand/AwardBadge';
+import { useAwardWins } from '@/lib/awardWins';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { SendMessageDialog } from '@/components/messages/SendMessageDialog';
@@ -52,7 +54,7 @@ import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { displayCase } from '@/lib/displayCase';
 import { englishCountryName } from '@/lib/countryNames';
-import { HOLD_PERIODS } from '@/types/database';
+import { HOLD_PERIODS, isSponsorTier } from '@/types/database';
 import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
 
@@ -744,6 +746,10 @@ export function OrganizationPublicPage() {
   // section bar, only exist when there is at least one text.
   const sm26 = useSM26MarinaTexts(isMarina && org ? org.id : null);
 
+  // Smart Marina award wins (the gold badge in the header): read once, shared with the directory.
+  const awardWins = useAwardWins();
+  const wins = org ? awardWins.get(org.id) ?? [] : [];
+
   const showInvestment = !!org && orgType === 'investor' && !!(
     org.investment_thesis ||
     (org.investment_geographies && org.investment_geographies.length > 0) ||
@@ -1137,7 +1143,13 @@ export function OrganizationPublicPage() {
                     {t('orgProfile.pending', 'Verification in progress')}
                   </span>
                 )}
-                <SponsorBadge tier={org.tier as OrgTier} size="md" />
+                {/* A paying tier: the badge opens the one list of event partners. */}
+                {isSponsorTier(org.tier as OrgTier) && (
+                  <Link to="/partners" title={t('orgProfile.seePartners', 'See all event partners')} className="focus-ring rounded-full">
+                    <SponsorBadge tier={org.tier as OrgTier} size="md" />
+                  </Link>
+                )}
+                {wins.map((w) => <WinnerBadge key={`${w.event_slug}:${w.award_key}`} win={w} />)}
               </div>
 
               <h1 className="mt-2 break-words text-h1-sm text-navy sm:text-h1">{name}</h1>

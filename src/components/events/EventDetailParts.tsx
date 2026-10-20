@@ -16,10 +16,8 @@ import { prefersReducedMotion } from '@/components/motion/useReducedMotion';
 import { subscribeScroll } from '@/components/motion/scrollLoop';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 import { DateBlock } from '@/components/events/EventListParts';
-import { supabase } from '@/lib/supabase';
 import type { SiteImage } from '@/lib/siteMedia';
-import { SPONSOR_TIERS, isSponsorTier, type OrgTier } from '@/types/database';
-import type { SponsorLogo } from '@/components/home/SponsorsBand';
+import { fetchSponsorLogos, type SponsorLogo } from '@/lib/sponsors';
 import { cn } from '@/lib/utils';
 
 /**
@@ -354,12 +352,10 @@ export function OtherEventCard({ item }: { item: EventCardItem }) {
 
 /* ─── Sponsors ───────────────────────────────────────────────────── */
 
-type SponsorRow = { id: string; slug: string; name: string; logo_url: string | null; tier: OrgTier | null };
-
 /**
- * The paying event sponsors ("partners" in our vocabulary), the same read as the
- * home page's band: verified organisations in a sponsor tier. Anonymous, public
- * data; a failed read simply shows nothing.
+ * The paying event sponsors ("partners" in our vocabulary), the one list of
+ * src/lib/sponsors.ts: verified organisations in a sponsor tier. Anonymous,
+ * public data; a failed read simply shows nothing.
  */
 export function useEventSponsors(enabled: boolean): { sponsors: SponsorLogo[]; loading: boolean } {
   const [sponsors, setSponsors] = useState<SponsorLogo[]>([]);
@@ -367,23 +363,11 @@ export function useEventSponsors(enabled: boolean): { sponsors: SponsorLogo[]; l
   useEffect(() => {
     if (!enabled) { setLoading(false); return; }
     let alive = true;
-    supabase
-      .from('organizations')
-      .select('id, slug, name, logo_url, tier')
-      .eq('access_status', 'verified')
-      .in('tier', SPONSOR_TIERS)
-      .then(({ data, error }) => {
-        if (!alive) return;
-        if (!error && data) {
-          const list: SponsorLogo[] = [];
-          for (const o of data as SponsorRow[]) {
-            const tier = (o.tier || 'member') as OrgTier;
-            if (isSponsorTier(tier)) list.push({ id: o.id, slug: o.slug, name: o.name, logo_url: o.logo_url, tier });
-          }
-          setSponsors(list.sort((a, b) => a.name.localeCompare(b.name)));
-        }
-        setLoading(false);
-      });
+    void fetchSponsorLogos().then((list) => {
+      if (!alive) return;
+      setSponsors(list);
+      setLoading(false);
+    });
     return () => { alive = false; };
   }, [enabled]);
   return { sponsors, loading };

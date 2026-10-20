@@ -25,6 +25,7 @@ import { toast } from '@/hooks/use-toast';
 import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } from './types';
 import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
 import { ResourceM3EditionEditor } from './ResourceM3EditionEditor';
+import { ResourceMentionsPanel } from './ResourceMentionsPanel';
 
 interface Sector {
   id: string;
@@ -736,6 +737,9 @@ export function AdminResourceDetail() {
           />
         </CardContent>
       </Card>
+
+      {/* Companies the article mentions: linked in the text and listed under it (saved at once). */}
+      <ResourceMentionsPanel resourceId={resourceId} title={form.title} summary={form.summary} content={form.content} />
 
       {isAdmin && resourceId && <ResourceM3EditionEditor key={resourceId} resourceId={resourceId} />}
 

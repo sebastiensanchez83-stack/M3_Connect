@@ -1,8 +1,8 @@
 -- DOWN of supabase/migrations/20261020160000_readable_slugs.sql. NOT A MIGRATION: run it only to
 -- take readable addresses out (with Victor's OK). It DROPS resources.slug, events.slug and every
--- old address kept in the two history tables; keep a copy first:
---   select r.id, r.slug from public.resources r;
---   select e.id, e.slug from public.events e;
+-- old address kept in the two history tables (and slug_auto, slug_public); keep a copy first:
+--   select r.id, r.slug, r.slug_auto from public.resources r;
+--   select e.id, e.slug, e.slug_auto, e.slug_public from public.events e;
 --   select * from public.resource_slug_history;
 --   select * from public.event_slug_history;
 -- After it, /resources/<slug> and /events/<slug> links that were shared stop working (the pages
@@ -23,7 +23,8 @@ begin
     from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and p.prolang <> (select l.oid from pg_language l where l.lanname = 'c')
-     and (p.prosrc ilike '%slug_history%' or p.prosrc ilike '%slug_lookup%' or p.prosrc ilike '%smc_slugify%')
+     and (p.prosrc ilike '%slug_history%' or p.prosrc ilike '%slug_lookup%' or p.prosrc ilike '%smc_slugify%'
+          or p.prosrc ilike '%slug_auto%' or p.prosrc ilike '%slug_public%')
      and p.oid is distinct from to_regprocedure('public.smc_slug_assign()')
      and p.oid is distinct from to_regprocedure('public.smc_slug_remember()')
      and p.oid is distinct from to_regprocedure('public.resource_slug_lookup(text)')
@@ -47,13 +48,17 @@ drop table if exists public.resource_slug_history;
 drop table if exists public.event_slug_history;
 -- Drops the unique and format constraints with the columns.
 alter table public.resources drop column if exists slug;
+alter table public.resources drop column if exists slug_auto;
 alter table public.events drop column if exists slug;
+alter table public.events drop column if exists slug_auto;
+alter table public.events drop column if exists slug_public;
 drop function if exists public.smc_slugify(text);
 
 do $post$
 begin
   if exists (select 1 from information_schema.columns c
-              where c.table_schema = 'public' and c.table_name in ('resources', 'events') and c.column_name = 'slug')
+              where c.table_schema = 'public' and c.table_name in ('resources', 'events')
+                and c.column_name in ('slug', 'slug_auto', 'slug_public'))
      or to_regclass('public.resource_slug_history') is not null
      or to_regclass('public.event_slug_history') is not null
      or to_regprocedure('public.smc_slugify(text)') is not null

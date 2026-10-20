@@ -29,7 +29,11 @@
  * reader cannot see (those keep the page as it is; the page itself redirects a signed-in reader
  * who may see it). The canonical URL and og:url are the slug address. While the slug column does
  * not exist (the migration not applied) every lookup reads by id as before: the database refuses
- * the column, and that refusal (a 4xx) sends the function back to the old reads.
+ * the column (a 400 naming it, code 42703), and only that refusal sends the function back to the
+ * old reads; any other error (a 401 from a stale key, a 429, a 5xx) leaves the page untouched,
+ * never a noindex. The 301s whose target can change (an id, an old address, a company) are not
+ * cached (no-store): a record can take back an old address, and a cached 301 would then loop in
+ * the browser. Only the fixed move of the World Yachting Summit to /wys26 is cached an hour.
  * The words and the tags come from src/i18n/seo.ts (English) and
  * src/lib/seoMeta.ts, the same code the pages run in the browser, and every
  * tag is marked data-rh="true" so react-helmet-async replaces it rather than
@@ -132,6 +136,8 @@ interface Resolved {
   source: string;
   /** The path this address moves to for good: a 301, the query string going along. */
   redirect?: string;
+  /** The move never changes (WYS26 -> /wys26): the browser may keep the 301 an hour. Else no-store. */
+  fixedMove?: boolean;
 }
 
 /** The page a URL is, or null when this function has nothing to say about it. */
@@ -163,7 +169,10 @@ function notFoundMeta(): PageMeta {
 
 const notFound = (): Resolved => ({ meta: notFoundMeta(), source: 'not-found' });
 const noAnswer = (): Resolved => ({ meta: null, source: 'fallback:lookup' });
+/** A 301 to a record's current address: it can change again (no-store). */
 const movedTo = (path: string): Resolved => ({ meta: null, source: 'redirect', redirect: path });
+/** The 301 of the World Yachting Summit's event addresses to its one page: fixed, cacheable. */
+const movedToWys = (): Resolved => ({ meta: null, source: 'redirect', redirect: WYS26_PAGE_PATH, fixedMove: true });
 const enc = encodeURIComponent;
 
 type EventRow = EventSeoInput & { published?: boolean | null };
@@ -172,7 +181,7 @@ type EventRow = EventSeoInput & { published?: boolean | null };
 function eventAnswer(row: EventRow | undefined, key: string): Resolved {
   if (!row || !row.title) return notFound();
   // The World Yachting Summit 2026 has one page, /wys26.
-  if (row.id.toLowerCase() === WYS26_EVENT_ID) return movedTo(WYS26_PAGE_PATH);
+  if (row.id.toLowerCase() === WYS26_EVENT_ID) return movedToWys();
   const meta = eventMeta(row, tr, 'en-GB');
   // Unpublished: staff can open it, nobody should find it, and its address never moves here.
   if (row.published === false) return { meta: { ...meta, noindex: true }, source: 'not-found' };
@@ -183,22 +192,22 @@ function eventAnswer(row: EventRow | undefined, key: string): Resolved {
 /**
  * The current address of an old one, through resource_slug_lookup / event_slug_lookup (they
  * answer only for a record an anonymous reader may open, never for an unpublished event).
- * null: none; undefined: no answer in time.
+ * null: none; undefined: no usable answer (none in time, or any error: the page is then left as it is).
  */
 async function currentSlug(env: SupabaseEnv, fn: 'resource_slug_lookup' | 'event_slug_lookup', slug: string): Promise<string | null | undefined> {
   const { body, status } = await getRest(env, `rpc/${fn}`, `p_slug=${enc(slug)}`, LOOKUP_TIMEOUT_MS);
-  if (status === 0) return undefined;
+  if (status < 200 || status >= 300) return undefined;
   return typeof body === 'string' && body ? body : null;
 }
 
 /**
  * /events/<slug | id | an old slug>. While the slug column does not exist (the migration not
- * applied: the database refuses the read), ids as before, and the slugs the code links to
- * (KNOWN_EVENT_SLUGS) by their id.
+ * applied: the database refuses the read with 42703), ids as before, and the slugs the code links
+ * to (KNOWN_EVENT_SLUGS) by their id. Any other failure: no answer, the page untouched.
  */
 async function resolveEvent(env: SupabaseEnv, key: string): Promise<Resolved> {
   const byId = isUuid(key);
-  if (byId && key.toLowerCase() === WYS26_EVENT_ID) return movedTo(WYS26_PAGE_PATH);
+  if (byId && key.toLowerCase() === WYS26_EVENT_ID) return movedToWys();
   const slug = key.toLowerCase();
   const first = await selectRowsOr<EventRow>(
     env, 'events',
@@ -206,7 +215,7 @@ async function resolveEvent(env: SupabaseEnv, key: string): Promise<Resolved> {
     LOOKUP_TIMEOUT_MS,
   );
   if (first.rows === null) {
-    if (!first.refused) return noAnswer();
+    if (!first.missingSlugColumn) return noAnswer();
     const id = byId ? key : KNOWN_EVENT_SLUGS[slug];
     if (!id) return notFound();
     const rows = await selectRows<EventRow>(env, 'events', `select=${EVENT_SEO_COLUMNS}&id=eq.${enc(id)}&limit=1`, LOOKUP_TIMEOUT_MS);
@@ -236,7 +245,7 @@ async function resolveResource(env: SupabaseEnv, key: string): Promise<Resolved>
   );
   let rows = first.rows;
   if (rows === null) {
-    if (!first.refused) return noAnswer();
+    if (!first.missingSlugColumn) return noAnswer();
     // No slug column yet: only ids lead to articles.
     if (!byId) return notFound();
     rows = await selectRows<ResourceSeoInput>(
@@ -322,19 +331,27 @@ function tagged(response: Response, source: string | null, preview = false): Res
   }
 }
 
+/** Cache-Control of a 301 whose target can change (an id, an old address, a company's address). */
+export const MOVED_CACHE_CONTROL = 'no-store';
+/** Cache-Control of the fixed move of the World Yachting Summit's event addresses to /wys26. */
+export const FIXED_MOVE_CACHE_CONTROL = 'public, max-age=3600';
+
 /**
  * The 301 to a record's own address: same host (a preview stays a preview), the query string
  * kept (links of the WYS and SM26 pages carry their tokens there; the browser keeps the #hash
  * itself). Null when it would point at the address asked (never a loop).
+ * `fixed`: the move never changes (WYS26 -> /wys26), the browser may keep it an hour. Any other
+ * move is no-store: a record can take back an old address (a -> b, then b -> a), and a browser
+ * that kept a -> b would then loop with the edge's b -> a. Search engines read a 301 as
+ * permanent whatever its cache header, and this function runs on every request anyway.
  */
-function movedResponse(from: URL, path: string, preview: boolean): Response | null {
+function movedResponse(from: URL, path: string, preview: boolean, fixed: boolean): Response | null {
   const target = new URL(path, from.origin);
   target.search = from.search;
   if (target.pathname === from.pathname.replace(/\/+$/, '')) return null;
   const headers = outgoingHeaders(new Headers(), 'redirect', preview ? PREVIEW_ROBOTS : null, preview);
   headers.set('Location', target.toString());
-  // An hour, not for ever: an address an article takes back later must not loop in a browser's cache.
-  headers.set('Cache-Control', 'public, max-age=3600');
+  headers.set('Cache-Control', fixed ? FIXED_MOVE_CACHE_CONTROL : MOVED_CACHE_CONTROL);
   return new Response(null, { status: 301, headers });
 }
 
@@ -364,7 +381,7 @@ export default async function seo(request: Request, context: Context): Promise<R
     if (response.status !== 200 || !type.includes('text/html')) return tagged(response, null, preview);
     const resolved = await lookup;
     if (resolved?.redirect) {
-      const moved = movedResponse(url, resolved.redirect, preview);
+      const moved = movedResponse(url, resolved.redirect, preview, resolved.fixedMove === true);
       if (moved) {
         await response.body?.cancel();
         return moved;

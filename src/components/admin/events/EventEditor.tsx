@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useRegistrationFlags } from '@/lib/flags';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { eventPath } from '@/lib/seoMeta';
 import {
   AdminDetailHeader, AdminLoading, AdminSegmented, AdminStatusPill,
 } from '../AdminUI';
@@ -473,6 +474,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   const savedQuestionKeys = loaded ? loaded.questions.map((q) => q.key) : [];
   const canDuplicate = !isNew && !!glId && !isCanary;
   const canView = !isNew && !!eventId;
+  // The event page's readable address as loaded (select * brings events.slug once it exists); the id before.
+  const pageSlug = loaded?.catalogue?.slug ?? null;
 
   const saveButton = (
     <Button type="button" variant="secondary" size="sm" className={EDITOR_BTN_PRIMARY} onClick={save} disabled={saving || !hasChanges}>
@@ -482,7 +485,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   );
   const viewButton = (extra?: string) => (
     <Button asChild variant="outline" size="sm" className={cn(EDITOR_BTN, extra)}>
-      <a href={`/events/${eventId}`} target="_blank" rel="noopener noreferrer">
+      <a href={eventId ? eventPath({ id: eventId, slug: pageSlug }) : undefined} target="_blank" rel="noopener noreferrer">
         <ExternalLink className="mr-1.5 h-4 w-4" aria-hidden="true" />
         {t('adminEvents.view', 'View page')}
       </a>
@@ -599,6 +602,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             slugLockedByRegistrations={!isNew && !wasPublished && regCount > 0}
             canPublish={canPublish}
             eventId={eventId}
+            pageSlug={pageSlug}
             savedVisibility={isNew ? null : initial.basics.visibility}
             savedTitle={isNew ? undefined : initial.basics.title}
             kindOpensOldEditor={isNew && !forced ? { webinar: !flags.webinar_v2, onsite: !flags.onsite_v2 } : null}

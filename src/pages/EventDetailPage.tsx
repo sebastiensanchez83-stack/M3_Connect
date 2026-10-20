@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
 import {
-  KNOWN_EVENT_SLUGS, RENDEZVOUS_6TH_EVENT_ID, WYS26_EVENT_ID, WYS26_PAGE_PATH, eventMeta, eventPath, isUuid,
+  KNOWN_EVENT_SLUGS, RENDEZVOUS_6TH_EVENT_ID, RENDEZVOUS_6TH_PATH, WYS26_EVENT_ID, WYS26_PAGE_PATH, eventMeta, eventPath, isUuid,
 } from '@/lib/seoMeta';
 import { currentSlugFor, isMissingSlugColumn, noteMissingSlugColumn, slugColumnMayExist, withSlug } from '@/lib/slugRoutes';
 import type { LucideIcon } from 'lucide-react';
@@ -1536,8 +1536,12 @@ function EventDetailContent({ id, preloaded, onLoaded }: {
   ];
 
   // The M3 events other than this one: the home page's three meeting points (linked by slug,
-  // the Rendezvous' even before the slug is loaded, or by id).
-  const ownHrefs = [eventPath(event), eventPath({ id: event.id }), ...(isRendezvous ? [eventMeta(event, seoTr, locale).path] : [])];
+  // the Rendezvous' even before the slug is loaded, or by id). The Rendezvous card links to the
+  // address in the code (RENDEZVOUS_6TH_PATH), whatever the row's slug is now.
+  const ownHrefs = [
+    eventPath(event), eventPath({ id: event.id }),
+    ...(isRendezvous ? [eventMeta(event, seoTr, locale).path, RENDEZVOUS_6TH_PATH] : []),
+  ];
   const otherEvents = featuredEventItems(t).filter((item) =>
     !ownHrefs.includes(item.href) && !(isWebinar && item.id === 'webinars'));
 

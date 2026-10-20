@@ -34,6 +34,7 @@ export function BasicsTab({
   slugLockedByRegistrations = false,
   canPublish,
   eventId,
+  pageSlug = null,
   savedVisibility,
   kindOpensOldEditor,
   savedTitle,
@@ -65,6 +66,8 @@ export function BasicsTab({
   /** The registration switch of this kind is on, or the event is already published. */
   canPublish: boolean;
   eventId: string | null;
+  /** The event page's readable address as loaded (events.slug); null before the migration: the id link. */
+  pageSlug?: string | null;
   /** How the event is saved now (null for a new event): the registration link is shown once it works. */
   savedVisibility: Visibility | null;
   /** New event, editor not forced: a type whose switch is off opens the current editor instead. */
@@ -219,7 +222,7 @@ export function BasicsTab({
               </button>
               {eventId && (
                 <a
-                  href={eventPath({ id: eventId })}
+                  href={eventPath({ id: eventId, slug: pageSlug })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-11 items-center rounded-pill px-3 font-semibold text-navy underline-offset-2 hover:underline focus:outline-none focus-visible:shadow-focus"

@@ -21,25 +21,40 @@
 --  2. resources.slug and events.slug: unique, lowercase a-z 0-9 words joined by "-", never shaped
 --     like a UUID (the pages and the edge function read a UUID as an id first), NOT NULL after
 --     the backfill. Readable by whoever may read the row (the tables' grants and policies).
---  3. resource_slug_history / event_slug_history: every address a row had before. An old
---     address keeps leading to the row's current one, for ever (until the row is deleted).
---     Written only by the trigger; no reader has direct access (staff can list them).
+--     Two flags kept by the trigger alone (whatever a client sends is overwritten):
+--       resources.slug_auto / events.slug_auto: the address is the automatic one (from the
+--       title), false once someone chose it (an explicit slug). Recorded, never guessed from the
+--       address's shape: a hand-picked "awards-2026" is not mistaken for "awards" + "-2026".
+--       events.slug_public: the event has been public (published not false) at least once.
+--       Articles need no such flag: published_at is stamped at the first publication and never
+--       cleared (trg_resources_stamp_published_at, 20261006193715).
+--  3. resource_slug_history / event_slug_history: the addresses a row had while it had been
+--     public at least once. Such an old address keeps leading to the row's current one, for ever
+--     (until the row is deleted). An address a row only had while it had never been public
+--     (a draft following its title, or changed by hand before publication) is not kept: nobody
+--     could have linked to it, and keeping it would take it away from later records and send
+--     its visitors to the wrong one. Written only by the trigger; no reader has direct access
+--     (staff can list them).
 --  4. One BEFORE trigger function for both tables (public.smc_slug_assign):
 --     - INSERT without a slug (every insert of the live site, admin_save_event,
 --       publish_resource_from_draft, scripts): from the title; if that address is used by another
 --       row, now or before (history), "-2", "-3"... Never refuses. One assignment at a time per
 --       table (transaction advisory lock): two inserts of the same title cannot both take it.
+--       slug_auto true.
 --     - A slug given explicitly (the redesign's admin editors): normalised by smc_slugify, then
 --       refused when empty or UUID-shaped (22023 slug_invalid) or used by another row now or
 --       before (23505 slug_taken). Taking back one of the row's own old addresses is allowed.
+--       slug_auto false.
 --     - UPDATE that leaves the slug alone: the address does not move when the title is edited.
---       One exception: while the row has never been visible to the public before this update
---       (resources: published is not true; events: published is false) AND its address is still
---       the automatic one of its old title, it follows the new title (a clone "X (copy)" or an
---       "Untitled" draft gets its real address before anyone sees it).
+--       One exception: a row that has never been public (articles: published not true and no
+--       published_at; events: published false and slug_public false) whose address is still
+--       the automatic one (slug_auto) follows the new title (a clone "X (copy)" or an
+--       "Untitled" draft gets its real address before anyone sees it). Once public, even if
+--       unpublished or hidden later, never again.
 --     - UPDATE setting the slug to null or '': a fresh automatic address from the title.
---     One AFTER trigger function (public.smc_slug_remember) puts every replaced address in the
---     history and takes the new one out of it.
+--     One AFTER trigger function (public.smc_slug_remember) puts a replaced address in the
+--     history when the row had been public before that update, and always takes the new one
+--     out of the row's own history.
 --  5. Two lookups for old addresses, public.resource_slug_lookup(text) and
 --     public.event_slug_lookup(text): the current slug of the row an old address belonged to,
 --     ONLY when the caller may open that row today, else null.
@@ -52,10 +67,11 @@
 --     STABLE (callable with GET by the edge function), SECURITY DEFINER (the history has no
 --     reader grant), search_path ''.
 --  6. Backfill: every existing row gets its address, oldest first; the Rendezvous 6th edition's
---     is set by name first (src/lib/seoMeta.ts RENDEZVOUS_6TH_SLUG links to it). The two
---     existing BEFORE UPDATE triggers of resources are switched off around the backfill and on
---     again: updated_at (the sitemap's lastmod, the Article JSON-LD's dateModified) and
---     published_at (the RSS pubDate) stay exactly as they are.
+--     is set by name first (src/lib/seoMeta.ts RENDEZVOUS_6TH_SLUG links to it; set by name, it
+--     is not automatic and never follows its title). The two existing BEFORE UPDATE triggers of
+--     resources are switched off around the backfill and on again: updated_at (the sitemap's
+--     lastmod, the Article JSON-LD's dateModified) and published_at (the RSS pubDate) stay
+--     exactly as they are.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -63,7 +79,8 @@ set local statement_timeout = '60s';
 do $pre$
 begin
   if exists (select 1 from information_schema.columns c
-              where c.table_schema = 'public' and c.table_name in ('resources', 'events') and c.column_name = 'slug')
+              where c.table_schema = 'public' and c.table_name in ('resources', 'events')
+                and c.column_name in ('slug', 'slug_auto', 'slug_public'))
      or to_regclass('public.resource_slug_history') is not null
      or to_regclass('public.event_slug_history') is not null
      or to_regprocedure('public.smc_slugify(text)') is not null
@@ -100,6 +117,11 @@ begin
          and t.tgenabled::text = 'O') <> 2 then
     raise exception 'readable_slugs: trg_resources_updated_at / trg_resources_stamp_published_at are not both enabled';
   end if;
+  -- "Ever public" for an article is published_at: it must still be stamped at the first publication, never cleared.
+  if (select position('published_at := now()' in p.prosrc) > 0 and position('published_at := null' in p.prosrc) = 0
+        from pg_proc p where p.oid = to_regprocedure('public.resources_stamp_published_at()')) is not true then
+    raise exception 'readable_slugs: public.resources_stamp_published_at() is not the one read on 20 Oct';
+  end if;
 end
 $pre$;
 
@@ -131,12 +153,21 @@ alter table public.resources add column slug text
                                           and slug !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
 comment on column public.resources.slug is
   'The article''s web address: /resources/<slug>. Set from the title on insert, then stable (trigger trg_resources_slug_assign); old addresses in resource_slug_history keep redirecting. 20261020160000.';
+alter table public.resources add column slug_auto boolean not null default true;
+comment on column public.resources.slug_auto is
+  'True while the address is the automatic one (from the title); false once chosen explicitly. Kept by trg_resources_slug_assign alone (a value sent by a client is overwritten). 20261020160000.';
 alter table public.events add column slug text
   constraint events_slug_key unique
   constraint events_slug_format check (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'
                                        and slug !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
 comment on column public.events.slug is
   'The event''s web address: /events/<slug>. Not gl_event.slug (the registration page /register/<slug>). Set from the title on insert, then stable (trigger events_slug_assign); old addresses in event_slug_history keep redirecting. 20261020160000.';
+alter table public.events add column slug_auto boolean not null default true;
+comment on column public.events.slug_auto is
+  'True while the address is the automatic one (from the title); false once chosen explicitly. Kept by events_slug_assign alone (a value sent by a client is overwritten). 20261020160000.';
+alter table public.events add column slug_public boolean not null default false;
+comment on column public.events.slug_public is
+  'The event has been public (published not false) at least once: its address no longer follows the title, and a replaced one keeps redirecting. Kept by events_slug_assign alone; never goes back to false. 20261020160000.';
 
 -- 3. The old addresses ---------------------------------------------------------------------------
 create table public.resource_slug_history (
@@ -147,7 +178,7 @@ create table public.resource_slug_history (
 );
 create index resource_slug_history_resource_idx on public.resource_slug_history (resource_id);
 comment on table public.resource_slug_history is
-  'Addresses an article had before (/resources/<slug>): they redirect to its current one, for ever. Written only by the trigger trg_resources_slug_remember; read through public.resource_slug_lookup(), which applies the article''s visibility; staff can list them. 20261020160000.';
+  'Addresses an article had once it had been published (/resources/<slug>): they redirect to its current one, for ever. Written only by the trigger trg_resources_slug_remember; read through public.resource_slug_lookup(), which applies the article''s visibility; staff can list them. 20261020160000.';
 alter table public.resource_slug_history enable row level security;
 revoke all on table public.resource_slug_history from public, anon, authenticated;
 grant select on table public.resource_slug_history to authenticated;
@@ -163,7 +194,7 @@ create table public.event_slug_history (
 );
 create index event_slug_history_event_idx on public.event_slug_history (event_id);
 comment on table public.event_slug_history is
-  'Addresses an event had before (/events/<slug>): they redirect to its current one, for ever. Written only by the trigger events_slug_remember; read through public.event_slug_lookup(), which applies the event''s visibility (never an unpublished event, except for staff); staff can list them. 20261020160000.';
+  'Addresses an event had once it had been public (/events/<slug>): they redirect to its current one, for ever. Written only by the trigger events_slug_remember; read through public.event_slug_lookup(), which applies the event''s visibility (never an unpublished event, except for staff); staff can list them. 20261020160000.';
 alter table public.event_slug_history enable row level security;
 revoke all on table public.event_slug_history from public, anon, authenticated;
 grant select on table public.event_slug_history to authenticated;
@@ -187,12 +218,25 @@ declare
   v_try text;
   v_n integer := 1;
   v_taken boolean;
-  v_was_visible boolean;
+  v_was_public boolean := false;
 begin
+  -- Whether the row had been public before this statement (from then on its address is frozen).
   if tg_table_name = 'resources' then
     v_word := 'article';
+    if tg_op = 'UPDATE' then
+      -- published_at: stamped at the first publication, never cleared (trg_resources_stamp_published_at).
+      v_was_public := old.published is true or old.published_at is not null;
+    end if;
   elsif tg_table_name = 'events' then
     v_word := 'event';
+    -- Events have no publication date: slug_public records it, here only, before any return
+    -- (this trigger also fires on a publish-only or hide-only save). Never back to false.
+    if tg_op = 'UPDATE' then
+      v_was_public := old.published is not false or coalesce(old.slug_public, false);
+      new.slug_public := v_was_public or new.published is not false;
+    else
+      new.slug_public := new.published is not false;
+    end if;
   else
     raise exception 'smc_slug_assign: unexpected table %', tg_table_name;
   end if;
@@ -200,26 +244,12 @@ begin
   v_asked := nullif(btrim(coalesce(new.slug, '')), '');
   if tg_op = 'UPDATE' then
     if new.slug is not distinct from old.slug and old.slug is not null then
-      -- The address was left alone: it stays, whatever happened to the title...
-      if new.title is not distinct from old.title then
+      -- The address was left alone: it stays, and so does its origin (whatever a client sent)...
+      new.slug_auto := old.slug_auto;
+      if new.title is not distinct from old.title or v_was_public or not old.slug_auto then
         return new;
       end if;
-      if tg_table_name = 'resources' then
-        v_was_visible := old.published is true;
-      else
-        v_was_visible := old.published is not false;
-      end if;
-      if v_was_visible then
-        return new;
-      end if;
-      -- ...except on a row nobody could see yet whose address is still its old title's automatic one.
-      v_base := coalesce(nullif(public.smc_slugify(old.title), ''), v_word);
-      if v_base ~ v_uuid_re then
-        v_base := v_word || '-' || v_base;
-      end if;
-      if not (old.slug = v_base or old.slug ~ ('^' || v_base || '-[0-9]+$')) then
-        return new;
-      end if;
+      -- ...except the automatic address of a row that was never public: it follows the title.
       v_asked := null;
     end if;
   end if;
@@ -246,6 +276,7 @@ begin
         detail = format('The web address "%s" is used by another %s, now or before.', v_base, v_word);
     end if;
     new.slug := v_base;
+    new.slug_auto := false;
     return new;
   end if;
 
@@ -271,11 +302,12 @@ begin
     v_try := v_base || '-' || v_n;
   end loop;
   new.slug := v_try;
+  new.slug_auto := true;
   return new;
 end;
 $fn$;
 comment on function public.smc_slug_assign() is
-  'BEFORE INSERT / UPDATE OF slug, title on resources and events: the row''s web address. Automatic from the title (first free "-N"), never refused; an explicit one is normalised and refused when invalid (22023 slug_invalid) or used by another row now or before (23505 slug_taken); stable when the title changes, except on a row nobody could see yet whose address is still automatic. 20261020160000.';
+  'BEFORE INSERT / UPDATE OF slug, title, slug_auto (events: and published, slug_public) on resources and events: the row''s web address. Automatic from the title (first free "-N", slug_auto true), never refused; an explicit one is normalised and refused when invalid (22023 slug_invalid) or used by another row now or before (23505 slug_taken), slug_auto false; stable when the title changes, except the automatic address of a row that was never public (articles: published_at; events: slug_public, kept here). 20261020160000.';
 revoke all on function public.smc_slug_assign() from public, anon, authenticated;
 
 create function public.smc_slug_remember()
@@ -286,34 +318,43 @@ security definer
 set search_path = ''
 as $fn$
 begin
+  -- The replaced address is kept only when the row had been public before this update: an
+  -- address nobody could see redirects nowhere and stays free for other rows. The row's new
+  -- address always leaves its own history (a row taking back one of its old addresses).
   if tg_table_name = 'resources' then
-    insert into public.resource_slug_history (slug, resource_id) values (old.slug, new.id)
-      on conflict (slug) do nothing;
+    if old.published is true or old.published_at is not null then
+      insert into public.resource_slug_history (slug, resource_id) values (old.slug, new.id)
+        on conflict (slug) do nothing;
+    end if;
     delete from public.resource_slug_history h where h.slug = new.slug and h.resource_id = new.id;
   elsif tg_table_name = 'events' then
-    insert into public.event_slug_history (slug, event_id) values (old.slug, new.id)
-      on conflict (slug) do nothing;
+    if old.published is not false or coalesce(old.slug_public, false) then
+      insert into public.event_slug_history (slug, event_id) values (old.slug, new.id)
+        on conflict (slug) do nothing;
+    end if;
     delete from public.event_slug_history h where h.slug = new.slug and h.event_id = new.id;
   end if;
   return null;
 end;
 $fn$;
 comment on function public.smc_slug_remember() is
-  'AFTER UPDATE on resources and events, when the address changed: the old one goes to the history (it keeps redirecting), the new one leaves it. 20261020160000.';
+  'AFTER UPDATE on resources and events, when the address changed: the old one goes to the history (it keeps redirecting) when the row had been public before (articles: published or published_at; events: published not false or slug_public), the new one leaves the row''s history. 20261020160000.';
 revoke all on function public.smc_slug_remember() from public, anon, authenticated;
 
+-- slug_auto in the column lists: a client writing it alone fires the trigger, which puts it back.
 create trigger trg_resources_slug_assign
-  before insert or update of slug, title on public.resources
+  before insert or update of slug, title, slug_auto on public.resources
   for each row execute function public.smc_slug_assign();
 comment on trigger trg_resources_slug_assign on public.resources is 'The article''s web address (public.smc_slug_assign). 20261020160000.';
--- Not "UPDATE OF slug": a change made by the BEFORE trigger (a draft following its title) must be remembered too.
+-- Not "UPDATE OF slug": a change made by the BEFORE trigger (a draft following its title) must be seen too.
 create trigger trg_resources_slug_remember
   after update on public.resources
   for each row when (old.slug is distinct from new.slug and old.slug is not null)
   execute function public.smc_slug_remember();
 comment on trigger trg_resources_slug_remember on public.resources is 'Keeps the article''s replaced address (public.smc_slug_remember). 20261020160000.';
+-- published and slug_public too: a publish-only or hide-only save records slug_public, and a value a client sends is put back.
 create trigger events_slug_assign
-  before insert or update of slug, title on public.events
+  before insert or update of slug, title, slug_auto, published, slug_public on public.events
   for each row execute function public.smc_slug_assign();
 comment on trigger events_slug_assign on public.events is 'The event''s web address (public.smc_slug_assign). 20261020160000.';
 create trigger events_slug_remember
@@ -375,7 +416,8 @@ do $fill$
 declare
   v_id uuid;
 begin
-  -- The address the site's code links to (src/lib/seoMeta.ts, RENDEZVOUS_6TH_SLUG), set by name.
+  -- The address the site's code links to (src/lib/seoMeta.ts, RENDEZVOUS_6TH_SLUG), set by name:
+  -- an explicit address (slug_auto false), so it never follows the title.
   update public.events e
      set slug = 'monaco-smart-and-sustainable-marina-2026-6th-edition'
    where e.id = 'f55f7b2f-96ac-4c5e-b620-358624e52240'::uuid and e.slug is null;
@@ -383,6 +425,7 @@ begin
                order by coalesce(r.published_at, r.created_at), r.id loop
     update public.resources r set slug = null where r.id = v_id;
   end loop;
+  -- Each event's slug_public is recorded by the same update (published not false).
   for v_id in select e.id from public.events e where e.slug is null
                order by e.created_at, e.id loop
     update public.events e set slug = null where e.id = v_id;
@@ -404,8 +447,20 @@ begin
     raise exception 'readable_slugs: a row has no address';
   end if;
   if exists (select 1 from public.events e where e.id = 'f55f7b2f-96ac-4c5e-b620-358624e52240'::uuid
-                and e.slug <> 'monaco-smart-and-sustainable-marina-2026-6th-edition') then
-    raise exception 'readable_slugs: the Rendezvous 6th edition did not get the address the code links to';
+                and (e.slug <> 'monaco-smart-and-sustainable-marina-2026-6th-edition' or e.slug_auto)) then
+    raise exception 'readable_slugs: the Rendezvous 6th edition did not get the address the code links to, set by name';
+  end if;
+  -- Every other address is the automatic one; slug_public says what published says.
+  if exists (select 1 from public.resources r where not r.slug_auto)
+     or exists (select 1 from public.events e where not e.slug_auto and e.id <> 'f55f7b2f-96ac-4c5e-b620-358624e52240'::uuid)
+     or exists (select 1 from public.events e where e.slug_public is distinct from (e.published is not false)) then
+    raise exception 'readable_slugs: slug_auto / slug_public not as the backfill should leave them';
+  end if;
+  if (select count(*) from pg_attribute a
+       where a.attnum > 0 and not a.attisdropped and a.attnotnull
+         and ((a.attrelid = 'public.resources'::regclass and a.attname in ('slug', 'slug_auto'))
+              or (a.attrelid = 'public.events'::regclass and a.attname in ('slug', 'slug_auto', 'slug_public')))) <> 5 then
+    raise exception 'readable_slugs: slug / slug_auto / slug_public are not all NOT NULL';
   end if;
   if (select count(*) from pg_trigger t
        where t.tgrelid = 'public.resources'::regclass

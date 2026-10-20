@@ -15,13 +15,18 @@ const WYS = { ...EVENT, id: WYS26_EVENT_ID, slug: 'world-yachting-summit-2026', 
 const RENDEZVOUS = { ...EVENT, id: RENDEZVOUS_6TH_EVENT_ID, slug: 'monaco-smart-and-sustainable-marina-2026-6th-edition', title: 'Monaco Smart & Sustainable Marina 2026, 6th edition', event_type: 'on_site' };
 const ORG = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', slug: 'port-example', name: 'Port Example', organization_type: 'marina' };
 
-/** A fake PostgREST: `slugs` says whether the slug column (and the lookups) exist. */
-function fakeDb({ slugs }) {
+/**
+ * A fake PostgREST: `slugs` says whether the slug column (and the lookups) exist; `answer`, when
+ * given, answers a request first (a failure of the database other than the missing column).
+ */
+function fakeDb({ slugs, answer = null }) {
   const calls = [];
   const fetchImpl = async (input) => {
     const url = new URL(input);
     calls.push(url);
     const [, , , table, fn] = url.pathname.split('/');
+    const forced = answer ? answer(table, fn) : null;
+    if (forced) return forced;
     const q = url.searchParams;
     const select = q.get('select') ?? '';
     const eq = (name) => (q.get(name) ?? '').replace(/^eq\./, '');
@@ -151,7 +156,7 @@ test('a company by id moves to its slug; the 301 keeps the security headers; a p
   assert.equal(response.status, 301);
   assert.equal(response.headers.get('Location'), `${SITE}/organizations/port-example?tab=about`);
   assert.equal(response.headers.get('X-Frame-Options'), 'DENY');
-  assert.equal(response.headers.get('Cache-Control'), 'public, max-age=3600');
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
   const originalFetch = globalThis.fetch;
   const originalNetlify = globalThis.Netlify;
   globalThis.Netlify = { env: { get: (name) => ({ SUPABASE_URL: 'https://db.example', SUPABASE_ANON_KEY: 'sb_publishable_fixture' })[name] } };
@@ -188,5 +193,77 @@ test('the sitemap lists slug addresses, by id before the migration, never the WY
       globalThis.fetch = originalFetch;
       globalThis.Netlify = originalNetlify;
     }
+  }
+});
+
+test('a 301 whose target can change is never cached (no-store); the WYS move keeps its query string and an hour', async () => {
+  const db = fakeDb({ slugs: true });
+  for (const path of ['/resources/old-article-address', `/resources/${ARTICLE.id}`, '/events/old-event-address', `/events/${EVENT.id}`, `/organizations/${ORG.id}`, '/organizations/Port-Example']) {
+    const { response } = await visit(path, db);
+    assert.equal(response.status, 301, path);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store', path);
+  }
+  for (const path of [`/events/${WYS26_EVENT_ID}?token=abc&lang=en`, '/events/world-yachting-summit-2026?token=abc&lang=en']) {
+    const { response } = await visit(path, db);
+    assert.equal(response.status, 301, path);
+    assert.equal(response.headers.get('Location'), `${SITE}/wys26?token=abc&lang=en`, path);
+    assert.equal(response.headers.get('Cache-Control'), 'public, max-age=3600', path);
+  }
+});
+
+test('any other database failure (401, 403, 429, 5xx) leaves the page untouched: never a noindex, never the id fallback', async () => {
+  for (const status of [401, 403, 429, 500, 503]) {
+    const db = fakeDb({ slugs: true, answer: () => Response.json({ code: status === 401 ? 'PGRST301' : '57014', message: 'refused' }, { status }) });
+    for (const path of ['/resources/marinas-and-standards', '/events/blue-ports-webinar', `/resources/${ARTICLE.id}`, `/events/${EVENT.id}`]) {
+      const { response, html } = await visit(path, db);
+      assert.equal(response.status, 200, `${status} ${path}`);
+      assert.equal(response.headers.get('X-SMC-SEO'), 'fallback:lookup', `${status} ${path}`);
+      assert.equal(response.headers.get('X-Robots-Tag'), null, `${status} ${path}`);
+      assert.doesNotMatch(html, /noindex/, `${status} ${path}`);
+      // Only the first read was made: no id fallback after an error that is not the missing column.
+      assert.equal(db.calls.length, 1, `${status} ${path}`);
+      db.calls.length = 0;
+    }
+  }
+  // A 400 that is not about the slug column is not the missing column either.
+  const other = fakeDb({ slugs: true, answer: () => Response.json({ code: 'PGRST100', message: 'failed to parse filter' }, { status: 400 }) });
+  const { response } = await visit('/resources/marinas-and-standards', other);
+  assert.equal(response.headers.get('X-SMC-SEO'), 'fallback:lookup');
+  assert.equal(response.headers.get('X-Robots-Tag'), null);
+});
+
+test('the old-address lookup failing (5xx, 401) leaves the page untouched rather than noindex', async () => {
+  for (const status of [500, 504, 401]) {
+    const db = fakeDb({ slugs: true, answer: (table) => (table === 'rpc' ? Response.json({ code: '57014', message: 'canceling statement' }, { status }) : null) });
+    for (const path of ['/resources/old-article-address', '/events/old-event-address']) {
+      const { response, html } = await visit(path, db);
+      assert.equal(response.status, 200, `${status} ${path}`);
+      assert.equal(response.headers.get('X-SMC-SEO'), 'fallback:lookup', `${status} ${path}`);
+      assert.equal(response.headers.get('X-Robots-Tag'), null, `${status} ${path}`);
+      assert.doesNotMatch(html, /noindex/);
+    }
+  }
+  // The missing column (42703) still means "before the migration": ids as before, slugs not found.
+  const before = fakeDb({ slugs: false });
+  let { response } = await visit('/resources/marinas-and-standards', before);
+  assert.equal(response.headers.get('X-SMC-SEO'), 'not-found');
+  ({ response } = await visit(`/resources/${ARTICLE.id}`, before));
+  assert.equal(response.headers.get('X-SMC-SEO'), 'resource');
+});
+
+test('the sitemap reads the articles again without the slug only when the column is missing', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNetlify = globalThis.Netlify;
+  globalThis.Netlify = { env: { get: (name) => ({ SUPABASE_URL: 'https://db.example', SUPABASE_ANON_KEY: 'sb_publishable_fixture' })[name] } };
+  try {
+    const db = fakeDb({ slugs: true, answer: (table) => (table === 'resources' ? Response.json({ code: 'PGRST301', message: 'JWT expired' }, { status: 401 }) : null) });
+    globalThis.fetch = db.fetchImpl;
+    const { entries, state } = await sitemapEntries();
+    assert.equal(state, 'partial');
+    assert.ok(!entries.some((e) => e.loc.includes('/resources/')));
+    assert.equal(db.calls.filter((u) => u.pathname.endsWith('/resources')).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.Netlify = originalNetlify;
   }
 });

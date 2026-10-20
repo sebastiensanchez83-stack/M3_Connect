@@ -36,6 +36,8 @@ export interface CatalogueRow {
   image_url: string | null;
   replay_url: string | null;
   published: boolean | null;
+  /** The event page's address, /events/<slug> (supabase/migrations/20261020160000_readable_slugs.sql); absent before it. */
+  slug?: string | null;
   /** {venue, address, city, country, map_url, lat, lng}: read by the event page (main and the redesign). */
   location_details?: Record<string, unknown> | null;
 }

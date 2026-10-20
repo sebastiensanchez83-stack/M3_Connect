@@ -105,6 +105,13 @@ export function ResourceDetailPage() {
   locationRef.current = location;
   // The article on screen: the replacement of its address must not load it again.
   const shownRef = useRef<{ id: string; slug: string | null } | null>(null);
+  // A load still running when the reader has left the page, or moved on to another article,
+  // must neither set state nor move the address bar (react-router's navigate still acts after
+  // an unmount). Each load takes a number; only the latest one, page still mounted, goes on.
+  // The replacement of the address by the load itself re-runs the effect without a new number
+  // (the shownRef branch), so it never cancels the load that made it.
+  const mountedRef = useRef(true);
+  const loadSeq = useRef(0);
   const { t } = useTranslation();
   const seoTr = useSeoTr();
   const { user, profile, isVerified } = useAuth();
@@ -123,6 +130,10 @@ export function ResourceDetailPage() {
   const copiedTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     /** The article's own address in the address bar, query string, hash and state kept (no new history entry). */
@@ -139,6 +150,11 @@ export function ResourceDetailPage() {
         if (shown.slug && key !== shown.slug) showAddressOf(shown);
         return;
       }
+      const seq = ++loadSeq.current;
+      const live = () => mountedRef.current && seq === loadSeq.current;
+      // Another article from here on: coming back to the previous one's address while this load
+      // runs must load that one again (which cancels this load), not take the shortcut above.
+      shownRef.current = null;
       setLoading(true);
       window.scrollTo(0, 0);
       let moved = false;
@@ -151,11 +167,13 @@ export function ResourceDetailPage() {
           .eq(byId ? 'id' : 'slug', byId ? key : key.toLowerCase())
           .eq('published', true)
           .maybeSingle();
+        if (!live()) return;
 
         if (isMissingSlugColumn(error)) noteMissingSlugColumn('resources');
         if (!data && !byId && !error) {
           // An address the article had before: it leads to the current one, for ever.
           const current = await currentSlugFor('resources', key);
+          if (!live()) return;
           if (current && current !== key) {
             moved = true;
             showAddressOf({ id: current, slug: current });
@@ -178,6 +196,7 @@ export function ResourceDetailPage() {
           .select('id, full_name, job_title, company_name, profile_id, display_order')
           .eq('resource_id', id)
           .order('display_order');
+        if (!live()) return;
         setSpeakers((speakerData || []) as ResourceSpeaker[]);
 
         // Companies mentioned. Best effort: without them the article reads as before. Readers
@@ -189,6 +208,7 @@ export function ResourceDetailPage() {
           .from('resource_organization_mention')
           .select('organization_id, organizations(id, name, slug, logo_url, organization_type, access_status, archived_at, duplicate_of)')
           .eq('resource_id', id);
+        if (!live()) return;
         setMentions(
           ((mentionRows ?? []) as unknown as { organizations: MentionRow | MentionRow[] | null }[])
             .map((m) => (Array.isArray(m.organizations) ? m.organizations[0] : m.organizations))
@@ -203,6 +223,7 @@ export function ResourceDetailPage() {
           .from('resource_sectors')
           .select('sectors(slug)')
           .eq('resource_id', id);
+        if (!live()) return;
         const slugs = ((sectorRows ?? []) as unknown as { sectors: { slug: string } | { slug: string }[] | null }[])
           .flatMap((row) => (Array.isArray(row.sectors) ? row.sectors : row.sectors ? [row.sectors] : []))
           .map((s) => s.slug);
@@ -219,13 +240,15 @@ export function ResourceDetailPage() {
           .order('published_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
           .limit(3);
+        if (!live()) return;
 
         setRelatedResources((related || []) as unknown as Resource[]);
       } catch {
-        navigate('/resources', { replace: true });
+        if (live()) navigate('/resources', { replace: true });
       } finally {
-        // Moved to the current address: that load keeps the skeleton up.
-        if (!moved) setLoading(false);
+        // Moved to the current address: that load keeps the skeleton up. A load overtaken by
+        // another one (or by leaving the page) leaves the skeleton to it.
+        if (!moved && live()) setLoading(false);
       }
     };
 

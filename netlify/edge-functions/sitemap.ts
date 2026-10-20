@@ -61,7 +61,7 @@ const RESOURCE_QUERY = 'updated_at,published_at,created_at&published=eq.true&ord
 /** The published articles, with their slug; without it while the column does not exist. */
 async function resourceRows(env: SupabaseEnv): Promise<Row[] | null> {
   const first = await selectRowsOr<Row>(env, 'resources', `select=id,slug,${RESOURCE_QUERY}`, LOOKUP_TIMEOUT_MS);
-  if (first.rows !== null || !first.refused) return first.rows;
+  if (first.rows !== null || !first.missingSlugColumn) return first.rows;
   return selectRows<Row>(env, 'resources', `select=id,${RESOURCE_QUERY}`, LOOKUP_TIMEOUT_MS);
 }
 

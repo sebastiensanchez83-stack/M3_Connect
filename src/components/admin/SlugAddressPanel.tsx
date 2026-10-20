@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { SITE_URL, eventPath, resourcePath } from '@/lib/seoMeta';
+import { RENDEZVOUS_6TH_EVENT_ID, RENDEZVOUS_6TH_SLUG, SITE_URL, eventPath, resourcePath } from '@/lib/seoMeta';
 import { isMissingSlugColumn, looksLikeId, noteMissingSlugColumn, slugifyTitle, type SlugTable } from '@/lib/slugRoutes';
 import { ADMIN_BTN, ADMIN_BTN_PRIMARY } from './AdminUI';
 
@@ -14,16 +14,47 @@ import { ADMIN_BTN, ADMIN_BTN_PRIMARY } from './AdminUI';
  * readable slugs): what it is, a link to open or copy it, and the field to change it.
  *
  * The database makes the address from the title when the record is created, keeps it when the
- * title is edited once the record is published (a draft follows its title until someone sets an
- * address here), and keeps every previous address leading to the current one
- * (supabase/migrations/20261020160000_readable_slugs.sql). Saving here writes the slug alone,
- * apart from the editor's own Save, so it never mixes with the other fields: the database
- * normalises it and refuses one that another record uses, now or before.
+ * title is edited once the record has ever been public (a record never published follows its
+ * title until it is, or until someone sets an address here: slug_auto false), and keeps every
+ * address the record had while it was public leading to the current one
+ * (supabase/migrations/20261020160000_readable_slugs.sql). An address a never-published record
+ * had is not kept: nobody saw it, and another record may take it. Saving here writes the slug
+ * alone, apart from the editor's own Save, so it never mixes with the other fields: the
+ * database normalises it and refuses one that another record uses, now or before.
+ *
+ * The Rendezvous 6th edition's address is read-only here: the site's code links to it
+ * (RENDEZVOUS_6TH_SLUG in src/lib/seoMeta.ts: the featured cards, the /sm26/agenda canonical).
  *
  * Before that migration the panel says so and the page keeps its id address.
  */
 
 const WORD: Record<SlugTable, string> = { resources: 'article', events: 'event' };
+
+/** The columns that say whether the address still follows the title (see the migration). */
+const STATE_COLUMNS: Record<SlugTable, string> = {
+  resources: 'id, slug, slug_auto, published, published_at',
+  events: 'id, slug, slug_auto, slug_public, published',
+};
+
+interface SlugRow {
+  slug?: string | null;
+  slug_auto?: boolean | null;
+  slug_public?: boolean | null;
+  published?: boolean | null;
+  published_at?: string | null;
+}
+
+/**
+ * Whether the record was ever public, as the database decides it (smc_slug_assign): from then on
+ * its address never follows the title, and a replaced one keeps redirecting. Articles: published
+ * now, or published_at stamped (first publication, never cleared). Events: not unpublished now,
+ * or slug_public (set by the database the first time the event is not unpublished).
+ */
+export function everPublic(table: SlugTable, row: SlugRow): boolean {
+  return table === 'resources'
+    ? row.published === true || !!row.published_at
+    : row.published !== false || row.slug_public === true;
+}
 
 interface DbError {
   code?: string;
@@ -58,7 +89,10 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
   const word = WORD[table];
   const [state, setState] = useState<'loading' | 'missing' | 'ready' | 'failed'>('loading');
   const [saved, setSaved] = useState<string | null>(null);
-  const [published, setPublished] = useState<boolean | null>(null);
+  /** Ever public: the address is frozen, and a replaced one keeps redirecting. */
+  const [wasPublic, setWasPublic] = useState(true);
+  /** The address is the automatic one (from the title), not one set here. */
+  const [auto, setAuto] = useState(true);
   const [value, setValue] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -70,7 +104,7 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
     let alive = true;
     setState('loading');
     (async () => {
-      const { data, error: readError } = await supabase.from(table).select('id, slug, published').eq('id', recordId).maybeSingle();
+      const { data, error: readError } = await supabase.from(table).select(STATE_COLUMNS[table]).eq('id', recordId).maybeSingle();
       if (!alive) return;
       if (isMissingSlugColumn(readError)) {
         noteMissingSlugColumn(table);
@@ -81,10 +115,11 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
         setState('failed');
         return;
       }
-      const row = data as { slug?: string | null; published?: boolean | null };
+      const row = data as SlugRow;
       setSaved(row.slug ?? null);
       setValue(row.slug ?? '');
-      setPublished(row.published ?? null);
+      setWasPublic(everPublic(table, row));
+      setAuto(row.slug_auto !== false);
       setError(null);
       // The old addresses (staff can read them): best effort.
       const old = table === 'resources'
@@ -120,13 +155,17 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
     );
   }
 
+  // The Rendezvous 6th edition: the site's code links to its address (see the header comment).
+  const pinned = table === 'events' && recordId === RENDEZVOUS_6TH_EVENT_ID;
   const normalized = slugifyTitle(value);
   const changed = normalized !== (saved ?? '');
   const fromTitle = title ? slugifyTitle(title) : '';
   const path = saved ? (table === 'resources' ? resourcePath({ id: recordId, slug: saved }) : eventPath({ id: recordId, slug: saved })) : null;
   const url = path ? `${SITE_URL}${path}` : null;
+  const helpId = inputId ? `${inputId}-help` : undefined;
 
   const save = async () => {
+    if (pinned) return;
     if (!normalized || looksLikeId(normalized)) {
       setError('A web address needs at least one letter or digit, and cannot look like an id.');
       return;
@@ -143,9 +182,54 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
       setError('The web address could not be saved: only M3 staff can change it.');
       return;
     }
-    toast({ title: 'Web address saved', description: saved ? 'The previous address keeps working: it leads here.' : undefined });
+    toast({ title: 'Web address saved', description: saved && wasPublic ? 'The previous address keeps working: it leads here.' : undefined });
     setReads((n) => n + 1);
   };
+
+  const copyOpen = url && (
+    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[13px] text-meta">
+      <span className="min-w-0 break-all">{url}</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={ADMIN_BTN}
+        onClick={() => { void navigator.clipboard?.writeText(url); toast({ title: 'Link copied' }); }}
+      >
+        <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Copy
+      </Button>
+      <a
+        href={path ?? undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex min-h-10 items-center gap-1 rounded-pill px-3 font-semibold text-navy hover:underline focus:outline-none focus-visible:shadow-focus"
+      >
+        Open <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+      </a>
+    </div>
+  );
+
+  const oldOnes = history.length > 0 && (
+    <p className={hint}>Old addresses, still leading here: {history.join(', ')}</p>
+  );
+
+  if (pinned) {
+    // Read-only: a change here would leave the code's links and the /sm26/agenda canonical on an old address.
+    return (
+      <div className="space-y-2">
+        {copyOpen}
+        <p id={helpId} className={hint}>
+          The site links to this address in its code (seoMeta.ts RENDEZVOUS_6TH_SLUG), so it cannot be changed here. Ask a developer to change it.
+        </p>
+        {saved !== RENDEZVOUS_6TH_SLUG && (
+          <p role="alert" className="text-[13px] font-medium leading-[18px] text-red-700">
+            The saved address is not the one in the code ({RENDEZVOUS_6TH_SLUG}). Ask a developer to put them back in step.
+          </p>
+        )}
+        {oldOnes}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -160,7 +244,7 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
           autoCapitalize="none"
           spellCheck={false}
           maxLength={120}
-          aria-describedby={inputId ? `${inputId}-help` : undefined}
+          aria-describedby={helpId}
         />
         <Button type="button" variant="outline" size="sm" className={ADMIN_BTN_PRIMARY} onClick={save} disabled={!changed || saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Save address'}
@@ -168,32 +252,13 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
       </div>
       {changed && normalized && normalized !== value.trim() && <p className={hint}>Saved as: {normalized}</p>}
       {error && <p role="alert" className="text-[13px] font-medium leading-[18px] text-red-700">{error}</p>}
-      {url && (
-        <div className="flex min-w-0 flex-wrap items-center gap-2 text-[13px] text-meta">
-          <span className="min-w-0 break-all">{url}</span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={ADMIN_BTN}
-            onClick={() => { void navigator.clipboard?.writeText(url); toast({ title: 'Link copied' }); }}
-          >
-            <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Copy
-          </Button>
-          <a
-            href={path ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-10 items-center gap-1 rounded-pill px-3 font-semibold text-navy hover:underline focus:outline-none focus-visible:shadow-focus"
-          >
-            Open <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-          </a>
-        </div>
-      )}
-      <p id={inputId ? `${inputId}-help` : undefined} className={hint}>
-        {published === false
-          ? `Not published yet: the address follows the title until you set one here.`
-          : `It stays the same when the title is edited. Changing it keeps the old address working: it leads here.`}
+      {copyOpen}
+      <p id={helpId} className={hint}>
+        {wasPublic
+          ? 'It stays the same when the title is edited. Changing it keeps the old address working: it leads here.'
+          : auto
+            ? `Never published yet: the address follows the title until the ${word} is first published or you set one here.`
+            : 'Never published yet: this address was set here, so it stays when the title is edited.'}
         {fromTitle && fromTitle !== saved && fromTitle !== normalized && (
           <>
             {' '}
@@ -203,9 +268,7 @@ export function SlugAddressPanel({ table, recordId, title, version, inputId }: {
           </>
         )}
       </p>
-      {history.length > 0 && (
-        <p className={hint}>Old addresses, still leading here: {history.join(', ')}</p>
-      )}
+      {oldOnes}
     </div>
   );
 }

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Clock, Eye, EyeOff } from 'lucide-react';
+import { AlertTriangle, Clock, Eye, EyeOff } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { StatusPill } from '@/components/member/MemberUI';
 import { toast } from '@/hooks/use-toast';
 import { requireFreshSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import {
-  KIND_LABEL, SECTIONS, fetchShowcaseSettings, saveShowcase, sectionFilled, showcaseLinks, shownNow,
+  KIND_LABEL, SECTIONS, entryShown, entryWaiting, fetchShowcaseSettings, mentionsMoney, saveShowcase, sectionFilled,
+  showcaseLinks,
   type ShowcaseEntry, type ShowcaseSectionKey, type ShowcaseSettings,
 } from '@/lib/sm26Showcase';
 import { EditDialog, InfoRow, errorText } from './EditKit';
@@ -17,14 +18,21 @@ import { EditDialog, InfoRow, errorText } from './EditKit';
  * My company > "Smart Marina 2026 details" (Victor, 20 Oct 2026): the company chooses whether
  * its page shows the texts it sent for the Smart Marina 2026 e-catalogue and jury, and hides any
  * block it wants. Only for a company that has such an entry (nothing renders otherwise). The
- * owner and M3 staff change it; the other members see the choice. Saved through
- * org_sm26_showcase_set (src/lib/sm26Showcase.ts). The address /?open=company&section=sm26
- * points here (the "please confirm your choice" e-mail uses it).
+ * owner and M3 staff change it; the other members see the choice. One choice per entry (a
+ * startup dossier and an architecture entry are decided separately), saved through
+ * org_sm26_showcase_set (src/lib/sm26Showcase.ts). A restricted entry (limited visibility, or no
+ * e-catalogue consent) stays hidden until its own switch is turned on; M3 staff who are not the
+ * owner cannot turn it on. The address /?open=company&section=sm26 points here (the "please
+ * confirm your choice" e-mail uses it).
  */
 
 /** The blocks of an entry that have something in them, in reading order. */
 function filledSections(entry: ShowcaseEntry) {
   return SECTIONS[entry.kind].filter((s) => sectionFilled(entry.sections, s.key));
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
 }
 
 export function SM26ShowcaseRow({
@@ -85,13 +93,14 @@ export function SM26ShowcaseRow({
   if (!settings || entries.length === 0) return null;
 
   const total = entries.reduce((n, e) => n + filledSections(e).length, 0);
-  const visible = entries.reduce((n, e) => n + filledSections(e).filter((s) => !settings.hidden_sections.includes(s.key)).length, 0);
-  const shown = shownNow(settings);
-  const waiting = settings.opted_in === null && entries.every((e) => e.restricted);
+  const visible = entries
+    .filter(entryShown)
+    .reduce((n, e) => n + filledSections(e).filter((s) => !e.hidden_sections.includes(s.key)).length, 0);
+  const waiting = entries.some(entryWaiting);
 
   const value = waiting ? (
     <StatusPill tone="warning" icon={Clock}>{t('dash.sm26show.waiting', 'Not shown: please choose')}</StatusPill>
-  ) : shown && visible > 0 ? (
+  ) : visible > 0 ? (
     <span className="inline-flex flex-wrap items-center gap-2">
       <StatusPill tone="success" icon={Eye}>{t('dash.sm26show.shown', 'Shown on your page')}</StatusPill>
       <span className="text-[15px] font-medium text-meta">
@@ -128,6 +137,12 @@ export function SM26ShowcaseRow({
   );
 }
 
+type EntryDraft = { on: boolean; hidden: ShowcaseSectionKey[] };
+
+function savedDraft(e: ShowcaseEntry): EntryDraft {
+  return { on: entryShown(e), hidden: e.hidden_sections };
+}
+
 function ShowcaseDialog({
   open,
   onOpenChange,
@@ -144,8 +159,7 @@ function ShowcaseDialog({
   onSaved: (next: ShowcaseSettings) => void;
 }) {
   const { t } = useTranslation();
-  const [master, setMaster] = useState(true);
-  const [hidden, setHidden] = useState<ShowcaseSectionKey[]>([]);
+  const [draft, setDraft] = useState<Record<string, EntryDraft>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canEdit = settings.can_edit;
@@ -153,39 +167,60 @@ function ShowcaseDialog({
   // Each opening starts from what is saved.
   useEffect(() => {
     if (!open) return;
-    setMaster(shownNow(settings));
-    setHidden(settings.hidden_sections);
+    setDraft({});
     setError(null);
   }, [open, settings]);
 
-  const waiting = settings.opted_in === null && entries.every((e) => e.restricted);
-  const reason = entries.find((e) => e.restricted)?.restricted_reason ?? null;
+  const stateOf = (e: ShowcaseEntry): EntryDraft => draft[e.kind] ?? savedDraft(e);
+  /** Staff who are not the owner cannot switch on a restricted entry that is not on already. */
+  const lockedOff = (e: ShowcaseEntry) => !settings.is_owner && e.restricted && e.opted_in !== true;
 
   const save = async () => {
     if (!canEdit) return;
+    // Only the entries that change, plus an owner's first answer for a restricted entry (saving
+    // with its switch off records "no", which ends the "please choose" reminder). Nothing else
+    // is written: hiding a block of one entry never switches another entry on.
+    const changes = entries
+      .map((e) => ({ e, s: stateOf(e) }))
+      .filter(({ e, s }) => s.on !== entryShown(e) || !sameSet(s.hidden, e.hidden_sections)
+        || (settings.is_owner && entryWaiting(e)));
+    if (changes.length === 0) {
+      onOpenChange(false);
+      return;
+    }
     const uid = await requireFreshSession();
     if (!uid) return;
     setSaving(true);
     setError(null);
     try {
-      const next = await saveShowcase(orgId, master, hidden);
+      let next: ShowcaseSettings | null = null;
+      for (const { e, s } of changes) {
+        next = await saveShowcase(orgId, e.kind, s.on, s.hidden);
+      }
       setSaving(false);
+      const anyOn = entries.some((e) => stateOf(e).on);
       toast({
         title: t('dash.savedToast', 'Saved'),
-        description: master
+        description: anyOn
           ? t('dash.sm26show.savedShown', 'Your company page shows the blocks you kept.')
           : t('dash.sm26show.savedHidden', 'Your company page does not show your Smart Marina 2026 details.'),
       });
       onOpenChange(false);
-      onSaved(next);
+      if (next) onSaved(next);
     } catch (err) {
       setSaving(false);
       setError(t('dash.saveFailed', { reason: errorText(err, ''), defaultValue: 'We could not save this. {{reason}}' }).trim());
     }
   };
 
-  const toggle = (key: ShowcaseSectionKey, on: boolean) =>
-    setHidden((prev) => (on ? prev.filter((k) => k !== key) : prev.includes(key) ? prev : [...prev, key]));
+  const update = (e: ShowcaseEntry, change: (cur: EntryDraft) => EntryDraft) =>
+    setDraft((prev) => ({ ...prev, [e.kind]: change(prev[e.kind] ?? savedDraft(e)) }));
+  const setOn = (e: ShowcaseEntry, on: boolean) => update(e, (cur) => ({ ...cur, on }));
+  const toggle = (e: ShowcaseEntry, key: ShowcaseSectionKey, show: boolean) =>
+    update(e, (cur) => ({
+      ...cur,
+      hidden: show ? cur.hidden.filter((k) => k !== key) : cur.hidden.includes(key) ? cur.hidden : [...cur.hidden, key],
+    }));
 
   return (
     <EditDialog
@@ -198,71 +233,96 @@ function ShowcaseDialog({
       error={error}
       wide
     >
-      {waiting && (
-        <p className="rounded-field border border-amber-200 bg-amber-50 px-3 py-2.5 text-[15px] leading-6 text-amber-900">
-          {reason === 'visibility'
-            ? t('dash.sm26show.waitingVisibility', 'You asked for limited visibility in 2026, so nothing is shown until you choose.')
-            : t('dash.sm26show.waitingConsent', 'We do not have your agreement to show them publicly, so nothing is shown until you choose.')}
-        </p>
-      )}
       {!canEdit && (
         <p className="rounded-field bg-page px-3 py-2.5 text-[15px] leading-6 text-meta ring-1 ring-inset ring-rule">
           {t('dash.sm26show.ownerOnly', 'Only the company owner or the M3 team can change this.')}
         </p>
       )}
 
-      <div className="flex items-center gap-4 rounded-field border border-rule bg-white px-3 py-3">
-        <label htmlFor="sm26show-master" className="min-w-0 flex-1 cursor-pointer">
-          <span id="sm26show-master-label" className="block text-[16px] font-semibold leading-6 text-navy">{t('dash.sm26show.master', 'Show them on my company page')}</span>
-          <span id="sm26show-master-state" className="mt-0.5 block text-[14px] leading-5 text-meta">
-            {master
-              ? t('dash.sm26show.masterOn', 'Visitors see the blocks switched on below.')
-              : t('dash.sm26show.masterOff', 'Nothing from Smart Marina 2026 shows on your page.')}
-          </span>
-        </label>
-        <Switch
-          id="sm26show-master"
-          checked={master}
-          disabled={!canEdit || saving}
-          onCheckedChange={(v) => setMaster(v)}
-          aria-labelledby="sm26show-master-label"
-          aria-describedby="sm26show-master-state"
-          className="data-[state=checked]:bg-navy"
-        />
-      </div>
+      {entries.map((entry) => {
+        const st = stateOf(entry);
+        const locked = lockedOff(entry);
+        const masterId = `sm26show-${entry.kind}-master`;
+        return (
+          <fieldset key={entry.kind} className="space-y-3" disabled={!canEdit || saving}>
+            <legend className="mb-2 text-meta-caps">{t(`orgProfile.sm26show.kind.${entry.kind}`, KIND_LABEL[entry.kind])}</legend>
 
-      {entries.map((entry) => (
-        <fieldset key={entry.kind} disabled={!canEdit || saving || !master} className={cn(!master && 'opacity-60')}>
-          <legend className="mb-2 text-meta-caps">{t(`orgProfile.sm26show.kind.${entry.kind}`, KIND_LABEL[entry.kind])}</legend>
-          <ul className="divide-y divide-rule rounded-field border border-rule">
-            {filledSections(entry).map((s) => {
-              const id = `sm26show-${entry.kind}-${s.key}`;
-              const on = !hidden.includes(s.key);
-              const preview = s.key === 'links'
-                ? showcaseLinks(entry.sections.links).map((l) => l.label).join(', ')
-                : (entry.sections[s.key as Exclude<ShowcaseSectionKey, 'links'>] ?? '').replace(/\s+/g, ' ').trim();
-              return (
-                <li key={s.key} className="flex items-center gap-4 px-3 py-3">
-                  <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-                    <span className="block text-[15px] font-semibold leading-5 text-navy">{t(`dash.sm26show.section.${s.key}`, s.title)}</span>
-                    <span className="mt-0.5 line-clamp-2 block text-[14px] leading-5 text-meta">{preview}</span>
-                  </label>
-                  <Switch
-                    id={id}
-                    checked={on}
-                    onCheckedChange={(v) => toggle(s.key, v)}
-                    aria-label={t('dash.sm26show.sectionToggle', { title: s.title, defaultValue: 'Show "{{title}}"' })}
-                    className="data-[state=checked]:bg-navy"
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </fieldset>
-      ))}
+            {entryWaiting(entry) && (
+              <p className="rounded-field border border-amber-200 bg-amber-50 px-3 py-2.5 text-[15px] leading-6 text-amber-900">
+                {entry.restricted_reason === 'visibility'
+                  ? t('dash.sm26show.waitingVisibility', 'You asked for limited visibility in 2026, so nothing is shown until you choose.')
+                  : t('dash.sm26show.waitingConsent', 'We do not have your agreement to show them publicly, so nothing is shown until you choose.')}
+                {locked && (
+                  <span className="mt-1 block text-[14px] leading-5">
+                    {t('dash.sm26show.staffCannotShow', 'Only the company owner can switch these on.')}
+                  </span>
+                )}
+              </p>
+            )}
+
+            <div className="flex items-center gap-4 rounded-field border border-rule bg-white px-3 py-3">
+              <label htmlFor={masterId} className="min-w-0 flex-1 cursor-pointer">
+                <span id={`${masterId}-label`} className="block text-[16px] font-semibold leading-6 text-navy">
+                  {t('dash.sm26show.master', 'Show them on my company page')}
+                </span>
+                <span id={`${masterId}-state`} className="mt-0.5 block text-[14px] leading-5 text-meta">
+                  {st.on
+                    ? t('dash.sm26show.masterOn', 'Visitors see the blocks switched on below.')
+                    : t('dash.sm26show.masterOff', 'Nothing from this entry shows on your page.')}
+                </span>
+              </label>
+              <Switch
+                id={masterId}
+                checked={st.on}
+                disabled={!canEdit || saving || (locked && !st.on)}
+                onCheckedChange={(v) => setOn(entry, v)}
+                aria-labelledby={`${masterId}-label`}
+                aria-describedby={`${masterId}-state`}
+                className="data-[state=checked]:bg-navy"
+              />
+            </div>
+
+            <ul className={cn('divide-y divide-rule rounded-field border border-rule', !st.on && 'opacity-60')}>
+              {filledSections(entry).map((s) => {
+                const id = `sm26show-${entry.kind}-${s.key}`;
+                const on = !st.hidden.includes(s.key);
+                const text = s.key === 'links' ? '' : (entry.sections[s.key as Exclude<ShowcaseSectionKey, 'links'>] ?? '');
+                const preview = s.key === 'links'
+                  ? showcaseLinks(entry.sections.links).map((l) => l.label).join(', ')
+                  : text.replace(/\s+/g, ' ').trim();
+                const money = mentionsMoney(text);
+                return (
+                  <li key={s.key} className="flex items-center gap-4 px-3 py-3">
+                    <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+                      <span className="block text-[15px] font-semibold leading-5 text-navy">{t(`dash.sm26show.section.${s.key}`, s.title)}</span>
+                      <span className="mt-0.5 line-clamp-2 block text-[14px] leading-5 text-meta">{preview}</span>
+                      {money && (
+                        <span className="mt-1 flex items-start gap-1.5 text-[13px] leading-5 text-amber-800">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          {money === 'amount'
+                            ? t('dash.sm26show.moneyAmount', 'Mentions an amount of money. It is shown exactly as written: read it before you show it.')
+                            : t('dash.sm26show.moneyFunding', 'Talks about investment or funding. It is shown exactly as written: read it before you show it.')}
+                        </span>
+                      )}
+                    </label>
+                    <Switch
+                      id={id}
+                      checked={on}
+                      disabled={!canEdit || saving || !st.on}
+                      onCheckedChange={(v) => toggle(entry, s.key, v)}
+                      aria-label={t('dash.sm26show.sectionToggle', { title: s.title, defaultValue: 'Show "{{title}}"' })}
+                      className="data-[state=checked]:bg-navy"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+        );
+      })}
 
       <p className="text-[14px] leading-5 text-meta">
-        {t('dash.sm26show.never', 'Never shown: your pitch deck, your funding figures, your team’s details and the jury’s scores. Your pictures are not shown either.')}
+        {t('dash.sm26show.never', 'Never shown: your pitch deck, the funding amount, stage and type you gave in their own fields, your team’s details and the jury’s scores. Your pictures are not shown either. The texts above are shown exactly as you wrote them, so read them before you switch them on.')}
       </p>
     </EditDialog>
   );

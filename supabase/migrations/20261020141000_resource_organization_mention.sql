@@ -6,24 +6,25 @@
 -- then its down, in one rolled-back transaction).
 -- Down: supabase/migrations/down/20261020141000_resource_organization_mention.down.sql.
 --
--- ADDITIVE ONLY: one table, its index and five policies. Nothing existing is redefined, the
--- article's stored HTML is never touched (the article page links the first occurrence of each
--- confirmed name at render time) and the RSS feeds (netlify/edge-functions/rss.ts) do not read
--- it. Independent of every other pending file; any order.
+-- ADDITIVE ONLY: two tables (the mentions, and the suggestions staff turned down), an index and
+-- eight policies. Nothing existing is redefined, the article's stored HTML is never touched (the
+-- article page links the first occurrence of each confirmed name at render time) and the RSS feeds
+-- (netlify/edge-functions/rss.ts) do not read them. Independent of every other pending file; any order.
 --
 -- Who sees a mention: anyone, when the article is published and public and the company is
 -- verified, not archived and not merged into another (duplicate_of); signed-in readers also on
 -- the published articles they may read (public.can_access_resource, the rule of
 -- resource_sectors); M3 staff (public.is_moderator()) all of them. Who writes: M3 staff only
 -- (insert and delete; a mention has nothing to update). created_by is stamped by default and is
--- not readable through the API.
+-- not readable through the API. The turned-down suggestions (resource_organization_mention_skip)
+-- are read and written by M3 staff only.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
 do $pre$
 begin
-  if to_regclass('public.resource_organization_mention') is not null then
+  if to_regclass('public.resource_organization_mention') is not null or to_regclass('public.resource_organization_mention_skip') is not null then
     raise exception 'resource_organization_mention: already installed';
   end if;
   if (select md5(p.prosrc) from pg_proc p where p.oid = to_regprocedure('public.is_moderator()'))
@@ -86,6 +87,32 @@ create policy resource_org_mention_staff_insert on public.resource_organization_
 create policy resource_org_mention_staff_delete on public.resource_organization_mention
   for delete to authenticated using ((select public.is_moderator()));
 
+-- "Not this one": a suggested company M3 staff turned down for an article, so neither the
+-- article editor nor the admin list "Company tags to review" proposes it again. Staff only.
+create table public.resource_organization_mention_skip (
+  resource_id uuid not null references public.resources(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint resource_organization_mention_skip_pkey primary key (resource_id, organization_id)
+);
+comment on table public.resource_organization_mention_skip is
+  'Company suggestions M3 staff turned down for an article ("Not this one"): never proposed again for it. Staff only; readers never see it.';
+
+alter table public.resource_organization_mention_skip enable row level security;
+revoke all on table public.resource_organization_mention_skip from public, anon, authenticated;
+grant select (resource_id, organization_id, created_at) on table public.resource_organization_mention_skip to authenticated;
+grant insert (resource_id, organization_id) on table public.resource_organization_mention_skip to authenticated;
+grant delete on table public.resource_organization_mention_skip to authenticated;
+grant all on table public.resource_organization_mention_skip to service_role;
+
+create policy resource_org_mention_skip_staff_read on public.resource_organization_mention_skip
+  for select to authenticated using ((select public.is_moderator()));
+create policy resource_org_mention_skip_staff_insert on public.resource_organization_mention_skip
+  for insert to authenticated with check ((select public.is_moderator()));
+create policy resource_org_mention_skip_staff_delete on public.resource_organization_mention_skip
+  for delete to authenticated using ((select public.is_moderator()));
+
 -- After: privileges and policies exactly as intended, else the whole file rolls back.
 do $post$
 begin
@@ -104,6 +131,17 @@ begin
   end if;
   if (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = 'resource_organization_mention') <> 5 then
     raise exception 'resource_organization_mention: expected 5 policies';
+  end if;
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.resource_organization_mention_skip'::regclass)
+     or has_table_privilege('anon', 'public.resource_organization_mention_skip', 'select, insert, update, delete')
+     or has_column_privilege('anon', 'public.resource_organization_mention_skip', 'organization_id', 'select')
+     or has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'created_by', 'select')
+     or has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'created_by', 'insert')
+     or has_table_privilege('authenticated', 'public.resource_organization_mention_skip', 'update')
+     or not has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'organization_id', 'insert')
+     or not has_table_privilege('authenticated', 'public.resource_organization_mention_skip', 'delete')
+     or (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = 'resource_organization_mention_skip') <> 3 then
+    raise exception 'resource_organization_mention_skip: wrong privileges, RLS or policies';
   end if;
 end
 $post$;

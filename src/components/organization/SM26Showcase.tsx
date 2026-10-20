@@ -53,10 +53,10 @@ export function useSM26Showcase(orgId: string | null, isOwnMember: boolean): {
   return { loaded: !orgId || !!current, showcase: current?.showcase ?? null, hiddenForOwner };
 }
 
-/** The tiles of one block, in reading order (links and the architect's field are not tiles). */
+/** The tiles of one block, in reading order (the links are not tiles). */
 function tilesOf(block: ShowcaseBlock): TextTileItem[] {
   return SECTIONS[block.kind]
-    .filter((s) => s.key !== 'links' && s.key !== 'domain')
+    .filter((s) => s.key !== 'links')
     .map((s) => ({ def: s, text: (block.sections[s.key as Exclude<typeof s.key, 'links'>] ?? '').trim() }))
     .filter((x) => x.text.length > 0)
     .map((x) => ({ key: `${block.kind}-${x.def.key}`, title: x.def.title, text: x.text, icon: x.def.icon }));
@@ -75,7 +75,6 @@ export function SM26ShowcaseBlocks({ showcase, name, canManage }: { showcase: Sh
       {showcase.blocks.map((block) => {
         const tiles = tilesOf(block);
         const links = showcaseLinks(block.sections.links);
-        const domain = (block.sections.domain ?? '').trim();
         return (
           <div key={block.kind}>
             <p className="-mt-2 mb-6 max-w-prose text-[15px] leading-6 text-meta">
@@ -83,12 +82,6 @@ export function SM26ShowcaseBlocks({ showcase, name, canManage }: { showcase: Sh
                 ? t('orgProfile.sm26show.sourceStartup', "From {{name}}'s innovation dossier for the Monaco Smart & Sustainable Marina Rendezvous 2026 (e-catalogue and jury).", { name })
                 : t('orgProfile.sm26show.sourceArchitect', "From {{name}}'s entry to the architecture competition of the Monaco Smart & Sustainable Marina Rendezvous 2026.", { name })}
             </p>
-            {domain && (
-              <p className="mb-5 flex flex-wrap items-center gap-2 text-[15px] leading-6 text-ink">
-                <span className="text-meta-caps">{t('orgProfile.sm26show.field', 'Field')}</span>
-                <span className="inline-flex h-8 items-center rounded-pill bg-chip px-3.5 text-sm font-medium text-navy">{domain}</span>
-              </p>
-            )}
             {tiles.length > 0 && (
               <TextTiles items={tiles} source={t(`orgProfile.sm26show.kind.${block.kind}`, KIND_LABEL[block.kind])} />
             )}

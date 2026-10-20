@@ -78,6 +78,24 @@ export function countMentions(text: string, name: string): number {
   }
 }
 
+/**
+ * The words around the first whole-word occurrence of a name in a plain text, so a reviewer can
+ * tell at a glance whether it is the company or a common word. Null when not found.
+ */
+export function mentionContext(text: string, name: string, radius = 70): { before: string; match: string; after: string } | null {
+  const re = namePattern(name);
+  if (!re || !text) return null;
+  const hit = findWhole(text, re);
+  if (!hit) return null;
+  const start = Math.max(0, hit.index - radius);
+  const end = Math.min(text.length, hit.index + hit.length + radius);
+  return {
+    before: (start > 0 ? '…' : '') + text.slice(start, hit.index).trimStart(),
+    match: text.slice(hit.index, hit.index + hit.length),
+    after: text.slice(hit.index + hit.length, end).trimEnd() + (end < text.length ? '…' : ''),
+  };
+}
+
 /** The readable text of an article's HTML (the editor's scan). */
 export function htmlToText(html: string | null | undefined): string {
   if (!html) return '';

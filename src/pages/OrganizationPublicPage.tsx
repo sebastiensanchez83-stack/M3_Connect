@@ -699,7 +699,8 @@ export function OrganizationPublicPage() {
             themes: themesForSectors((r.resource_sectors ?? []).map((rs) => rs.sectors?.slug)),
           }))
           .sort((a, b) => (b.published_at || b.created_at || '').localeCompare(a.published_at || a.created_at || ''));
-        if (alive) setNews(rows.slice(0, 6));
+        // One card per article, whatever the rows (the key is the article id).
+        if (alive) setNews(rows.filter((r, i) => rows.findIndex((x) => x.id === r.id) === i).slice(0, 6));
       } catch {
         if (alive) setNews([]);
       }

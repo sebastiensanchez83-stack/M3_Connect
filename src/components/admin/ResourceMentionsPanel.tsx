@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { LogoBadge } from '@/components/ui/CoverImage';
 import { supabase } from '@/lib/supabase';
+import { confirmMention, fetchMentionCandidates, fetchSkips, removeMention, skipSuggestion, unskipSuggestion } from '@/lib/mentionActions';
 import { toast } from '@/hooks/use-toast';
 import {
   countMentions, foldName, htmlToText, isMatchableName, mentionHref, suggestMentions, type MentionOrg,
@@ -20,6 +21,9 @@ import {
  * from "Save Changes": the article's HTML is never modified. Readers then see the first
  * occurrence of each name linked to the company page, and a "Companies in this article" row;
  * the company page lists the article under "In the news" (public, published articles only).
+ * "Not this one" is saved (resource_organization_mention_skip): the suggestion is not proposed
+ * again, here or in the admin list "Company tags to review" (AdminMentionReview), which scans
+ * every published article at once.
  */
 
 interface Confirmed extends MentionOrg {
@@ -53,21 +57,23 @@ export function ResourceMentionsPanel({
   // The verified companies, once (names, for the scan and the search).
   useEffect(() => {
     let alive = true;
-    supabase
-      .from('organizations')
-      .select('id, name, slug, logo_url, organization_type')
-      .eq('access_status', 'verified')
-      .is('archived_at', null)
-      .is('duplicate_of', null)
-      .order('name')
-      .limit(2000)
-      .then(({ data, error }) => {
-        if (!alive) return;
-        if (error) { setCandidates([]); setLoadError('The companies could not be loaded. Reload the page to tag companies.'); return; }
-        setCandidates(((data ?? []) as MentionOrg[]).filter((o) => o.slug));
-      });
+    fetchMentionCandidates().then(
+      (orgs) => { if (alive) setCandidates(orgs); },
+      () => { if (alive) { setCandidates([]); setLoadError('The companies could not be loaded. Reload the page to tag companies.'); } },
+    );
     return () => { alive = false; };
   }, []);
+
+  // The suggestions already turned down for this article ("Not this one"): never proposed again.
+  useEffect(() => {
+    if (!resourceId) { setDismissed([]); return; }
+    let alive = true;
+    fetchSkips(resourceId).then(
+      (rows) => { if (alive) setDismissed(rows.map((r) => r.organization_id)); },
+      () => { if (alive) setDismissed([]); },
+    );
+    return () => { alive = false; };
+  }, [resourceId]);
 
   // What is already confirmed for this article.
   useEffect(() => {
@@ -109,6 +115,11 @@ export function ResourceMentionsPanel({
     () => (candidates ? suggestMentions(text, candidates).filter((s) => !confirmedIds.has(s.org.id) && !dismissed.includes(s.org.id)) : []),
     [candidates, text, confirmedIds, dismissed],
   );
+  // The turned-down companies that still appear in the text (the others need no undo).
+  const turnedDown = useMemo(
+    () => (candidates ? candidates.filter((o) => dismissed.includes(o.id) && !confirmedIds.has(o.id) && countMentions(text, o.name) > 0) : []),
+    [candidates, dismissed, confirmedIds, text],
+  );
   const results = useMemo(() => {
     const q = foldName(query);
     if (!candidates || q.length < 2) return [];
@@ -118,14 +129,44 @@ export function ResourceMentionsPanel({
   const add = async (org: MentionOrg) => {
     if (!resourceId) return;
     setBusy(org.id);
-    const { error } = await supabase.from('resource_organization_mention').insert({ resource_id: resourceId, organization_id: org.id });
-    setBusy(null);
-    if (error && error.code !== '23505') {
-      toast({ title: 'Could not tag this company', description: error.message, variant: 'destructive' });
+    try {
+      await confirmMention(resourceId, org.id);
+    } catch (error) {
+      setBusy(null);
+      toast({ title: 'Could not tag this company', description: (error as Error).message, variant: 'destructive' });
       return;
     }
+    setBusy(null);
     setConfirmed((prev) => (prev.some((c) => c.id === org.id) ? prev : [...prev, { ...org, listed: true }].sort((a, b) => a.name.localeCompare(b.name))));
     setQuery('');
+  };
+
+  /** "Not this one": saved, so neither this panel nor the admin review list proposes it again. */
+  const turnDown = async (org: MentionOrg) => {
+    if (resourceId) {
+      setBusy(org.id);
+      try {
+        await skipSuggestion(resourceId, org.id);
+      } catch (error) {
+        setBusy(null);
+        toast({ title: 'Could not save "Not this one"', description: (error as Error).message, variant: 'destructive' });
+        return;
+      }
+      setBusy(null);
+    }
+    setDismissed((d) => (d.includes(org.id) ? d : [...d, org.id]));
+  };
+
+  const undoTurnDown = async (orgId: string) => {
+    if (resourceId) {
+      try {
+        await unskipSuggestion(resourceId, orgId);
+      } catch (error) {
+        toast({ title: 'Could not undo', description: (error as Error).message, variant: 'destructive' });
+        return;
+      }
+    }
+    setDismissed((d) => d.filter((x) => x !== orgId));
   };
 
   const addAll = async () => {
@@ -138,12 +179,14 @@ export function ResourceMentionsPanel({
   const remove = async (org: Confirmed) => {
     if (!resourceId) return;
     setBusy(org.id);
-    const { error } = await supabase.from('resource_organization_mention').delete().eq('resource_id', resourceId).eq('organization_id', org.id);
-    setBusy(null);
-    if (error) {
-      toast({ title: 'Could not remove this company', description: error.message, variant: 'destructive' });
+    try {
+      await removeMention(resourceId, org.id);
+    } catch (error) {
+      setBusy(null);
+      toast({ title: 'Could not remove this company', description: (error as Error).message, variant: 'destructive' });
       return;
     }
+    setBusy(null);
     setConfirmed((prev) => prev.filter((c) => c.id !== org.id));
   };
 
@@ -228,12 +271,25 @@ export function ResourceMentionsPanel({
                   <Button size="sm" onClick={() => add(org)} disabled={!resourceId || busy === org.id} className="gap-1">
                     {busy === org.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Confirm
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setDismissed((d) => [...d, org.id])} className="text-gray-500">
+                  <Button variant="ghost" size="sm" onClick={() => turnDown(org)} disabled={busy === org.id} className="text-gray-500">
                     Not this one
                   </Button>
                 </li>
               ))}
             </ul>
+          )}
+          {turnedDown.length > 0 && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+              <span>Not suggested again:</span>
+              {turnedDown.map((o) => (
+                <span key={o.id} className="inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5">
+                  {o.name}
+                  <button type="button" onClick={() => undoTurnDown(o.id)} className="text-blue-600 underline" aria-label={`Suggest ${o.name} again`}>
+                    Undo
+                  </button>
+                </span>
+              ))}
+            </p>
           )}
         </div>
 

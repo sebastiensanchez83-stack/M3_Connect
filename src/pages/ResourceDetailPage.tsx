@@ -135,15 +135,20 @@ export function ResourceDetailPage() {
           .order('display_order');
         setSpeakers((speakerData || []) as ResourceSpeaker[]);
 
-        // Companies mentioned. Best effort: without them the article reads as before.
+        // Companies mentioned. Best effort: without them the article reads as before. Readers
+        // only get listed companies (the database's rule); M3 staff can read every mention, so
+        // the unlisted ones (not verified, archived, merged) are dropped here too: staff see the
+        // page as readers do.
+        type MentionRow = MentionOrg & { access_status?: string | null; archived_at?: string | null; duplicate_of?: string | null };
         const { data: mentionRows } = await supabase
           .from('resource_organization_mention')
-          .select('organization_id, organizations(id, name, slug, logo_url, organization_type)')
+          .select('organization_id, organizations(id, name, slug, logo_url, organization_type, access_status, archived_at, duplicate_of)')
           .eq('resource_id', id);
         setMentions(
-          ((mentionRows ?? []) as unknown as { organizations: MentionOrg | MentionOrg[] | null }[])
+          ((mentionRows ?? []) as unknown as { organizations: MentionRow | MentionRow[] | null }[])
             .map((m) => (Array.isArray(m.organizations) ? m.organizations[0] : m.organizations))
-            .filter((o): o is MentionOrg => !!o && !!o.slug)
+            .filter((o): o is MentionRow => !!o && !!o.slug && o.access_status === 'verified' && !o.archived_at && !o.duplicate_of)
+            .map((o): MentionOrg => ({ id: o.id, name: o.name, slug: o.slug, logo_url: o.logo_url, organization_type: o.organization_type }))
             .sort((a, b) => a.name.localeCompare(b.name)),
         );
 

@@ -1,11 +1,12 @@
 -- DRY RUN of supabase/migrations/20261020141000_resource_organization_mention.sql and of its
 -- down. NOT A MIGRATION. ONE query text, ONE execute_sql call, BEFORE the file is applied.
--- A. snapshot; B. the migration, verbatim; C. cases as a visitor, a verified member, a
--- moderator and the owner, on a real published public article and real companies, plus two
--- throw-away articles (a draft, a members-only one) created inside the run; every write is
--- rolled back with the cases; D. the down, verbatim; E. checks after the down. No sm_* row is
--- touched; the output names no article and no company.
--- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "19 PASS, 0 FAIL".
+-- A. snapshot; B. the migration, verbatim; C. cases as a visitor, a verified member, a verified
+-- marina, a moderator and the owner, on a real published public article and real companies, plus
+-- three throw-away articles (a draft, a members-only one, a marinas-only one) created inside the
+-- run; the turned-down suggestions table is checked too; every write is rolled back with the
+-- cases; D. the down, verbatim; E. checks after the down. No sm_* row is touched; the output
+-- names no article and no company.
+-- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "23 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -18,13 +19,13 @@ create function pg_temp.dr_snap() returns table (k text, v text) language sql as
                               from public.organizations o)
   union all select 'policies', (select md5(string_agg(format('%s.%s.%s|%s|%s|%s|%s', pl.schemaname, pl.tablename, pl.policyname,
                                   pl.cmd, pl.roles, pl.qual, pl.with_check), ';' order by pl.schemaname, pl.tablename, pl.policyname))
-                                  from pg_policies pl where pl.tablename <> 'resource_organization_mention')
+                                  from pg_policies pl where pl.tablename not in ('resource_organization_mention', 'resource_organization_mention_skip'))
   union all select 'acls', (select md5(string_agg(p.oid::regprocedure::text || '=' || coalesce(array_to_string(p.proacl, ','), ''), ';'
                               order by p.oid::regprocedure::text)) from pg_proc p where p.pronamespace = 'public'::regnamespace)
   union all select 'tables', (select md5(string_agg(c.oid::regclass::text || ':' || c.relrowsecurity::text || ':'
                                 || coalesce(array_to_string(c.relacl, ','), ''), ';' order by c.oid::regclass::text))
                                 from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
-                                 and c.relname <> 'resource_organization_mention')
+                                 and c.relname not in ('resource_organization_mention', 'resource_organization_mention_skip'))
   union all select 'triggers', (select md5(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
                                   order by t.tgrelid::regclass::text, t.tgname)) from pg_trigger t where not t.tgisinternal)
 $f$;
@@ -44,24 +45,25 @@ select set_config('request.jwt.claim.sub', '', true), set_config('request.jwt.cl
 -- then its down, in one rolled-back transaction).
 -- Down: supabase/migrations/down/20261020141000_resource_organization_mention.down.sql.
 --
--- ADDITIVE ONLY: one table, its index and five policies. Nothing existing is redefined, the
--- article's stored HTML is never touched (the article page links the first occurrence of each
--- confirmed name at render time) and the RSS feeds (netlify/edge-functions/rss.ts) do not read
--- it. Independent of every other pending file; any order.
+-- ADDITIVE ONLY: two tables (the mentions, and the suggestions staff turned down), an index and
+-- eight policies. Nothing existing is redefined, the article's stored HTML is never touched (the
+-- article page links the first occurrence of each confirmed name at render time) and the RSS feeds
+-- (netlify/edge-functions/rss.ts) do not read them. Independent of every other pending file; any order.
 --
 -- Who sees a mention: anyone, when the article is published and public and the company is
 -- verified, not archived and not merged into another (duplicate_of); signed-in readers also on
 -- the published articles they may read (public.can_access_resource, the rule of
 -- resource_sectors); M3 staff (public.is_moderator()) all of them. Who writes: M3 staff only
 -- (insert and delete; a mention has nothing to update). created_by is stamped by default and is
--- not readable through the API.
+-- not readable through the API. The turned-down suggestions (resource_organization_mention_skip)
+-- are read and written by M3 staff only.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
 do $pre$
 begin
-  if to_regclass('public.resource_organization_mention') is not null then
+  if to_regclass('public.resource_organization_mention') is not null or to_regclass('public.resource_organization_mention_skip') is not null then
     raise exception 'resource_organization_mention: already installed';
   end if;
   if (select md5(p.prosrc) from pg_proc p where p.oid = to_regprocedure('public.is_moderator()'))
@@ -124,6 +126,32 @@ create policy resource_org_mention_staff_insert on public.resource_organization_
 create policy resource_org_mention_staff_delete on public.resource_organization_mention
   for delete to authenticated using ((select public.is_moderator()));
 
+-- "Not this one": a suggested company M3 staff turned down for an article, so neither the
+-- article editor nor the admin list "Company tags to review" proposes it again. Staff only.
+create table public.resource_organization_mention_skip (
+  resource_id uuid not null references public.resources(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint resource_organization_mention_skip_pkey primary key (resource_id, organization_id)
+);
+comment on table public.resource_organization_mention_skip is
+  'Company suggestions M3 staff turned down for an article ("Not this one"): never proposed again for it. Staff only; readers never see it.';
+
+alter table public.resource_organization_mention_skip enable row level security;
+revoke all on table public.resource_organization_mention_skip from public, anon, authenticated;
+grant select (resource_id, organization_id, created_at) on table public.resource_organization_mention_skip to authenticated;
+grant insert (resource_id, organization_id) on table public.resource_organization_mention_skip to authenticated;
+grant delete on table public.resource_organization_mention_skip to authenticated;
+grant all on table public.resource_organization_mention_skip to service_role;
+
+create policy resource_org_mention_skip_staff_read on public.resource_organization_mention_skip
+  for select to authenticated using ((select public.is_moderator()));
+create policy resource_org_mention_skip_staff_insert on public.resource_organization_mention_skip
+  for insert to authenticated with check ((select public.is_moderator()));
+create policy resource_org_mention_skip_staff_delete on public.resource_organization_mention_skip
+  for delete to authenticated using ((select public.is_moderator()));
+
 -- After: privileges and policies exactly as intended, else the whole file rolls back.
 do $post$
 begin
@@ -143,6 +171,17 @@ begin
   if (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = 'resource_organization_mention') <> 5 then
     raise exception 'resource_organization_mention: expected 5 policies';
   end if;
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.resource_organization_mention_skip'::regclass)
+     or has_table_privilege('anon', 'public.resource_organization_mention_skip', 'select, insert, update, delete')
+     or has_column_privilege('anon', 'public.resource_organization_mention_skip', 'organization_id', 'select')
+     or has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'created_by', 'select')
+     or has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'created_by', 'insert')
+     or has_table_privilege('authenticated', 'public.resource_organization_mention_skip', 'update')
+     or not has_column_privilege('authenticated', 'public.resource_organization_mention_skip', 'organization_id', 'insert')
+     or not has_table_privilege('authenticated', 'public.resource_organization_mention_skip', 'delete')
+     or (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = 'resource_organization_mention_skip') <> 3 then
+    raise exception 'resource_organization_mention_skip: wrong privileges, RLS or policies';
+  end if;
 end
 $post$;
 -- ─────────────────────────────────────────────────────────────────────────────────
@@ -150,7 +189,7 @@ $post$;
 -- C. Cases (all inside one block that rolls back at its end; the results survive in arrays)
 do $cases$
 declare
-  v_res uuid; v_draft uuid; v_mres uuid; v_org uuid; v_unl uuid; v_mod uuid; v_mem uuid;
+  v_res uuid; v_draft uuid; v_mres uuid; v_marres uuid; v_org uuid; v_unl uuid; v_mod uuid; v_mem uuid; v_mar uuid;
   v_st text; v_n integer; v_n2 integer; v_n3 integer; v_b boolean;
   r_ok boolean[] := '{}';
   r_lb text[] := '{}';
@@ -167,16 +206,22 @@ begin
     select p.user_id into v_mod from public.profiles p join auth.users u on u.id = p.user_id
      where p.access_status = 'verified' and p.persona::text in ('admin', 'moderator') order by p.user_id limit 1;
     select p.user_id into v_mem from public.profiles p join auth.users u on u.id = p.user_id
-     where p.access_status = 'verified' and p.persona::text not in ('admin', 'moderator') order by p.user_id limit 1;
-    -- Two throw-away articles (rolled back): a draft and a published members-only one.
+     where p.access_status = 'verified' and p.persona::text not in ('admin', 'moderator', 'marina') order by p.user_id limit 1;
+    select p.user_id into v_mar from public.profiles p join auth.users u on u.id = p.user_id
+     where p.access_status = 'verified' and p.persona::text = 'marina' order by p.user_id limit 1;
+    -- Three throw-away articles (rolled back): a draft, a published members-only one and a
+    -- published marinas-only one.
     insert into public.resources (title, summary, type, published, access_level)
     values ('DRYRUN mention draft', 'dry run', 'article', false, 'public') returning id into v_draft;
     insert into public.resources (title, summary, type, published, access_level)
     values ('DRYRUN mention members', 'dry run', 'article', true, 'members') returning id into v_mres;
+    insert into public.resources (title, summary, type, published, access_level)
+    values ('DRYRUN mention marinas', 'dry run', 'article', true, 'marina') returning id into v_marres;
     r_ok := r_ok || (v_res is not null and v_org is not null and v_unl is not null and v_mod is not null and v_mem is not null
-      and v_draft is not null and v_mres is not null);
-    r_lb := r_lb || format('F00 fixtures: public article %s, listed company %s, unlisted company %s, moderator %s, member %s, throw-away articles %s',
-      v_res is not null, v_org is not null, v_unl is not null, v_mod is not null, v_mem is not null, v_draft is not null and v_mres is not null);
+      and v_mar is not null and v_draft is not null and v_mres is not null and v_marres is not null);
+    r_lb := r_lb || format('F00 fixtures: public article %s, listed company %s, unlisted company %s, moderator %s, member %s, marina %s, throw-away articles %s',
+      v_res is not null, v_org is not null, v_unl is not null, v_mod is not null, v_mem is not null, v_mar is not null,
+      v_draft is not null and v_mres is not null and v_marres is not null);
 
     -- M01 a moderator confirms a mention; created_by is stamped
     begin
@@ -355,6 +400,76 @@ begin
     r_ok := r_ok || (v_st = 'ok' and v_n = 1 and v_n2 = 0);
     r_lb := r_lb || ('M14 a moderator removes the mention: ' || v_st || ', deleted ' || v_n || ', left ' || v_n2);
 
+    -- M16 a marinas-only article: a verified marina sees its mention, a member who is not a marina
+    -- and a visitor do not
+    insert into public.resource_organization_mention (resource_id, organization_id) values (v_marres, v_org);
+    begin
+      perform set_config('request.jwt.claims', pg_temp.dr_claims(v_mar), true);
+      set local role authenticated;
+      select count(*) into v_n from (select m0.resource_id from public.resource_organization_mention m0 where m0.resource_id = v_marres) as m;
+      reset role;
+      perform set_config('request.jwt.claims', pg_temp.dr_claims(v_mem), true);
+      set local role authenticated;
+      select count(*) into v_n2 from (select m0.resource_id from public.resource_organization_mention m0 where m0.resource_id = v_marres) as m;
+      reset role;
+      perform set_config('request.jwt.claims', '{"role": "anon"}', true);
+      set local role anon;
+      select count(*) into v_n3 from (select m0.resource_id from public.resource_organization_mention m0 where m0.resource_id = v_marres) as m;
+      v_st := 'ok';
+    exception when others then v_st := sqlstate || ' ' || sqlerrm; v_n := -1;
+    end;
+    reset role; perform set_config('request.jwt.claims', '', true);
+    r_ok := r_ok || (v_st = 'ok' and v_n = 1 and v_n2 = 0 and v_n3 = 0);
+    r_lb := r_lb || format('M16 a marinas-only article: a marina sees %s, a member who is not a marina %s, a visitor %s (%s)', v_n, v_n2, v_n3, v_st);
+
+    -- K01 a moderator turns a suggestion down ("Not this one"); created_by is stamped
+    begin
+      perform set_config('request.jwt.claims', pg_temp.dr_claims(v_mod), true);
+      set local role authenticated;
+      insert into public.resource_organization_mention_skip (resource_id, organization_id) values (v_res, v_org);
+      select count(*) into v_n from (select k0.resource_id from public.resource_organization_mention_skip k0 where k0.resource_id = v_res) as k;
+      v_st := 'ok';
+    exception when others then v_st := sqlstate || ' ' || sqlerrm; v_n := -1;
+    end;
+    reset role; perform set_config('request.jwt.claims', '', true);
+    select count(*) into v_n2 from public.resource_organization_mention_skip k
+     where k.resource_id = v_res and k.organization_id = v_org and k.created_by = v_mod;
+    r_ok := r_ok || (v_st = 'ok' and v_n = 1 and v_n2 = 1);
+    r_lb := r_lb || ('K01 a moderator turns a suggestion down and reads it back, created_by stamped: ' || v_st || ', ' || v_n || '/' || v_n2);
+
+    -- K02 a member neither sees nor adds turned-down suggestions (checked after the expected error)
+    begin
+      perform set_config('request.jwt.claims', pg_temp.dr_claims(v_mem), true);
+      set local role authenticated;
+      select count(*) into v_n from (select k0.resource_id from public.resource_organization_mention_skip k0) as k;
+      v_st := 'ok';
+    exception when others then v_st := sqlstate || ' ' || sqlerrm; v_n := -1;
+    end;
+    reset role; perform set_config('request.jwt.claims', '', true);
+    begin
+      perform set_config('request.jwt.claims', pg_temp.dr_claims(v_mem), true);
+      set local role authenticated;
+      insert into public.resource_organization_mention_skip (resource_id, organization_id) values (v_mres, v_org);
+      v_st2 := 'no error';
+    exception when others then v_st2 := sqlstate || ' ' || sqlerrm;
+    end;
+    reset role; perform set_config('request.jwt.claims', '', true);
+    select count(*) into v_n2 from public.resource_organization_mention_skip k where k.resource_id = v_mres;
+    r_ok := r_ok || (v_st = 'ok' and v_n = 0 and v_st2 like '42501 new row violates row-level security policy%' and v_n2 = 0);
+    r_lb := r_lb || ('K02 a member sees ' || v_n || ' turned-down suggestions and cannot add one: ' || v_st2 || ', rows ' || v_n2);
+
+    -- K03 a visitor cannot read them at all
+    begin
+      perform set_config('request.jwt.claims', '{"role": "anon"}', true);
+      set local role anon;
+      perform k.resource_id from public.resource_organization_mention_skip k;
+      v_st := 'no error';
+    exception when others then v_st := sqlstate || ' ' || sqlerrm;
+    end;
+    reset role; perform set_config('request.jwt.claims', '', true);
+    r_ok := r_ok || (v_st like '42501 permission denied for table%');
+    r_lb := r_lb || ('K03 a visitor cannot read turned-down suggestions: ' || v_st);
+
     -- M15 deleting an article removes its mentions
     delete from public.resources r where r.id = v_draft;
     select count(*) into v_n from public.resource_organization_mention m where m.resource_id = v_draft;
@@ -371,29 +486,34 @@ $cases$;
 -- S01 nothing else moved (the fixtures and the cases' writes rolled back)
 insert into _dr_res (ok, label)
 select not exists ((select k, v from _dr_before) except (select k, v from pg_temp.dr_snap()))
-         and (select count(*) from public.resource_organization_mention) = 0,
-       'S01 after the migration and the cases: no mention left, resources, organizations, policies, ACLs, tables, triggers unchanged: '
+         and (select count(*) from public.resource_organization_mention) = 0
+         and (select count(*) from public.resource_organization_mention_skip) = 0,
+       'S01 after the migration and the cases: no mention or turned-down suggestion left, resources, organizations, policies, ACLs, tables, triggers unchanged: '
        || coalesce((select string_agg(b.k, ',') from _dr_before b join pg_temp.dr_snap() a on a.k = b.k where a.v is distinct from b.v), 'all equal');
 
 -- D. The down, verbatim ──────────────────────────────────────────────────────────
 -- DOWN of supabase/migrations/20261020141000_resource_organization_mention.sql. NOT A
 -- MIGRATION: run it only to take the feature out (with Victor's OK). It DROPS every confirmed
--- mention; keep a copy first if any exist:
+-- mention and every turned-down suggestion; keep a copy first if any exist:
 --   select * from public.resource_organization_mention;
--- The client copes with the table being gone: the article page and the company page simply show
--- no mentions, and the editor's panel says it could not load them.
+--   select * from public.resource_organization_mention_skip;
+-- The client copes with the tables being gone: the article page and the company page simply show
+-- no mentions, and the editor's panel and the admin review list say they could not load them.
 -- Checked by the same dry run as the migration
 -- (supabase/dryrun/20261020141000_resource_organization_mention.dryrun.sql).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
+drop table if exists public.resource_organization_mention_skip;
 drop table if exists public.resource_organization_mention;
 
 do $post$
 begin
   if to_regclass('public.resource_organization_mention') is not null
-     or exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'resource_organization_mention') then
+     or to_regclass('public.resource_organization_mention_skip') is not null
+     or exists (select 1 from pg_policies p where p.schemaname = 'public'
+                   and p.tablename in ('resource_organization_mention', 'resource_organization_mention_skip')) then
     raise exception 'resource_organization_mention down: something is left';
   end if;
 end
@@ -406,9 +526,9 @@ declare
   v_txt text;
 begin
   insert into _dr_res (ok, label) values (
-    to_regclass('public.resource_organization_mention') is null
-      and not exists (select 1 from pg_policies p where p.tablename = 'resource_organization_mention'),
-    'E01 the down removed the table and its five policies');
+    to_regclass('public.resource_organization_mention') is null and to_regclass('public.resource_organization_mention_skip') is null
+      and not exists (select 1 from pg_policies p where p.tablename in ('resource_organization_mention', 'resource_organization_mention_skip')),
+    'E01 the down removed both tables and their eight policies');
   insert into _dr_res (ok, label)
   select not exists ((select k, v from _dr_before) except (select k, v from pg_temp.dr_snap())),
          'E02 after the down: everything back to the snapshot: '

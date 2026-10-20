@@ -546,10 +546,16 @@ begin
   r_lb := r_lb || format('W01 sweep of every listed company (postgres): entries with a key outside their kind or a personal LinkedIn %s, student-only companies with an entry %s, startups %s (independent count %s), architecture entries %s (independent count %s)',
     v_bad, v_stud, v_c1 + v_c2 + v_c3, v_i1, v_c4 + v_c5, v_i2);
 
-  -- W02 sweep as a visitor: with no choice stored, only the open startups show, with allowed keys only
+  -- W02 sweep as a visitor: with no choice stored, only the open startups that have some text show (an open
+  -- startup whose every field is empty shows nothing: the public function returns null), with allowed keys only
   select array_agg(o.id order by o.id) into v_ids
     from public.organizations o
    where o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null;
+  select count(*) into v_n3
+    from public.organizations o
+    cross join lateral public.org_sm26_showcase_entries(o.id) as e
+   where o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null
+     and e.kind = 'startup' and not e.restricted and e.sections <> '{}'::jsonb;
   v_n := 0; v_n2 := 0; v_arch := 0;
   begin
     perform set_config('request.jwt.claims', '{"role": "anon"}', true);
@@ -579,9 +585,9 @@ begin
   exception when others then v_st := sqlstate || ' ' || sqlerrm;
   end;
   reset role; perform set_config('request.jwt.claims', '', true);
-  r_ok := r_ok || (v_st = 'ok' and v_n = v_c1 and v_n2 = 0 and v_arch = 0);
-  r_lb := r_lb || format('W02 sweep as a visitor over %s listed companies: %s show something (open startups %s), %s with a wrong key, %s architecture blocks (%s)',
-    coalesce(array_length(v_ids, 1), 0), v_n, v_c1, v_n2, v_arch, v_st);
+  r_ok := r_ok || (v_st = 'ok' and v_n = v_n3 and v_n2 = 0 and v_arch = 0);
+  r_lb := r_lb || format('W02 sweep as a visitor over %s listed companies: %s show something (open startups with some text %s, of %s open), %s with a wrong key, %s architecture blocks (%s)',
+    coalesce(array_length(v_ids, 1), 0), v_n, v_n3, v_c1, v_n2, v_arch, v_st);
 
   -- W03 the distribution of 20 Oct 2026
   r_ok := r_ok || (v_c1 = 4 and v_c2 = 21 and v_c3 = 6 and v_c4 = 7 and v_c5 = 0);

@@ -424,6 +424,21 @@ export function OrganizationPublicPage() {
 
         if (orgData) {
           const o = orgData as Organization;
+          // A copy merged into another company (duplicate_of, set by M3): its old address
+          // opens the company it was merged into. Read apart, so a missing column grant
+          // never breaks the page.
+          const { data: dup } = await supabase.from('organizations').select('duplicate_of').eq('id', o.id).maybeSingle();
+          const keptId = (dup as { duplicate_of?: string | null } | null)?.duplicate_of;
+          if (keptId) {
+            const { data: kept } = await supabase.from('organizations').select('slug').eq('id', keptId).maybeSingle();
+            if (!alive) return;
+            const keptSlug = (kept as { slug?: string | null } | null)?.slug;
+            if (keptSlug && keptSlug !== slug) {
+              navigate(`/organizations/${keptSlug}`, { replace: true });
+              return;
+            }
+          }
+          if (!alive) return;
           found = true;
           setOrg(o);
 

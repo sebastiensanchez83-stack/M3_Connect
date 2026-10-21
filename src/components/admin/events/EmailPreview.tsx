@@ -6,7 +6,7 @@ import type { IntroTemplate } from './editorModel';
 
 /**
  * What a registrant receives, drawn in the look of the SMC e-mail layout v1 (navy band,
- * gold rule, white card, gold button). The wording mirrors the templates of the
+ * sky-blue rule, white card, sky-blue button). The wording mirrors the templates of the
  * `registration` and `registration-cron` functions; the staff member's own paragraph sits
  * right under the greeting. Approximate on purpose: the real e-mail adds the person's
  * details, their links and the QR code image. "Send a test to me" shows the real thing.
@@ -24,7 +24,7 @@ export interface PreviewEvent {
   ticketLabel: string | null;
 }
 
-const EM = { navy: '#0b2653', gold: '#d7a647', teal: '#1f7a8c', ink: '#1f2937', muted: '#5b6475', line: '#e3e7ee', page: '#eef2f8', soft: '#f6f7f9' };
+const EM = { navy: '#0b2653', accent: '#7cc4f0', teal: '#1f7a8c', ink: '#1f2937', muted: '#5b6475', line: '#e3e7ee', page: '#eef2f8', soft: '#f6f7f9' };
 
 interface Shape {
   subject: string;
@@ -129,7 +129,7 @@ export function EmailPreview({ template, event, intro, className }: { template: 
         <span className="font-semibold text-navy [overflow-wrap:anywhere]">{s.subject}</span>
       </figcaption>
       <div style={{ background: EM.page, fontFamily: 'Arial, Helvetica, sans-serif' }} className="rounded-card p-3 sm:p-4">
-        <div style={{ background: EM.navy, borderBottom: `4px solid ${EM.gold}` }} className="rounded-t-[10px] px-5 py-4">
+        <div style={{ background: EM.navy, borderBottom: `4px solid ${EM.accent}` }} className="rounded-t-[10px] px-5 py-4">
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Smart Marina Connect</span>
           <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} className="ml-2">by M3 Monaco</span>
         </div>
@@ -171,13 +171,13 @@ export function EmailPreview({ template, event, intro, className }: { template: 
             </div>
           )}
           {s.note && (
-            <div style={{ borderLeft: `3px solid ${EM.gold}`, background: EM.soft, padding: '10px 12px', margin: '0 0 16px', borderRadius: 4 }}>
+            <div style={{ borderLeft: `3px solid ${EM.accent}`, background: EM.soft, padding: '10px 12px', margin: '0 0 16px', borderRadius: 4 }}>
               <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: EM.navy }}>{s.note.label}</p>
               <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: EM.ink }} className="whitespace-pre-line [overflow-wrap:anywhere]">{s.note.text}</p>
             </div>
           )}
           {(s.after || []).map((x, i) => p(x, `a${i}`))}
-          <span style={{ display: 'inline-block', background: EM.gold, color: EM.navy, fontWeight: 700, fontSize: 14, borderRadius: 999, padding: '10px 18px' }}>
+          <span style={{ display: 'inline-block', background: EM.accent, color: EM.navy, fontWeight: 700, fontSize: 14, borderRadius: 999, padding: '10px 18px' }}>
             {s.cta}
           </span>
         </div>

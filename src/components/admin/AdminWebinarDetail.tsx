@@ -185,7 +185,7 @@ export function AdminWebinarDetail() {
 
     sendNotification({
       type: 'webinar_moderator_approved',
-      email: 'contact@smartmarinaconnect.com',
+      email: 'events@m3monaco.com',
       data: { title: request.title, moderator_notes: moderatorNotes.trim() },
     });
 

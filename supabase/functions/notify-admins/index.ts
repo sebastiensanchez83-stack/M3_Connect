@@ -35,7 +35,7 @@ const ALLOWED_ORIGINS = [
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const CONTACT_INBOX = "contact@smartmarinaconnect.com";
+const CONTACT_INBOX = "events@m3monaco.com";
 
 const SIGNUP_WINDOW_MS = 30 * 60 * 1000;
 const MEMBER_HOURLY_CAP = 10;

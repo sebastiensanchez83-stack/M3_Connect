@@ -359,8 +359,8 @@ function remindersOf(ctx: Ctx): Array<{ key: string; ms: number }> {
 // checked by `node scripts/email-previews.mjs --check`.
 // ---- SMC e-mail layout v1 (keep identical in every function) ----
 // Shared look of every Smart Marina Connect service e-mail: the refonte design, the same
-// frame as the Mailchimp welcome e-mail (navy band, 4 px gold rule, white 600 px card on a
-// pale page, gold pill button, teal eyebrow, light footer). Pure functions: no import, no
+// frame as the Mailchimp welcome e-mail (navy band, 4 px sky-blue rule, white 600 px card on a
+// pale page, sky-blue pill button, teal eyebrow, light footer). Pure functions: no import, no
 // Deno API, no network. Reference copy: docs/email-layout.ts. Rules: docs/email-design.md.
 //
 // CONTRACT. Every string passed as HTML (title, eyebrow, greeting, bodyHtml, labels, urls,
@@ -374,7 +374,7 @@ const EM = {
   logo: "https://smartmarinaconnect.com/logo-white.png",
   contact: "events@m3monaco.com",
   navy: "#0b2653",
-  gold: "#d7a647",
+  accent: "#7cc4f0", // sky blue (site accent since 21 Oct 2026); navy text on it
   teal: "#1f7a8c",
   ink: "#1f2937",
   muted: "#5b6475",
@@ -404,9 +404,9 @@ function emP(html: string, gap = 16): string {
   return `<p style="margin:0 0 ${gap}px;font-family:${EM.font};font-size:16px;line-height:25px;color:${EM.ink};">${html}</p>`;
 }
 
-/** The gold pill button. `label` and `url` are HTML-safe. */
+/** The sky-blue pill button. `label` and `url` are HTML-safe. */
 function emButton(label: string, url: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="${EM.gold}" style="border-radius:999px;background-color:${EM.gold};"><a href="${url}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${EM.font};font-size:16px;line-height:20px;font-weight:bold;color:${EM.navy};text-decoration:none;border-radius:999px;">${label} &rarr;</a></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="${EM.accent}" style="border-radius:999px;background-color:${EM.accent};"><a href="${url}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${EM.font};font-size:16px;line-height:20px;font-weight:bold;color:${EM.navy};text-decoration:none;border-radius:999px;">${label} &rarr;</a></td></tr></table>`;
 }
 
 /** A bold underlined text link (secondary action). */
@@ -427,12 +427,12 @@ function emInfoTable(rows: Array<[string, string]>): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 18px;">${tr}</table>`;
 }
 
-/** A highlighted quote or reason: pale box, gold left rule, optional small-caps label. */
+/** A highlighted quote or reason: pale box, sky-blue left rule, optional small-caps label. */
 function emNote(html: string, label?: string): string {
   const head = label
     ? `<span style="display:block;margin:0 0 4px;font-size:12px;line-height:16px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:${EM.teal};">${label}</span>`
     : "";
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 18px;"><tr><td bgcolor="${EM.soft}" style="background-color:${EM.soft};border-left:4px solid ${EM.gold};padding:14px 18px;font-family:${EM.font};font-size:15px;line-height:23px;color:${EM.ink};">${head}${html}</td></tr></table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 18px;"><tr><td bgcolor="${EM.soft}" style="background-color:${EM.soft};border-left:4px solid ${EM.accent};padding:14px 18px;font-family:${EM.font};font-size:15px;line-height:23px;color:${EM.ink};">${head}${html}</td></tr></table>`;
 }
 
 /** A code to read or type (verification code, organization code). `code` is HTML-safe. */
@@ -528,7 +528,7 @@ interface EmailLayoutInput {
   greeting?: string;
   /** Body, built with emP / emTextToHtml / emInfoTable / emNote / emCode. */
   bodyHtml: string;
-  /** Gold pill button; showUrl prints the link under it for clients that block buttons. */
+  /** Sky-blue pill button; showUrl prints the link under it for clients that block buttons. */
   cta?: { label: string; url: string; showUrl?: boolean };
   /** Text link under the button. */
   secondary?: { label: string; url: string };
@@ -609,7 +609,7 @@ ${preheader}
 <td valign="middle" style="font-family:${f};font-size:18px;line-height:24px;font-weight:bold;color:${EM.white};letter-spacing:0.2px;">${EM.brand}</td>
 </tr></table>
 </td></tr>
-<tr><td bgcolor="${EM.gold}" style="height:4px;line-height:4px;font-size:0;background-color:${EM.gold};">&nbsp;</td></tr>
+<tr><td bgcolor="${EM.accent}" style="height:4px;line-height:4px;font-size:0;background-color:${EM.accent};">&nbsp;</td></tr>
 <tr><td class="px" style="padding:34px 40px 6px;">
 ${eyebrow}${title}${greeting}
 ${o.bodyHtml}

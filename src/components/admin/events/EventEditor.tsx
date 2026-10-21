@@ -711,6 +711,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             publicHref={canView && eventId ? eventPath({ id: eventId, slug: pageSlug }) : null}
             onsiteLive={onsiteLive}
             canInvite={canInvite}
+            available={tabs}
           />
         )}
         {pageMode && tab === 'emails' && <CoreMailsSent facts={coreFacts} />}

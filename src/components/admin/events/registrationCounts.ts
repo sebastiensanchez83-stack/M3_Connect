@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
  * 21 Oct 2026: the old counts read event_registrations only, so WYS, SM26 and the events made
  * with the new editor showed 0):
  *
- *   event_registrations   the old webinar / on-site registration (payment_status pending_approval = waiting)
+ *   event_registrations   the old webinar / on-site registration (payment_status pending_approval = waiting,
+ *                         rejected = refused, neither is counted as registered)
  *   gl_guest              guest-list events: guest_list_v1 (WYS) and core_v2 (the new editor),
  *                         joined through gl_event.legacy_event_id
  *   sm_registration       Smart 26, joined through sm_event.legacy_event_id
@@ -91,11 +92,14 @@ export async function loadEventRegistrationCounts(events: EventCountInput[]): Pr
     const glFor = gl.filter(g => g.legacy_event_id === e.id);
     const smFor = sm.filter(s => s.legacy_event_id === e.id);
 
-    const [erAll, erWaiting] = await Promise.all([
+    // Old system: registered = every registration except the ones waiting for M3 and the refused ones
+    // (the same figure as the event's own page).
+    const [erAll, erWaiting, erRefused] = await Promise.all([
       head(supabase.from('event_registrations').select('id', { count: 'exact', head: true }).eq('event_id', e.id)),
       head(supabase.from('event_registrations').select('id', { count: 'exact', head: true }).eq('event_id', e.id).eq('payment_status', 'pending_approval')),
+      head(supabase.from('event_registrations').select('id', { count: 'exact', head: true }).eq('event_id', e.id).eq('payment_status', 'rejected')),
     ]);
-    let registered = linksFailed ? null : erAll === null || erWaiting === null ? null : erAll - erWaiting;
+    let registered = linksFailed ? null : erAll === null || erWaiting === null || erRefused === null ? null : erAll - erWaiting - erRefused;
     let waiting = linksFailed ? null : erWaiting;
     let invited: number | null = linksFailed ? null : 0;
     const systems: RegSystem[] = erAll ? ['event_registrations'] : [];

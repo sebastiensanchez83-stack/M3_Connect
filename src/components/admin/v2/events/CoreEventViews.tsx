@@ -62,6 +62,7 @@ export function CoreEventView({
   publicHref,
   onsiteLive,
   canInvite,
+  available,
 }: {
   view: CoreView;
   loaded: LoadedEvent;
@@ -74,6 +75,8 @@ export function CoreEventView({
   onsiteLive: boolean;
   /** "Invite people" exists in People registered for this event. */
   canInvite: boolean;
+  /** The parts this page shows now: a button that leads to a part not shown is not drawn (no dead button). */
+  available: (EditorTab | CoreView)[];
 }) {
   const { t } = useTranslation();
   const b = saved.basics;
@@ -86,6 +89,9 @@ export function CoreEventView({
   const when = startIso ? formatInZone(startIso, b.timezone, !b.isFullDay) : t('adminEventsV2.noDate', 'Date to be set');
   const started = !!startIso && Date.parse(startIso) <= Date.now();
   const registerPath = `/register/${gl.slug}`;
+  const can = (v: EditorTab | CoreView) => available.includes(v);
+  // An on-site event while its on-site editor is closed: Settings shows Basics only.
+  const laterNote = (text: string) => <TabNote>{text}</TabNote>;
   const readError = facts && !facts.guests && (
     <TabNote tone="warning">{t('adminEventsV2.core.readError', 'The registrations could not be read for these figures. Reload the page to try again.')}</TabNote>
   );
@@ -109,8 +115,8 @@ export function CoreEventView({
           { label: t('adminEventsV2.fig.waiting', 'Waiting for a decision'), value: val(fig?.waiting), onClick: () => onGo('registrations'), tone: fig?.waiting ? 'attention' : 'default' },
           kind === 'onsite'
             ? { label: t('adminEventsV2.fig.invited', 'Invited, no answer yet'), value: val(fig?.invited), onClick: () => onGo('invitations') }
-            : { label: t('adminEventsV2.fig.attended', 'Marked as attended'), value: val(fig?.checkedIn), onClick: () => onGo('checkin') },
-          { label: t('adminEventsV2.fig.places', 'Places'), value: capacity ?? t('adminEventsV2.noLimit', 'No limit'), onClick: () => onGo('registration') },
+            : { label: t('adminEventsV2.fig.attended', 'Marked as attended'), value: val(fig?.checkedInOfIn), onClick: () => onGo('checkin') },
+          { label: t('adminEventsV2.fig.places', 'Places'), value: capacity ?? t('adminEventsV2.noLimit', 'No limit'), onClick: can('registration') ? () => onGo('registration') : undefined },
         ]} />
         <AdminPanel title={t('adminEventsV2.atAGlance', 'At a glance')}>
           <Facts items={[
@@ -125,12 +131,15 @@ export function CoreEventView({
         <GoPanel title={t('adminEventsV2.whatToDo', 'What you can do')} description={t('adminEventsV2.core.whatToDoDesc', 'Everything about this event is handled on this page. Each button says where it leads.')}>
           {regsRow}
           <GoRow onClick={() => onGo('basics')} icon={PenLine} title={t('adminEventsV2.core.basics', 'Title, date, place and description')} meta={t('adminEventsV2.core.basicsMeta', 'Also: publish the event or keep it as a draft')} cue={t('adminEventsV2.core.change', 'Change them')} />
-          <GoRow onClick={() => onGo('registration')} icon={Settings2} title={t('adminEventsV2.core.howTitle', 'How people register')} meta={t('adminEventsV2.core.howMeta', 'Open or by request, places, dates, the fields people fill in')} cue={t('adminEventsV2.core.change', 'Change them')} />
+          {can('registration') && (
+            <GoRow onClick={() => onGo('registration')} icon={Settings2} title={t('adminEventsV2.core.howTitle', 'How people register')} meta={t('adminEventsV2.core.howMeta', 'Open or by request, places, dates, the fields people fill in')} cue={t('adminEventsV2.core.change', 'Change them')} />
+          )}
           <GoRow onClick={() => onGo('emails')} icon={Mail} title={t('adminEventsV2.core.mails', 'E-mails people receive')} meta={kind === 'webinar' ? t('adminEventsV2.core.mailsMetaWebinar', 'Reminders, the online link, the replay') : t('adminEventsV2.core.mailsMetaOnsite', 'Confirmation, reminders, the M3 team alert')} cue={t('adminEventsV2.core.see', 'See them')} />
           {publicHref && b.visibility === 'published' && (
             <GoRow href={publicHref} icon={ExternalLink} title={t('adminEventsV2.seePublic', 'See it as visitors do')} meta={publicHref} cue={t('adminEventsV2.viewPublic', 'View the public page')} />
           )}
         </GoPanel>
+        {!can('registration') && laterNote(t('adminEventsV2.core.regLater', 'How people register, the places and the participation types are set in the on-site editor, which opens when on-site registration is live on the site.'))}
       </TabBody>
     );
   }
@@ -163,9 +172,9 @@ export function CoreEventView({
       <TabBody>
         {readError}
         <Figures items={[
-          { label: t('adminEventsV2.fig.expected', 'Guests expected'), value: val(fig?.byStatus.confirmed) },
-          { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: val(fig?.checkedIn) },
-          { label: t('adminEventsV2.fig.notYet', 'Not arrived yet'), value: fig ? Math.max(0, (fig.byStatus.confirmed ?? 0) - fig.checkedInOfIn) : null },
+          { label: t('adminEventsV2.fig.expected', 'Guests expected'), value: val(fig?.expected), hint: t('adminEventsV2.fig.expectedHint', 'Confirmed people') },
+          { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: val(fig?.arrived), hint: fig?.arrivedOther ? t('adminEventsV2.fig.arrivedOther', 'Also {{n}} let in without a confirmed registration', { n: fig.arrivedOther }) : undefined },
+          { label: t('adminEventsV2.fig.notYet', 'Not arrived yet'), value: fig ? Math.max(0, fig.expected - fig.arrived) : null },
         ]} />
         {!onsiteLive && (
           <TabNote>{t('adminEventsV2.core.doorNotLive', 'On-site registration is not live on the site yet: the door lists people once M3 confirms them.')}</TabNote>
@@ -236,9 +245,12 @@ export function CoreEventView({
           empty={t('adminEventsV2.core.noPay', 'Nobody has anything to pay yet.')}
         />
         <GoPanel title={t('adminEventsV2.core.payWhere', 'Where payments are handled')}>
-          <GoRow onClick={() => onGo('tickets')} icon={Tag} title={t('adminEventsV2.core.pricesTitle', 'Participation types and prices')} meta={t('adminEventsV2.core.pricesMeta', 'In Settings')} cue={t('adminEventsV2.core.change', 'Change them')} />
+          {can('tickets') && (
+            <GoRow onClick={() => onGo('tickets')} icon={Tag} title={t('adminEventsV2.core.pricesTitle', 'Participation types and prices')} meta={t('adminEventsV2.core.pricesMeta', 'In Settings')} cue={t('adminEventsV2.core.change', 'Change them')} />
+          )}
           <GoRow onClick={() => onGo('registrations')} icon={ClipboardList} title={t('adminEventsV2.core.payPeople', 'Who has paid')} meta={t('adminEventsV2.core.payPeopleMeta', 'Filter the list of people registered by payment')} cue={t('adminEventsV2.core.openRegs', 'Open the registrations')} />
         </GoPanel>
+        {!can('tickets') && laterNote(t('adminEventsV2.core.ticketsLater', 'Participation types and prices are changed in the on-site editor, which opens when on-site registration is live on the site.'))}
       </TabBody>
     );
   }

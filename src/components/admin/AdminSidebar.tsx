@@ -71,7 +71,9 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
     }
     const m = /^\/admin\/guest-list\/([^/]+)/.exec(path);
     if (m) {
-      const slug = decodeURIComponent(m[1]);
+      // A mistyped address (a broken %-code) must not blank the whole admin.
+      let slug: string;
+      try { slug = decodeURIComponent(m[1]); } catch { slug = m[1]; }
       return {
         ...base, key: 'fallback:gl', system: 'guest_list', title: slug, gl: { id: '', slug, engine: 'guest_list_v1' }, fair: null,
         href: `/admin/events/guest-list/${encodeURIComponent(slug)}`,

@@ -114,13 +114,14 @@ export function GuestListEventPage() {
   const s = gl.settings || {};
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const title = cat?.title || gl.title || gl.slug;
-  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system'> = {
+  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system' | 'invitationOnly'> = {
     kind: cat ? (cat.event_type === 'webinar' ? 'webinar' : 'onsite') : gl.kind === 'webinar' ? 'webinar' : 'onsite',
     published: cat ? cat.published !== false : null,
     test: gl.hidden === true,
     start: cat?.date_time ?? str(s.starts_at),
     end: cat?.end_date_time ?? str(s.ends_at),
     system: 'guest_list',
+    invitationOnly: !!cat?.invitation_only || gl.registration_mode === 'invitation',
   };
   const when = shortDate(summary) ?? str(s.date_label) ?? t('adminEventsV2.noDate', 'Date to be set');
   const place = [str(s.venue), str(s.city)].filter(Boolean).join(', ') || cat?.location || null;
@@ -220,9 +221,9 @@ export function GuestListEventPage() {
         <TabBody>
           {failedNote}
           <Figures items={[
-            { label: t('adminEventsV2.fig.expected', 'Guests expected'), value: g && v(g.registered) },
-            { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: g && v(g.checkedIn) },
-            { label: t('adminEventsV2.fig.notYet', 'Not arrived yet'), value: g && v(Math.max(0, g.registered - g.checkedInOfIn)) },
+            { label: t('adminEventsV2.fig.expected', 'Guests expected'), value: g && v(g.expected), hint: t('adminEventsV2.fig.expectedHint', 'Confirmed people') },
+            { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: g && v(g.arrived), hint: g?.arrivedOther ? t('adminEventsV2.fig.arrivedOther', 'Also {{n}} let in without a confirmed registration', { n: g.arrivedOther }) : undefined },
+            { label: t('adminEventsV2.fig.notYet', 'Not arrived yet'), value: g && v(Math.max(0, g.expected - g.arrived)) },
           ]} />
           <GoPanel title={t('adminEventsV2.gl.doorHere', 'The door works on any phone')}>{doorRow}</GoPanel>
         </TabBody>

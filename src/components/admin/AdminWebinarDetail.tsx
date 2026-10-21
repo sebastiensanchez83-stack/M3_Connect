@@ -21,7 +21,7 @@ import {
 import { WebinarStatus } from './AdminWebinarRequests';
 
 /**
- * Events > Webinar proposals > one proposal. Admins accept it (a draft webinar is created in
+ * Events > Webinar proposals > one proposal. Admins accept it (a webinar is created in
  * the old editor, date to be set) or refuse it with a reason sent to the member; moderators
  * pre-approve it. Restyled to the admin look (wave 2, 21 Oct 2026): the data, the e-mails and
  * the actions are unchanged.
@@ -142,7 +142,7 @@ export function AdminWebinarDetail() {
     if (eventErr) {
       toast({ title: 'Accepted but event creation failed', description: eventErr.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Webinar accepted & event draft created', description: 'Find it in All events to set its date and publish it.' });
+      toast({ title: 'Webinar accepted, event created', description: 'It is already published, with no date yet: open it in All events and set its date.' });
     }
 
     sendNotification({
@@ -266,7 +266,7 @@ export function AdminWebinarDetail() {
           icon={ShieldCheck}
           description={canAct
             ? (isAdmin
-              ? 'Accept: a draft webinar is created (date to be set) and the member is told. Refuse: the reason below is sent to the member.'
+              ? 'Accept: the webinar is created at once, already published but with no date: set its date right after. The member is told. Refuse: the reason below is sent to the member.'
               : 'Pre-approve: the M3 team is told and makes the final decision.')
             : 'This proposal has been decided.'}
         >

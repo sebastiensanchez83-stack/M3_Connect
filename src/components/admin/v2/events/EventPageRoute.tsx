@@ -106,6 +106,14 @@ function ExistingEventRoute({ id }: { id: string }) {
  */
 export function LegacyEditorRoute() {
   const { id = '' } = useParams<{ id: string }>();
+  const { search } = useLocation();
+  // A NEW event is never made in the old editor from here: /admin/events/new picks the editor
+  // by the switches (EventEditorRoute).
+  if (id === 'new') return <Navigate to={`/admin/events/new${search}`} replace />;
+  return <LegacyEditorFor key={id} id={id} />;
+}
+
+function LegacyEditorFor({ id }: { id: string }) {
   const [state, setState] = useState<{ id: string; core: boolean | null } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {

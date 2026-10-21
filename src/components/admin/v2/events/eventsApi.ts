@@ -435,6 +435,11 @@ export function guestFigures(facts: GuestFact[]) {
     declined: by.declined ?? 0,
     checkedIn: facts.filter(f => !!f.checked_in_at).length,
     checkedInOfIn: inList.filter(f => !!f.checked_in_at).length,
+    // The door: it lets in CONFIRMED people only ("approved" = payment not received yet). One
+    // "expected" set for every door figure, so the three tiles always add up.
+    expected: by.confirmed ?? 0,
+    arrived: facts.filter(f => f.status === 'confirmed' && !!f.checked_in_at).length,
+    arrivedOther: facts.filter(f => f.status !== 'confirmed' && !!f.checked_in_at).length,
     byPayment: tally(facts.filter(f => f.payment_status && f.payment_status !== 'none').map(f => f.payment_status)),
     byTicket: tally(inList.map(f => f.ticket_key ?? '')),
     byCountry: tally(facts.map(f => (f.country ?? '').trim() || 'Not given')),

@@ -134,7 +134,7 @@ export function AdminWebinarRequests() {
         title={t('adminWebinars.title', 'Webinar proposals')}
         count={requests.length}
         description={isAdmin
-          ? t('adminWebinars.desc', 'Webinars that members propose. Open one to accept it (a draft event is created) or to refuse it with a reason.')
+          ? t('adminWebinars.desc', 'Webinars that members propose. Open one to accept it (the webinar is created, with no date yet) or to refuse it with a reason.')
           : t('adminWebinars.descMod', 'Proposals in your sectors, to pre-approve, and your own proposals.')}
         meta={isMod ? <AdminStatusPill tone="info">{t('adminWebinars.bySectors', 'Filtered by your sectors')}</AdminStatusPill> : undefined}
         actions={isAdmin ? (

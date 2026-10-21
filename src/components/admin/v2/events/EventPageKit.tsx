@@ -97,7 +97,7 @@ export function EventTabs<T extends string>({
 }
 
 /** The status pills of an event: type, state (draft / published / past / test), system. */
-export function EventBadges({ e }: { e: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system'> }) {
+export function EventBadges({ e }: { e: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system'> & { invitationOnly?: boolean } }) {
   const phase = eventPhase(e);
   return (
     <>
@@ -107,6 +107,7 @@ export function EventBadges({ e }: { e: Pick<EventSummary, 'kind' | 'published' 
           : phase === 'past' ? <AdminStatusPill>Past</AdminStatusPill>
             : phase === 'current' ? <AdminStatusPill tone="info">Happening now</AdminStatusPill>
               : e.published ? <AdminStatusPill tone="success">Published</AdminStatusPill> : null}
+      {e.invitationOnly && <AdminStatusPill tone="info">Invitation only</AdminStatusPill>}
       <AdminStatusPill tone="info" title={SYSTEM_HINT[e.system]}>{SYSTEM_LABEL[e.system]}</AdminStatusPill>
     </>
   );

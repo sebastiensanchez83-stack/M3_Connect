@@ -57,19 +57,28 @@ export function FairEventPage() {
     const checkins = facts.checkins ?? [];
     const peopleIn = new Set(checkins.map(c => c.attendee_id ?? `r:${c.registration_id}`)).size;
     const pays = facts.payments ?? [];
-    const sumOf = (status: string) => pays.filter(p => p.status === status).reduce((s, p) => s + (p.amount_cents ?? 0), 0);
+    // Money by status. Many payments are recorded without an amount (an invoice sent by hand, a
+    // payment ticked as received): adding only the known amounts would show a much smaller sum, so
+    // the tile then shows the number of registrations and says on how many the amount is known.
+    const payOf = (status: string) => {
+      const rows = pays.filter(p => p.status === status);
+      const known = rows.filter(p => typeof p.amount_cents === 'number');
+      return { n: rows.length, known: known.length, cents: known.reduce((s, p) => s + (p.amount_cents as number), 0) };
+    };
+    // Attending = people of a CONFIRMED registration who said they come (not the ones still to review or cancelled).
+    const confirmedIds = facts.regs ? new Set(facts.regs.filter(r => r.status === 'confirmed').map(r => r.id)) : null;
     return {
       byStatus,
       confirmed: byStatus.confirmed ?? 0,
       waiting: FAIR_WAITING.reduce((n, k) => n + (byStatus[k] ?? 0), 0),
       total: regs.length,
-      attending: (facts.attendees ?? []).filter(a => a.attending !== false).length,
+      attending: confirmedIds && facts.attendees ? facts.attendees.filter(a => a.attending !== false && confirmedIds.has(a.registration_id)).length : null,
       peopleIn,
       scans: checkins.length,
       byWindow: tally(checkins.map(c => c.window_key ?? '')),
       byPayment: tally(pays.map(p => p.status)),
-      paidSum: sumOf('paid'),
-      invoicedSum: sumOf('invoiced'),
+      paid: payOf('paid'),
+      invoiced: payOf('invoiced'),
       currency: pays.find(p => p.currency)?.currency ?? 'EUR',
       byMail: tally((facts.mails ?? []).map(m => m.kind)),
       lastMail: facts.mails?.[0]?.sent_at ?? null,
@@ -99,21 +108,37 @@ export function FairEventPage() {
   const hasConsole = fairHasConsole(ev.slug);
   const at = (p: string) => (hasConsole ? `${FAIR_CONSOLE_BASE}${p}` : null);
   const title = cat?.title || ev.name || ev.slug;
-  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system'> = {
+  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system' | 'invitationOnly'> = {
     kind: 'onsite',
     published: cat ? cat.published !== false : ev.status ? ev.status !== 'draft' : null,
     test: false,
     start: cat?.date_time ?? (ev.start_date ? `${ev.start_date}T08:00:00Z` : null),
     end: cat?.end_date_time ?? (ev.end_date ? `${ev.end_date}T20:00:00Z` : null),
     system: 'fair',
+    invitationOnly: !!cat?.invitation_only,
   };
   const when = shortDate(summary) ?? t('adminEventsV2.noDate', 'Date to be set');
   const place = cat?.location || ev.venue || null;
   const publicHref = cat ? eventPath({ id: cat.id, slug: cat.slug ?? null }) : null;
   const editPublic = cat ? `/admin/events/${cat.id}/edit` : null;
   const settings = ev.settings || {};
-  const n = (v: number) => v;
-  const dash = (list: unknown[] | null, v: number) => (list === null ? null : n(v));
+  const dash = (list: unknown[] | null, v: number) => (list === null ? null : v);
+  /** A money tile: the sum when every payment of this status has its amount; otherwise the number of registrations, and how much is known. */
+  const moneyTile = (p: { n: number; known: number; cents: number }): { value: number | string | null; hint: string } => {
+    if (facts.payments === null) return { value: null, hint: '' };
+    if (p.known === p.n) {
+      return { value: money(p.cents, fig.currency), hint: p.n === 1 ? t('adminEventsV2.fig.oneReg', '1 registration') : t('adminEventsV2.fig.nRegs', '{{n}} registrations', { n: p.n }) };
+    }
+    const unit = p.n === 1 ? t('adminEventsV2.fig.regWord', 'registration') : t('adminEventsV2.fig.regsWord', 'registrations');
+    return {
+      value: p.n,
+      hint: p.known === 0
+        ? t('adminEventsV2.fig.noAmount', '{{unit}}, no amount recorded', { unit })
+        : t('adminEventsV2.fig.amountKnown', '{{unit}}; {{sum}} recorded on {{known}} of them', { unit, sum: money(p.cents, fig.currency), known: p.known }),
+    };
+  };
+  const paidTile = moneyTile(fig.paid);
+  const invoicedTile = moneyTile(fig.invoiced);
 
   const noConsole = !hasConsole && (
     <TabNote>
@@ -156,7 +181,7 @@ export function FairEventPage() {
           <Figures items={[
             { label: t('adminEventsV2.fig.confirmed', 'Confirmed registrations'), value: dash(facts.regs, fig.confirmed), onClick: () => setTab('registrations') },
             { label: t('adminEventsV2.fig.waiting', 'Waiting for a decision'), value: dash(facts.regs, fig.waiting), onClick: () => setTab('registrations'), tone: fig.waiting ? 'attention' : 'default' },
-            { label: t('adminEventsV2.fig.attending', 'People attending'), value: dash(facts.attendees, fig.attending), onClick: () => setTab('checkin') },
+            { label: t('adminEventsV2.fig.attending', 'People attending'), value: fig.attending, hint: t('adminEventsV2.fig.attendingHint', 'Of confirmed registrations'), onClick: () => setTab('checkin') },
             { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: dash(facts.checkins, fig.peopleIn), onClick: () => setTab('checkin') },
           ]} />
           <AdminPanel title={t('adminEventsV2.atAGlance', 'At a glance')}>
@@ -199,7 +224,7 @@ export function FairEventPage() {
         <TabBody>
           {failedNote}
           <Figures items={[
-            { label: t('adminEventsV2.fig.attending', 'People attending'), value: dash(facts.attendees, fig.attending) },
+            { label: t('adminEventsV2.fig.attending', 'People attending'), value: fig.attending, hint: t('adminEventsV2.fig.attendingHint', 'Of confirmed registrations') },
             { label: t('adminEventsV2.fig.checkedIn', 'People checked in at the door'), value: dash(facts.checkins, fig.peopleIn) },
             { label: t('adminEventsV2.fig.scans', 'Badge scans'), value: dash(facts.checkins, fig.scans) },
             { label: t('adminEventsV2.fig.windows', 'Check-in times'), value: dash(facts.windows, (facts.windows ?? []).length) },
@@ -255,8 +280,8 @@ export function FairEventPage() {
         <TabBody>
           {failedNote}
           <Figures items={[
-            { label: t('adminEventsV2.fig.paid', 'Paid'), value: facts.payments === null ? null : money(fig.paidSum, fig.currency), hint: t('adminEventsV2.fig.nRegs', '{{n}} registrations', { n: fig.byPayment.paid ?? 0 }) },
-            { label: t('adminEventsV2.fig.invoiced', 'Invoiced, not paid yet'), value: facts.payments === null ? null : money(fig.invoicedSum, fig.currency), hint: t('adminEventsV2.fig.nRegs', '{{n}} registrations', { n: fig.byPayment.invoiced ?? 0 }), tone: fig.byPayment.invoiced ? 'attention' : 'default' },
+            { label: t('adminEventsV2.fig.paid', 'Paid'), value: paidTile.value, hint: paidTile.hint || undefined },
+            { label: t('adminEventsV2.fig.invoiced', 'Invoiced, not paid yet'), value: invoicedTile.value, hint: invoicedTile.hint || undefined, tone: fig.invoiced.n ? 'attention' : 'default' },
             { label: t('adminEventsV2.fig.free', 'Free of charge'), value: dash(facts.payments, fig.byPayment.waived ?? 0) },
             { label: t('adminEventsV2.fig.payRows', 'Payment records'), value: dash(facts.payments, (facts.payments ?? []).length) },
           ]} />

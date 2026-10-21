@@ -40,13 +40,14 @@ export interface FairEvent {
   timezone: string | null; status: string | null; legacy_event_id: string | null; settings: Record<string, unknown> | null;
 }
 
-export interface FairReg { status: string; created_at: string; country: string | null; source: string | null }
+export interface FairReg { id: string; status: string; created_at: string; country: string | null; source: string | null }
+export interface FairAttendee { registration_id: string; attending: boolean | null }
 
 export interface FairFacts {
   event: FairEvent;
   catalogue: CatalogueLite | null;
   regs: FairReg[] | null;
-  attendees: { attending: boolean | null }[] | null;
+  attendees: FairAttendee[] | null;
   checkins: { registration_id: string | null; attendee_id: string | null; window_key: string | null }[] | null;
   windows: { key: string; label: string | null; sort: number | null }[] | null;
   payments: { status: string; amount_cents: number | null; currency: string | null }[] | null;
@@ -75,8 +76,8 @@ export async function loadFairFacts(slugOrId: string): Promise<FairFacts | null>
         return (r.data as CatalogueLite | null) ?? null;
       })(), failed)
       : Promise.resolve(null),
-    settle('registrations', readAll((f, t) => supabase.from('sm_registration').select('status, created_at, country, source').eq('event_id', id).order('created_at').range(f, t) as unknown as PromiseLike<Res<FairReg>>), failed),
-    settle('attendees', readAll((f, t) => supabase.from('sm_attendee').select('attending').eq('event_id', id).order('id').range(f, t) as unknown as PromiseLike<Res<{ attending: boolean | null }>>), failed),
+    settle('registrations', readAll((f, t) => supabase.from('sm_registration').select('id, status, created_at, country, source').eq('event_id', id).order('created_at').range(f, t) as unknown as PromiseLike<Res<FairReg>>), failed),
+    settle('attendees', readAll((f, t) => supabase.from('sm_attendee').select('registration_id, attending').eq('event_id', id).order('id').range(f, t) as unknown as PromiseLike<Res<FairAttendee>>), failed),
     settle('check-ins', readAll((f, t) => supabase.from('sm_checkin').select('registration_id, attendee_id, window_key').eq('event_id', id).order('id').range(f, t) as unknown as PromiseLike<Res<{ registration_id: string | null; attendee_id: string | null; window_key: string | null }>>), failed),
     settle('check-in times', readAll((f, t) => supabase.from('sm_attendance_window').select('key, label, sort').eq('event_id', id).order('sort').range(f, t) as unknown as PromiseLike<Res<{ key: string; label: string | null; sort: number | null }>>), failed),
     settle('payments', readAll((f, t) => supabase.from('sm_payment').select('status, amount_cents, currency').eq('event_id', id).order('id').range(f, t) as unknown as PromiseLike<Res<{ status: string; amount_cents: number | null; currency: string | null }>>), failed),

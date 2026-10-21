@@ -59,7 +59,7 @@ export function LegacyEventPage({ id }: { id: string }) {
   }
 
   const editor = `/admin/events/${cat.id}/edit`;
-  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system' | 'allDay'> = {
+  const summary: Pick<EventSummary, 'kind' | 'published' | 'test' | 'start' | 'end' | 'system' | 'allDay' | 'invitationOnly'> = {
     kind: onsite ? 'onsite' : 'webinar',
     published: cat.published !== false,
     test: false,
@@ -67,6 +67,7 @@ export function LegacyEventPage({ id }: { id: string }) {
     end: cat.end_date_time,
     allDay: !!cat.is_full_day,
     system: 'legacy',
+    invitationOnly: !!cat.invitation_only,
   };
   const date = shortDate(summary);
   const time = shortTime(summary);

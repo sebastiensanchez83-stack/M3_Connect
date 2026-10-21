@@ -62,12 +62,16 @@ export function AllEventsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const q = params.get('q') || '';
-  const type = params.get('type') || 'all';
-  const state = params.get('state') || 'all';
+  // Old addresses of the former list keep working: ?type=on_site and ?published=draft|published.
+  const rawType = params.get('type') || 'all';
+  const type = rawType === 'on_site' ? 'onsite' : ['onsite', 'webinar'].includes(rawType) ? rawType : 'all';
+  const rawState = params.get('state') || params.get('published') || 'all';
+  const state = ['published', 'draft'].includes(rawState) ? rawState : 'all';
   const tests = params.get('tests') === '1';
 
   const set = (key: string, value: string) => setParams(prev => {
     const next = new URLSearchParams(prev);
+    if (key === 'state') next.delete('published');
     if (!value || value === 'all') next.delete(key); else next.set(key, value);
     return next;
   }, { replace: true });

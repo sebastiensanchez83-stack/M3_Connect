@@ -3,20 +3,27 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, Radio, MessageSquare, ClipboardList,
-  Award, Home, Settings, Image, Building2, Tag, Ship, ChevronRight, Store, UsersRound,
-  Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck, Scale, Activity, Upload,
-  Newspaper, Mail, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download, Inbox, PenLine, MailCheck,
+  Award, Home, Settings, Image, Building2, Tag, ChevronRight, Store,
+  Plus, CalendarDays,
+  Newspaper, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download, Inbox, PenLine, MailCheck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { registerAdminRefonteStrings } from '@/i18n/refonte-admin';
+import { useEventMenu } from './v2/events/eventMenu';
+import { shortDate, type EventSummary } from './v2/events/eventsApi';
+import {
+  activeConsoleLink, consoleLinks, FAIR_CONSOLE_BASE, FAIR_CONSOLE_SLUG, onConsoleOf, onPageOf,
+} from './v2/events/eventSystems';
 
 registerAdminRefonteStrings();
 
 // The admin menu by TASKS (Victor, 21 Oct 2026), on a marine rail:
 //   Today          Home ("To do today", with the Market tab that replaced Industry Pulse)
 //   Members        Companies, To validate (the one place to validate), conversations between companies
-//   Events         All events, Smart 26 (frozen console), WYS 2026, webinar proposals, invitation campaigns, create
+//   Events         All events, then the current and coming events READ FROM THE DATABASE (each opens
+//                  its event page; a guest list or a fair also lists its console screens under it),
+//                  Create an event, webinar proposals, invitation campaigns (wave 2, 21 Oct 2026)
 //   Site content   Articles, Banners and announcements, Sponsors and partners
 //   Marketplace    Marina projects, RFPs, Consultations, Partner leads
 //   Settings       Switches, Rights per company type, Sectors, Press, Accounts and export, Archives
@@ -43,45 +50,47 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
     return path.startsWith(toPath) && toPath !== '/admin';
   };
 
-  // ---- Smart 26 sub-tabs (real routes; the SM26 console is frozen) ----
-  const sm26Children: NavItem[] = [
-    { to: '/admin/sm26/health', label: 'Overview', icon: <Activity className={ICON} /> },
-    { to: '/admin/sm26', label: 'Registrations', icon: <ClipboardList className={ICON} />, exact: true },
-    { to: '/admin/sm26/checkin', label: 'Check-in', icon: <QrCode className={ICON} /> },
-    { to: '/admin/sm26/agenda', label: 'Programme', icon: <CalendarDays className={ICON} /> },
-    { to: '/admin/sm26/evaluation', label: 'Evaluation & Awards', icon: <Scale className={ICON} /> },
-    { to: '/admin/sm26/architecture', label: 'Architecture', icon: <Building2 className={ICON} /> },
-    { to: '/admin/sm26/ecat', label: 'E-catalogue', icon: <BookOpen className={ICON} /> },
-    { to: '/admin/sm26/mediakits', label: 'Media kits', icon: <Megaphone className={ICON} /> },
-    { to: '/admin/sm26/logistics', label: 'Logistics', icon: <Truck className={ICON} /> },
-    { to: '/admin/sm26/networking', label: 'Networking', icon: <UsersRound className={ICON} /> },
-    { to: '/admin/sm26/invitations', label: 'Invitations', icon: <Mail className={ICON} /> },
-    { to: '/admin/sm26/feedback', label: 'Feedback', icon: <MessageSquare className={ICON} /> },
-    { to: '/admin/sm26/import', label: 'Import', icon: <Upload className={ICON} /> },
-  ];
-  // "Registrations" owns /admin/sm26 AND the registration detail (/admin/sm26/:id),
-  // but NOT the named sub-routes: pick the most specific match.
-  const sm26SubPrefixes = sm26Children.filter(c => c.to !== '/admin/sm26').map(c => c.to);
-  const sm26ChildActive = (c: NavItem) => {
-    if (c.to === '/admin/sm26') return path.startsWith('/admin/sm26') && !sm26SubPrefixes.some(p => path.startsWith(p));
-    return path.startsWith(c.to);
-  };
-  const onSm26 = path.startsWith('/admin/sm26');
-  // ---- WYS 2026 (guest-list event): its guest list and its invitations ----
-  const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations');
-  const onWys = path.startsWith('/admin/guest-list/wys26');
-  const wysChildren: (NavItem & { active: boolean })[] = [
-    { to: '/admin/guest-list/wys26', label: 'Guest list', icon: <ClipboardList className={ICON} />, active: onWys && !wysInvitations },
-    { to: '/admin/guest-list/wys26/invitations', label: 'Invitations', icon: <Mail className={ICON} />, active: wysInvitations },
-  ];
+  // ---- Events, read from the database (src/components/admin/v2/events/eventMenu.ts) ----
+  // No event name or slug here: each event brings its console screens from its system
+  // (eventSystems.ts), so SM27 or another fair needs no code change. The event of the screen on
+  // show is always listed, so its console screens stay one press away.
+  const eventMenu = useEventMenu(path, isAdmin);
+  const menuEvents: EventSummary[] = [...(eventMenu.items ?? []), ...(eventMenu.context ? [eventMenu.context] : [])];
+  // While the list loads (or if it cannot be read), a console screen still shows its own links.
+  const fallbackEvent: EventSummary | null = (() => {
+    if (menuEvents.some(e => onConsoleOf(e, path) || onPageOf(e, path))) return null;
+    const base = {
+      kind: 'onsite' as const, start: null, end: null, allDay: false, place: null, published: null, test: false,
+      invitationOnly: false, capacity: null, catalogueId: null, catalogueSlug: null, publicHref: null,
+    };
+    if (path === FAIR_CONSOLE_BASE || path.startsWith(`${FAIR_CONSOLE_BASE}/`)) {
+      return {
+        ...base, key: 'fallback:fair', system: 'fair', title: t('adminNav.fairConsole', 'Fair console'), gl: null,
+        fair: { id: '', slug: FAIR_CONSOLE_SLUG }, href: `/admin/events/fair/${FAIR_CONSOLE_SLUG}`,
+      };
+    }
+    const m = /^\/admin\/guest-list\/([^/]+)/.exec(path);
+    if (m) {
+      // A mistyped address (a broken %-code) must not blank the whole admin.
+      let slug: string;
+      try { slug = decodeURIComponent(m[1]); } catch { slug = m[1]; }
+      return {
+        ...base, key: 'fallback:gl', system: 'guest_list', title: slug, gl: { id: '', slug, engine: 'guest_list_v1' }, fair: null,
+        href: `/admin/events/guest-list/${encodeURIComponent(slug)}`,
+      };
+    }
+    return null;
+  })();
+  const shownEvents = fallbackEvent ? [...menuEvents, fallbackEvent] : menuEvents;
+  const eventHere = shownEvents.find(e => onPageOf(e, path) || onConsoleOf(e, path)) ?? null;
   // Old queues kept reachable (both empty when archived on 8 Oct 2026).
   const archiveItems: NavItem[] = [
     { to: '/admin/sponsorship-requests', label: 'Old sponsorship requests', icon: <Award className={ICON} />, adminOnly: true },
     { to: '/admin/expositions', label: 'Old exposition requests', icon: <Store className={ICON} />, adminOnly: true },
   ];
   const onArchives = archiveItems.some(i => path.startsWith(i.to));
-  // "All events" is the list and every event's own page, not the SM26 / WYS consoles.
-  const onEventList = path === '/admin/events' || (path.startsWith('/admin/events/') && !path.startsWith('/admin/events/new'));
+  // "All events" is the list, and the page of an event that has no entry of its own in the menu.
+  const onEventList = path === '/admin/events' || (path.startsWith('/admin/events/') && !path.startsWith('/admin/events/new') && !eventHere);
 
   // ---- The groups, in Victor's order ----
   interface Group { key: string; label: string; items: NavItem[] }
@@ -119,27 +128,23 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
 
   const visible = (items: NavItem[]) => (isAdmin ? items : items.filter(i => !i.adminOnly));
 
-  // Expansion state: Smart 26, WYS 2026 and Archives. The one holding the current route opens.
-  const [open, setOpen] = useState<Record<string, boolean>>(() => ({ smart26: onSm26, wys26: onWys, archives: onArchives }));
+  // Expansion state: each event's console screens, and Archives. The one holding the current route opens.
+  const hereKey = eventHere ? `ev:${eventHere.key}` : null;
+  const [open, setOpen] = useState<Record<string, boolean>>(() => ({ archives: onArchives, ...(hereKey ? { [hereKey]: true } : {}) }));
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }));
   useEffect(() => {
     setOpen(p => ({
       ...p,
-      ...(onSm26 ? { smart26: true } : {}),
-      ...(onWys ? { wys26: true } : {}),
+      ...(hereKey ? { [hereKey]: true } : {}),
       ...(onArchives ? { archives: true } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [path, hereKey]);
 
   const linkClass = (active: boolean) => cn(
     'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[14px] font-medium leading-5 transition-colors',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-white',
     active ? 'bg-white text-navy' : 'text-white/80 hover:bg-white/10 hover:text-white',
-  );
-  const quietLink = cn(
-    'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[14px] leading-5 text-white/60 transition-colors',
-    'hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white',
   );
   const sectionLabel = 'px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50';
   const nested = 'ml-3 space-y-0.5 border-l border-white/15 pl-2';
@@ -163,6 +168,53 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
       {open[key] && <div className={nested}>{children}</div>}
     </>
   );
+
+  // One event of the menu: its page (title and date), and, for a guest list or a fair, a
+  // caret that shows its console screens (open on its page and on those screens).
+  const renderEvent = (e: EventSummary) => {
+    const links = consoleLinks(e);
+    const k = `ev:${e.key}`;
+    const expanded = links.length > 0 && !!open[k];
+    const onPage = onPageOf(e, path);
+    const current = activeConsoleLink(links, path);
+    const date = shortDate(e);
+    return (
+      <div key={e.key}>
+        <div className="flex items-stretch gap-1">
+          <Link to={e.href} onClick={onNavigate} className={cn(linkClass(onPage), 'items-start')} aria-current={onPage ? 'page' : undefined}>
+            <CalendarDays className={cn(ICON, 'mt-0.5')} />
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 leading-tight">{e.title}</span>
+              <span className={cn('mt-0.5 block text-[12px] font-normal leading-4', onPage ? 'text-navy/70' : 'text-white/55')}>
+                {date ?? t('adminNav.noDate', 'Date to be set')}
+              </span>
+            </span>
+          </Link>
+          {links.length > 0 && (
+            <button
+              type="button"
+              onClick={() => toggle(k)}
+              aria-expanded={expanded}
+              aria-label={expanded
+                ? t('adminNav.hideScreens', 'Hide the screens of {{name}}', { name: e.title })
+                : t('adminNav.showScreens', 'Show the screens of {{name}}', { name: e.title })}
+              className="grid w-9 shrink-0 place-items-center rounded-xl text-white/70 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              {caret(expanded)}
+            </button>
+          )}
+        </div>
+        {expanded && (
+          <div className={cn(nested, 'mt-0.5')}>
+            <div className="px-3 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45">
+              {e.system === 'fair' ? t('adminNav.fairScreens', 'Fair console') : t('adminNav.guestListScreens', 'Guest list screens')}
+            </div>
+            {links.map(l => renderLink({ to: l.to, label: l.label, icon: <l.icon className={ICON} /> }, current === l))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const inboxItem: NavItem = { to: '/admin/inbox', label: t('adminNav.inbox', 'Inbox'), icon: <Inbox className={ICON} /> };
   const reviewItem: NavItem = { to: '/admin/review', label: t('adminNav.toValidate', 'To validate'), icon: <UserCheck className={ICON} /> };
@@ -204,23 +256,13 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
         {isAdmin && (
           <>
             {renderLink({ to: '/admin/events', label: t('adminNav.allEvents', 'All events'), icon: <Calendar className={ICON} /> }, onEventList)}
-            {branch('smart26', 'Smart 26', <Ship className={ICON} />, onSm26, sm26Children.map(c => renderLink(c, sm26ChildActive(c))))}
-            {branch('wys26', 'WYS 2026', <Mail className={ICON} />, onWys, wysChildren.map(c => renderLink(c, c.active)))}
+            {shownEvents.map(e => renderEvent(e))}
+            {renderLink({ to: '/admin/events/new', label: t('adminNav.createAnEvent', 'Create an event'), icon: <Plus className={ICON} /> }, path.startsWith('/admin/events/new'))}
           </>
         )}
         {renderItem({ to: '/admin/webinars', label: t('adminNav.webinarProposals', 'Webinar proposals'), icon: <Radio className={ICON} /> })}
-        {/* Every invitation campaign, any event (the WYS ones are also under WYS 2026). */}
+        {/* Every invitation campaign, any event (a guest list's own are also under that event). */}
         {renderLink({ to: '/admin/invitations', label: t('adminNav.invitations', 'Invitation campaigns'), icon: <Send className={ICON} /> }, path.startsWith('/admin/invitations'))}
-        {isAdmin && (
-          <>
-            <Link to="/admin/events/new?type=on_site&editor=new" onClick={onNavigate} className={quietLink}>
-              <Plus className={ICON} /> {t('adminNav.createEvent', 'Create an on-site event')}
-            </Link>
-            <Link to="/admin/events/new?type=webinar&editor=new" onClick={onNavigate} className={quietLink}>
-              <Plus className={ICON} /> {t('adminNav.createWebinar', 'Create a webinar')}
-            </Link>
-          </>
-        )}
 
         {/* Site content, Marketplace, Settings */}
         {groups.slice(1).map(g => {

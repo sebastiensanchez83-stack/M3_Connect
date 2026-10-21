@@ -266,7 +266,8 @@ export function AdminEventDetail() {
     ]);
 
     if (isNew) {
-      navigate(`/admin/events/${eventId}`, { replace: true });
+      // Stay in this editor (its address since the event pages of wave 2: /admin/events/<id>/edit).
+      navigate(`/admin/events/${eventId}/edit`, { replace: true });
     } else {
       toast({ title: 'Event saved!' });
       loadEvent(eventId);
@@ -440,7 +441,8 @@ export function AdminEventDetail() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <AdminDetailHeader
-        back={{ to: '/admin/events', label: 'Events' }}
+        // An existing event: back to its page (the event page of its system); a new one: the list.
+        back={isNew ? { to: '/admin/events', label: 'All events' } : { to: `/admin/events/${id}`, label: 'Back to the event page' }}
         title={isNew ? (isWebinar ? 'Create Webinar' : 'Create Event') : form.title || 'Edit Event'}
         badges={!isNew && event ? (
           <>

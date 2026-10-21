@@ -1,18 +1,36 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Plus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Plus, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { ActionCue } from '@/components/home/dashboard/DashboardKit';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { AdminContextBanner } from './AdminContextBanner';
 import type { WebinarRequest } from './types';
-import { ADMIN_BTN_PRIMARY } from './AdminUI';
+import {
+  AdminEmpty, AdminLoading, AdminPageHeader, AdminSegmented, AdminStatus, AdminStatusPill, AdminTableCard, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+
+/**
+ * Events > Webinar proposals: the webinars members propose. Admins see every proposal; a
+ * moderator sees the ones matching their company's sectors (to review) and their own.
+ * Restyled to the admin look (wave 2, 21 Oct 2026); the data and the actions are unchanged.
+ * Desktop: a table; phone: one card per proposal. Every row opens the proposal.
+ */
+
+const STATUS_WORD: Record<string, string> = {
+  submitted: 'Submitted',
+  under_review: 'Under review',
+  moderator_approved: 'Pre-approved',
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+};
+const toneStatus = (s: string) => (s === 'moderator_approved' ? 'approved' : s === 'under_review' ? 'in_review' : s);
+
+export function WebinarStatus({ status }: { status: string }) {
+  return <AdminStatus status={toneStatus(status)} label={STATUS_WORD[status] ?? status.replace(/_/g, ' ')} />;
+}
 
 export function AdminWebinarRequests() {
   const { t } = useTranslation();
@@ -102,90 +120,30 @@ export function AdminWebinarRequests() {
     setLoading(false);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-      </div>
-    );
-  }
+  if (loading) return <AdminLoading />;
 
-  const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      submitted: 'bg-yellow-100 text-yellow-700',
-      under_review: 'bg-blue-100 text-blue-700',
-      moderator_approved: 'bg-emerald-100 text-emerald-700',
-      accepted: 'bg-green-100 text-green-700',
-      rejected: 'bg-red-100 text-red-700',
-    };
-    return <Badge className={`${colors[status] || 'bg-gray-100 text-gray-700'} border-0`}>{status.replace('_', ' ')}</Badge>;
-  };
-
-  const RequestTable = ({ data, showActions }: { data: WebinarRequest[]; showActions: boolean }) => (
-    <Card>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
-                <th className="text-left p-4 font-medium">Requester</th>
-                <th className="text-left p-4 font-medium">{t('admin.webinarRequests.lang')}</th>
-                <th className="text-left p-4 font-medium">{t('admin.status')}</th>
-                <th className="text-left p-4 font-medium">{t('admin.webinarRequests.date')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate(`/admin/webinars/${r.id}`)}
-                >
-                  <td className="p-4 font-medium max-w-xs truncate">{r.title}</td>
-                  <td className="p-4">
-                    <div className="text-sm font-medium">{r.requester_name || '---'}</div>
-                    <div className="text-xs text-gray-500">{r.requester_email || ''}</div>
-                  </td>
-                  <td className="p-4">{r.preferred_language}</td>
-                  <td className="p-4">{statusBadge(r.status)}</td>
-                  <td className="p-4 text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-              {data.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="p-8 text-center text-gray-400">
-                    {t('admin.webinarRequests.noRequests')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const shown = isAdmin || tab === 'review'
+    ? (statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter))
+    : myProposals;
+  const fmt = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const requester = (r: WebinarRequest) => r.requester_name || r.requester_email || '';
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-2xl font-bold">
-          {isAdmin ? t('admin.webinarRequests.title') : 'Webinar Proposals'}
-          {' '}({requests.length})
-        </h1>
-        {isAdmin && (
-          <Button variant="secondary" size="sm" onClick={() => navigate('/admin/events/new?type=webinar&editor=new')} className={ADMIN_BTN_PRIMARY + ' gap-1.5 ml-auto'}>
-            <Plus className="h-4 w-4" /> Create webinar
+      <AdminPageHeader
+        title={t('adminWebinars.title', 'Webinar proposals')}
+        count={requests.length}
+        description={isAdmin
+          ? t('adminWebinars.desc', 'Webinars that members propose. Open one to accept it (the webinar is created, with no date yet) or to refuse it with a reason.')
+          : t('adminWebinars.descMod', 'Proposals in your sectors, to pre-approve, and your own proposals.')}
+        meta={isMod ? <AdminStatusPill tone="info">{t('adminWebinars.bySectors', 'Filtered by your sectors')}</AdminStatusPill> : undefined}
+        actions={isAdmin ? (
+          <Button asChild variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY}>
+            <Link to="/admin/events/new?type=webinar&editor=new"><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />{t('adminWebinars.create', 'Create a webinar')}</Link>
           </Button>
-        )}
-        {isMod && (
-          <Badge variant="outline" className="text-xs">
-            {t('admin.webinarRequests.filteredBySectors')}
-          </Badge>
-        )}
-      </div>
+        ) : undefined}
+      />
 
-      {/* URL-based filter context banner */}
       {hasUrlFilters && (
         <AdminContextBanner
           label={`Showing ${urlStatus.replace('_', ' ')} webinar proposals`}
@@ -195,45 +153,90 @@ export function AdminWebinarRequests() {
         />
       )}
 
-      {/* Moderator tab switcher: Review / My Proposals */}
-      {isMod && (
-        <div className="flex gap-2 mb-6">
-          <Button
-            variant={tab === 'review' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setTab('review')}
-          >
-            Review Proposals ({requests.length})
-          </Button>
-          <Button
-            variant={tab === 'my' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setTab('my')}
-          >
-            My Proposals ({myProposals.length})
-          </Button>
-        </div>
-      )}
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        {/* Moderator: proposals to review / my own proposals */}
+        {isMod && (
+          <AdminSegmented<'review' | 'my'>
+            label={t('adminWebinars.which', 'Which proposals')}
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'review', label: t('adminWebinars.toReview', 'To review ({{n}})', { n: requests.length }) },
+              { value: 'my', label: t('adminWebinars.mine', 'My proposals ({{n}})', { n: myProposals.length }) },
+            ]}
+          />
+        )}
+        {(isAdmin || tab === 'review') && (
+          <AdminSegmented<string>
+            className="flex-wrap"
+            label={t('adminWebinars.status', 'Status')}
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={['all', 'submitted', 'under_review', 'accepted', 'rejected'].map(s => ({
+              value: s,
+              label: s === 'all' ? t('adminWebinars.all', 'All') : STATUS_WORD[s],
+            }))}
+          />
+        )}
+      </div>
 
-      {/* Status filter for admin */}
-      {isAdmin && (
-        <div className="flex items-center gap-2 mb-4">
-          {['all', 'submitted', 'under_review', 'accepted', 'rejected'].map(s => (
-            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" className="text-xs capitalize"
-              onClick={() => setStatusFilter(s)}>
-              {s === 'all' ? 'All' : s.replace('_', ' ')}
-            </Button>
-          ))}
+      {shown.length === 0 ? (
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty icon={Radio} title={t('adminWebinars.none', 'No proposal here')} />
         </div>
-      )}
-
-      {/* Admin: single table; Moderator: tab-based */}
-      {isAdmin ? (
-        <RequestTable data={statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter)} showActions />
-      ) : tab === 'review' ? (
-        <RequestTable data={statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter)} showActions />
       ) : (
-        <RequestTable data={myProposals} showActions={false} />
+        <>
+          {/* Phone: one card per proposal */}
+          <ul className="space-y-3 md:hidden">
+            {shown.map(r => (
+              <li key={r.id}>
+                <Link to={`/admin/webinars/${r.id}`} className="group block rounded-card border border-rule bg-white p-4 focus:outline-none focus-visible:shadow-focus">
+                  <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">{r.title}</p>
+                  <p className="text-[13px] leading-5 text-meta [overflow-wrap:anywhere]">{[requester(r), r.preferred_language, fmt(r.created_at)].filter(Boolean).join(' · ')}</p>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <WebinarStatus status={r.status} />
+                    <ActionCue size="sm">{t('adminWebinars.open', 'Open the proposal')}</ActionCue>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: the table */}
+          <AdminTableCard className="hidden md:block">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="text-left">{t('adminWebinars.colTitle', 'Proposal')}</th>
+                  <th className="text-left">{t('adminWebinars.colBy', 'Proposed by')}</th>
+                  <th className="text-left">{t('adminWebinars.colLang', 'Language')}</th>
+                  <th className="text-left">{t('adminWebinars.colStatus', 'Status')}</th>
+                  <th className="text-left">{t('adminWebinars.colDate', 'Received')}</th>
+                  <th className="text-left"><span className="sr-only">{t('adminWebinars.open', 'Open the proposal')}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map(r => (
+                  <tr key={r.id} className="group cursor-pointer" onClick={() => navigate(`/admin/webinars/${r.id}`)}>
+                    <td className="max-w-xs">
+                      <Link to={`/admin/webinars/${r.id}`} onClick={e => e.stopPropagation()} className="rounded-sm font-semibold text-navy focus:outline-none focus-visible:shadow-focus">
+                        <span className="card-ul [overflow-wrap:anywhere]">{r.title}</span>
+                      </Link>
+                    </td>
+                    <td className="text-sm text-ink">
+                      <div>{r.requester_name || '—'}</div>
+                      {r.requester_email && <div className="text-[12px] text-meta [overflow-wrap:anywhere]">{r.requester_email}</div>}
+                    </td>
+                    <td className="text-sm text-ink">{r.preferred_language || '—'}</td>
+                    <td><WebinarStatus status={r.status} /></td>
+                    <td className="whitespace-nowrap text-sm text-ink">{fmt(r.created_at)}</td>
+                    <td className="text-right"><ActionCue size="sm">{t('adminWebinars.openShort', 'Open')}</ActionCue></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </AdminTableCard>
+        </>
       )}
     </div>
   );

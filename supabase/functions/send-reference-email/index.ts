@@ -474,6 +474,22 @@ Deno.serve(async (req: Request) => {
   const headers = { 'Content-Type': 'application/json', ...corsHeaders(req) };
 
   try {
+    // Caller check (21 Oct 2026, with migration 20261021120300): verify_jwt is off, so the token is
+    // checked here. Only the signed-in creator of the request may send its e-mails, and only while
+    // it is pending or sent. Before this, anyone could mail a confirmation link for any request
+    // (a request confirmed through that link shows on the company page) or turn a confirmed one
+    // back to "sent". The one caller, ReferenceRequestForm.tsx (main and refonte), invokes it
+    // signed in, right after creating the request.
+    const bearer = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+    let callerId: string | null = null;
+    if (bearer) {
+      const { data: callerData } = await supabaseAdmin.auth.getUser(bearer);
+      callerId = callerData?.user?.id ?? null;
+    }
+    if (!callerId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers });
+    }
+
     const { reference_request_id, recipients } = await req.json();
 
     if (!reference_request_id || !recipients || !Array.isArray(recipients) || recipients.length === 0) {
@@ -486,8 +502,13 @@ Deno.serve(async (req: Request) => {
       .eq('id', reference_request_id)
       .single();
 
-    if (refErr || !refReq) {
-      return new Response(JSON.stringify({ error: 'Reference request not found', details: refErr?.message }), { status: 404, headers });
+    // Someone else's request answers like a missing one.
+    if (refErr || !refReq || refReq.created_by !== callerId) {
+      return new Response(JSON.stringify({ error: 'Reference request not found' }), { status: 404, headers });
+    }
+
+    if (refReq.status !== 'pending' && refReq.status !== 'sent') {
+      return new Response(JSON.stringify({ error: 'This recommendation is no longer open' }), { status: 409, headers });
     }
 
     const { data: partnerOrg } = await supabaseAdmin

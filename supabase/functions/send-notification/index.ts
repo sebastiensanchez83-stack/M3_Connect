@@ -688,7 +688,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
           body: "The M3 team updated one of your requests. Open your account to see it.",
           buttonText: "See my requests",
           buttonUrl: `${accountUrl}?tab=rfps`,
-          footer: "You receive this e-mail because you published this request on Smart Marina Connect.",
+          footer: "You receive this e-mail because you sent this request to Smart Marina Connect.",
         };
       }
       return {
@@ -2237,7 +2237,8 @@ async function sendCommentEmails(
 //     the kind).
 // Each row: out of date (status changed again, newer change, request deleted, author suspended
 // or gone, queued more than 72 hours ago) -> settled unsent ("not sent: ..."; 409 {stale} to the
-// cron, which settles it); recipient opted out of "submissions" -> settled as sent; sent ->
+// cron, which settles it); recipient opted out of "submissions" -> settled unsent ("not sent:
+// the requester turned these e-mails off", for every caller); sent ->
 // notification_outbox_done. A concurrent send of the same row within 10 minutes is skipped
 // (the resolved:<dedupe key> log of the other resolved types).
 const MARKET_TYPES = new Set<string>(["market_request_status"]);
@@ -2258,47 +2259,65 @@ interface MarketRequestWords {
 // tests/market-email.test.mjs fails when the two copies differ.
 // ---- market request e-mail words v1 (two identical copies: admin/v2/market/marketEmail.ts and send-notification)
 function marketRequestWords(kind: string, status: string, title: string, message: string, firstName: string): MarketRequestWords | null {
-  const what = kind === "consultation" ? "consultation" : kind === "project" ? "marina project" : "request for proposals";
-  const tab = kind === "consultation" ? "consultations" : kind === "project" ? "projects" : "rfps";
+  // A marina project is private (its author and M3 only): it is approved, never "published".
+  const project = kind === "project";
+  const what = kind === "consultation" ? "consultation" : project ? "marina project" : "request for proposals";
+  const tab = kind === "consultation" ? "consultations" : project ? "projects" : "rfps";
   const named = title ? ` "${title}"` : "";
   const note = message ? `\n\nMessage from the M3 team:\n${message}` : "";
+  const reason = message ? `\n\nReason: ${message}` : "";
   const base = {
     greeting: firstName ? `Hello ${firstName},` : "Hello,",
     buttonText: "See my requests",
     tab,
-    footer: "You receive this e-mail because you published this request on Smart Marina Connect.",
+    footer: "You receive this e-mail because you sent this request to Smart Marina Connect.",
   };
+  if (status === "approved" && project) {
+    return {
+      ...base,
+      subject: "Your marina project is approved",
+      title: "Your project is approved",
+      body: `Good news: the M3 team has approved your marina project${named}. We will put you in touch with suitable service providers.${note}`,
+    };
+  }
   if (status === "approved") {
     return {
       ...base,
       subject: `Your ${what} is published`,
       title: "Your request is published",
-      body: `Good news: your ${what}${named} is now published on the Smart Marina Connect marketplace. Partners can see it and contact you.${note}`,
+      body: `Good news: your ${what}${named} is now published on the Smart Marina Connect marketplace. Members of the marketplace can see it and contact you.${note}`,
+    };
+  }
+  if (status === "rejected" && project) {
+    return {
+      ...base,
+      subject: "Your marina project was not approved",
+      title: "Your project was not approved",
+      body: `We have read your marina project${named} and cannot approve it as it is.${reason}\n\nIf you have a question, simply reply to this e-mail.`,
     };
   }
   if (status === "rejected") {
-    const again = kind === "project" ? "" : "You can change it and send it again from your account. ";
     return {
       ...base,
       subject: `Your ${what} was not published`,
       title: "Your request was not published",
-      body: `We have read your ${what}${named} and cannot publish it as it is.${message ? `\n\nReason: ${message}` : ""}\n\n${again}If you have a question, simply reply to this e-mail.`,
+      body: `We have read your ${what}${named} and cannot publish it as it is.${reason}\n\nYou can correct it from your account, then reply to this e-mail: we will look at it again.`,
     };
   }
-  if (status === "closed") {
+  if (status === "closed" && !project) {
     return {
       ...base,
       subject: `Your ${what} is closed`,
       title: "Your request is closed",
-      body: `Your ${what}${named} is now closed. It no longer shows on the marketplace, and partners can no longer answer it.${note}`,
+      body: `Your ${what}${named} is now closed. It no longer shows on the marketplace, and members can no longer answer it.${note}`,
     };
   }
-  if (status === "completed") {
+  if (status === "completed" && project) {
     return {
       ...base,
-      subject: `Your ${what} is completed`,
+      subject: "Your marina project is completed",
       title: "Your project is completed",
-      body: `Your ${what}${named} is now marked as completed on Smart Marina Connect. Thank you for sharing it with the network.${note}`,
+      body: `Your marina project${named} is now marked as completed on Smart Marina Connect. Thank you for sharing it with M3.${note}`,
     };
   }
   return null;
@@ -2391,7 +2410,9 @@ async function sendMarketRequestEmails(
     if (r.prefs && r.prefs[category] === false) {
       console.log(`Notification [${type}] (${category}) skipped: user ${recipientId} opted out`);
       optedOut++;
-      await markOutboxSent(db, row.id);
+      // Settled UNSENT with its reason, so the request's history never says "E-mail sent"
+      // (the cron's notification_outbox_done after this answer then changes nothing).
+      await settleOutboxUnsent(db, row.id, "the requester turned these e-mails off");
       continue;
     }
     await logResolvedSend(db, recipientId, row.dedupe_key);

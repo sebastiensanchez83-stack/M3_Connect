@@ -65,11 +65,26 @@ test('an e-mail exists exactly for the statuses that send one', () => {
 test('the turned-down e-mail gives the reason; a message is added to the others', () => {
   const rej = marketRequestWords('rfp', 'rejected', 'Fuel dock', 'Too short.', 'Camille');
   assert.match(rej.body, /Reason: Too short\./);
-  assert.match(rej.body, /change it and send it again/);
-  assert.doesNotMatch(marketRequestWords('project', 'rejected', 'Energy project', 'x', '').body, /send it again/);
+  assert.match(rej.body, /correct it from your account, then reply to this e-mail: we will look at it again/);
+  assert.doesNotMatch(marketRequestWords('project', 'rejected', 'Energy project', 'x', '').body, /look at it again/);
   assert.match(marketRequestWords('consultation', 'closed', 'T', 'Thank you.', '').body, /Message from the M3 team:\nThank you\./);
   assert.equal(marketRequestWords('rfp', 'approved', 'T', '', 'Alex').greeting, 'Hello Alex,');
   assert.equal(marketRequestWords('project', 'approved', 'T', '', '').tab, 'projects');
+});
+
+test('a marina project is approved, never published; no e-mail says "partner" (paying sponsors only)', () => {
+  // marina_projects is read by its author and M3 only: no member ever sees a project.
+  for (const status of KIND_STATUSES.project) {
+    const w = marketRequestWords('project', status, 'Energy project', 'x', '');
+    if (w) assert.doesNotMatch(`${w.subject} ${w.title} ${w.body}`, /publish|marketplace/i, `project/${status}`);
+  }
+  assert.equal(marketRequestWords('project', 'approved', 'T', '', '').subject, 'Your marina project is approved');
+  for (const kind of REQUEST_KINDS) {
+    for (const status of STATUSES) {
+      const w = marketRequestWords(kind, status, 'T', '', '');
+      if (w) assert.doesNotMatch(`${w.subject} ${w.title} ${w.body} ${w.footer}`, /partner/i, `${kind}/${status}`);
+    }
+  }
 });
 
 test('the statuses are the database lists', () => {

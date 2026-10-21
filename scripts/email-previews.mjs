@@ -288,13 +288,13 @@ const items = [];
   add("m1", "market_request_status", "camille.durand@example.com",
     market("Camille", { request_kind: "rfp", status: "approved", title: "Shore power for pontoons C to F", message: null }), "RFP published");
   add("m2", "market_request_status", "camille.durand@example.com",
-    market("Camille", { request_kind: "rfp", status: "rejected", title: "Fuel dock renovation", message: "The scope is too short for partners to quote. Please add the length of the dock and when the works should start." }), "RFP not published, with the reason");
+    market("Camille", { request_kind: "rfp", status: "rejected", title: "Fuel dock renovation", message: "The scope is too short for service providers to quote. Please add the length of the dock and when the works should start." }), "RFP not published, with the reason");
   add("m3", "market_request_status", "alex.martin@example.com",
-    market("Alex", { request_kind: "consultation", status: "closed", title: "Blue Flag renewal: what changed in 2026?", message: "Thank you, three partners answered. We closed it as you asked." }), "consultation closed, with a message");
+    market("Alex", { request_kind: "consultation", status: "closed", title: "Blue Flag renewal: what changed in 2026?", message: "Thank you, three members answered. We closed it as you asked." }), "consultation closed, with a message");
   add("m4", "market_request_status", "alex.martin@example.com",
-    market("Alex", { request_kind: "project", status: "approved", title: "Energy project", message: null }), "marina project published");
+    market("Alex", { request_kind: "project", status: "approved", title: "Energy project", message: null }), "marina project approved");
   add("m5", "market_request_status", "alex.martin@example.com",
-    market("Alex", { request_kind: "project", status: "rejected", title: "Energy project", message: "A marina project needs a short description of the works." }), "marina project not published");
+    market("Alex", { request_kind: "project", status: "rejected", title: "Energy project", message: "A marina project needs a short description of the works." }), "marina project not approved");
   add("m6", "market_request_status", "alex.martin@example.com",
     market("Alex", { request_kind: "project", status: "completed", title: "Energy project", message: null }), "marina project completed");
   // Every other notification type, with one generic set of fictional data (C4: a preview of

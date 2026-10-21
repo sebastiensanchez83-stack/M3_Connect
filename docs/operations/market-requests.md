@@ -2,7 +2,7 @@
 
 > **Résumé en français.**
 > 1. Admin > Marketplace > « Marina requests » remplace les 4 écrans (projets, RFP, consultations, leads) : une seule liste (filtres, recherche, export CSV, cartes sur téléphone, « en attente de réponse » en premier) et une page par demande où M3 agit : changer le statut avec un message (ou la raison d'un refus), corriger le texte, ajouter une note interne. Tout est tracé dans l'historique de la demande.
-> 2. L'auteur de la demande (son compte, jamais une autre adresse) reçoit un e-mail court en anglais quand sa demande est publiée, refusée (avec la raison), clôturée, ou quand un projet est terminé. M3 voit l'e-mail avant de l'envoyer et peut décocher « Tell them by e-mail ». Jamais d'e-mail pour une correction de texte ni pour une note.
+> 2. L'auteur de la demande (son compte, jamais une autre adresse) reçoit un e-mail court en anglais quand sa demande est publiée (un projet : approuvé, car un projet n'est jamais montré aux autres membres), refusée (avec la raison), clôturée, ou quand un projet est terminé. M3 voit l'e-mail avant de l'envoyer et peut décocher « Tell them by e-mail ». Jamais d'e-mail pour une correction de texte ni pour une note.
 > 3. Les leads partenaires (formulaire public « devenir partenaire », sans compte) ne reçoivent aucun e-mail automatique : ce sont des contacts commerciaux, M3 leur répond en personne (bouton « Write to … »).
 > 4. Avant le jour J, aucun e-mail n'est mis en file (l'interrupteur `outbox_sender` est éteint) : rien ne part plus tard non plus. Le jour J : migration appliquée, `send-notification` et `registration-cron` déployés avec le lot D2, puis `outbox_sender` allumé.
 > 5. Les anciennes adresses (/admin/rfps, /admin/projects, …, et leurs /:id) restent valables : elles ouvrent la nouvelle page.
@@ -39,7 +39,21 @@
   suspended account.
 - RFPs and consultations: published (`approved`), not published (`rejected`, the reason is
   required: the requester also reads it on their account page), `closed`. Marina projects:
-  `approved`, `rejected`, `completed`. Nothing for the other statuses, nothing for partner leads.
+  `approved` (the e-mail says "approved", never "published": `marina_projects` is read by its
+  author and M3 only), `rejected`, `completed`. Nothing for the other statuses, nothing for
+  partner leads.
+- **Who else reads the reason.** `rfps` and `consultations` are readable, every row and every
+  column, by every member with marketplace access and by verified developers (their read
+  policies, unchanged here). So `rejection_reason` and the old `admin_notes` are NOT private:
+  the page says so ("write nothing confidential"), and the status function clears
+  `rejection_reason` on any status other than `rejected` (the reason stays in the history).
+  Follow-up (separate reviewed migration): a restrictive read policy on both tables,
+  `status = 'approved' or own row or is_moderator()`.
+- Before go-live (`outbox_sender` off) a change is logged `sender_off` and the page sends
+  `notify` false whatever the box says: nothing the page called "a note for the history" can be
+  e-mailed if the switch is turned on while the page is open.
+- A requester who turned off the "submissions" e-mails: the queued row is settled unsent ("not
+  sent: the requester turned these e-mails off"), so the history never says "E-mail sent".
 - One e-mail per status change (`dedupe_key` `market_request_status:<review_log id>`). A newer
   change of the same request settles the older e-mail that has not left; an e-mail whose request
   changed status again, was deleted, or waited more than 72 hours is never sent.

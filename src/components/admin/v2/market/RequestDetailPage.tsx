@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CardLink } from '@/components/home/dashboard/DashboardKit';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { externalUrl } from '@/lib/externalUrl';
 import {
   AdminDetailHeader, AdminEmpty, AdminLoading, AdminPanel, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_PRIMARY, statusTone, type AdminTone,
 } from '../../AdminUI';
@@ -208,7 +209,11 @@ function AnswerPanel({ record, onDone }: { record: RequestRecord; onDone: () => 
   const canSave = changed && !busy && (!needReason || !!message.trim());
 
   const messageLabel = needReason
-    ? t('adminMarket.answer.reason', 'Reason (required): they will read it on their account page{{mail}}', { mail: willEmail ? ' and in the e-mail' : '' })
+    ? kind === 'project'
+      ? willEmail
+        ? t('adminMarket.answer.reasonProject', 'Reason (required): they will read it in the e-mail')
+        : t('adminMarket.answer.reasonProjectNoMail', 'Reason (required): kept in the history (they are not e-mailed)')
+      : t('adminMarket.answer.reasonPublic', 'Reason (required): they read it on their account page{{mail}}. Other members can read it too: write nothing confidential', { mail: willEmail ? ' and in the e-mail' : '' })
     : willEmail
       ? t('adminMarket.answer.message', 'Message to them (optional): added to the e-mail')
       : t('adminMarket.answer.note', 'Note for the history (optional): only the M3 team sees it');
@@ -217,7 +222,9 @@ function AnswerPanel({ record, onDone }: { record: RequestRecord; onDone: () => 
     if (!canSave) return;
     setBusy(true);
     try {
-      const res = await setRequestStatus(kind, String(record.row.id), choice, message, notify);
+      // Never ask for an e-mail this page did not announce: while the sender looked off when the
+      // page opened, the text above was labelled a note for the history only.
+      const res = await setRequestStatus(kind, String(record.row.id), choice, message, notify && record.emailsOn);
       const how: Record<string, string> = {
         queued: t('adminMarket.answer.queued', 'The e-mail is on its way to the requester.'),
         sender_off: t('adminMarket.answer.senderOff', 'No e-mail: e-mails to members start at go-live.'),
@@ -289,7 +296,7 @@ function AnswerPanel({ record, onDone }: { record: RequestRecord; onDone: () => 
               rows={needReason ? 4 : 3}
               maxLength={2000}
               className="mt-1.5"
-              placeholder={needReason ? t('adminMarket.answer.reasonPlaceholder', 'For example: the scope is too short for partners to quote. Please add…') : ''}
+              placeholder={needReason ? t('adminMarket.answer.reasonPlaceholder', 'For example: the scope is too short for service providers to quote. Please add…') : ''}
             />
           </label>
 
@@ -404,6 +411,13 @@ function WrittenPanel({ record, onDone }: { record: RequestRecord; onDone: () =>
               <Field label={FIELD_LABEL[s.key]}>
                 {s.key === 'email' && record.row.email
                   ? <a href={`mailto:${record.row.email}`} className="font-semibold text-navy underline decoration-navy/40 underline-offset-2 hover:decoration-navy">{record.row.email}</a>
+                  : s.key === 'website' && externalUrl(record.row.website)
+                    ? (
+                      <a href={externalUrl(record.row.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="font-semibold text-navy underline decoration-navy/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-navy">
+                        {String(record.row.website)}
+                        <span className="sr-only"> {t('adminMarket.written.newTab', '(opens their website in a new tab)')}</span>
+                      </a>
+                    )
                   : s.kind === 'long'
                     ? <span className="block whitespace-pre-wrap">{shown(s, record.row[s.key])}</span>
                     : shown(s, record.row[s.key])}
@@ -413,7 +427,9 @@ function WrittenPanel({ record, onDone }: { record: RequestRecord; onDone: () =>
           {record.sectors.length > 0 && <Field label={t('adminMarket.written.sectors', 'Sectors')}>{record.sectors.join(', ')}</Field>}
           {status === 'rejected' && record.row.rejection_reason && (
             <div className="sm:col-span-2">
-              <Field label={t('adminMarket.written.reason', 'Reason they were given (they see it on their account page)')}>
+              <Field label={kind === 'project'
+                ? t('adminMarket.written.reasonProject', 'Reason given when it was turned down (only they and M3 can read it)')
+                : t('adminMarket.written.reasonPublic', 'Reason they were given (on their account page; other members can read it too)')}>
                 <span className="block whitespace-pre-wrap">{record.row.rejection_reason}</span>
               </Field>
             </div>
@@ -539,7 +555,7 @@ function NotesPanel({ record, onDone }: { record: RequestRecord; onDone: () => v
   };
 
   return (
-    <AdminPanel title={t('adminMarket.notes.title', 'M3 notes')} icon={StickyNote} description={t('adminMarket.notes.desc', 'Only the M3 team sees them.')}>
+    <AdminPanel title={t('adminMarket.notes.title', 'M3 notes')} icon={StickyNote} description={t('adminMarket.notes.desc', 'The notes you add here: only the M3 team sees them.')}>
       <label className="block">
         <span className="sr-only">{t('adminMarket.notes.new', 'New note')}</span>
         <Textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={4000} placeholder={t('adminMarket.notes.placeholder', 'For example: called them on Monday, they will send the plans.')} />
@@ -561,7 +577,13 @@ function NotesPanel({ record, onDone }: { record: RequestRecord; onDone: () => v
           {old && (
             <li>
               <p className="whitespace-pre-wrap text-[14px] leading-5 text-ink [overflow-wrap:anywhere]">{old}</p>
-              <p className="mt-0.5 text-[12px] leading-4 text-meta">{t('adminMarket.notes.old', 'Written on the previous admin screen')}</p>
+              <p className="mt-0.5 text-[12px] leading-4 text-meta">
+                {record.kind === 'lead'
+                  ? t('adminMarket.notes.old', 'Written on the previous admin screen')
+                  : record.kind === 'project'
+                    ? t('adminMarket.notes.oldProject', 'Old note from the previous admin screen. NOT private: the requester can read it')
+                    : t('adminMarket.notes.oldPublic', 'Old note from the previous admin screen. NOT private: members can read it')}
+              </p>
             </li>
           )}
         </ul>

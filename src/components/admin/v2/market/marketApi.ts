@@ -72,12 +72,12 @@ async function resolvePeopleAndCompanies(authorIds: string[], orgIds: string[]) 
   if (authorIds.length) {
     const [profiles, members] = await Promise.all([
       chunked<Raw>(authorIds, part => supabase.from('profiles').select('user_id, first_name, last_name, email').in('user_id', part)),
-      chunked<Raw>(authorIds, part => supabase.from('organization_members').select('user_id, organization_id, role, created_at').in('user_id', part)),
+      chunked<Raw>(authorIds, part => supabase.from('organization_members').select('user_id, organization_id, role, joined_at').in('user_id', part)),
     ]);
     for (const p of profiles) people.set(p.user_id, { name: personName(p), email: p.email ?? null });
-    // An owner's company first, then the oldest membership.
+    // An owner's company first, then the oldest membership (organization_members has joined_at, no created_at).
     members
-      .sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) || String(a.created_at).localeCompare(String(b.created_at)))
+      .sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) || String(a.joined_at).localeCompare(String(b.joined_at)))
       .forEach(m => { if (m.organization_id && !orgOfUser.has(m.user_id)) orgOfUser.set(m.user_id, m.organization_id); });
   }
   const allOrgIds = [...new Set([...orgIds, ...orgOfUser.values()])];
@@ -176,7 +176,11 @@ export interface RequestRecord {
 
 const TABLE: Record<RequestKind, string> = { rfp: 'rfps', consultation: 'consultations', project: 'marina_projects', lead: 'partner_leads' };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** null when there is no such request (also for an address whose id is not a uuid). */
 export async function loadRequest(kind: RequestKind, id: string): Promise<RequestRecord | null> {
+  if (!UUID_RE.test(id)) return null;
   const { data: row, error } = await supabase.from(TABLE[kind]).select('*').eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!row) return null;
@@ -200,8 +204,8 @@ export async function loadRequest(kind: RequestKind, id: string): Promise<Reques
   // The company: the request's own, else the author's.
   let orgId: string | null = r.organization_id ?? null;
   if (!orgId && authorId) {
-    const { data: ms } = await supabase.from('organization_members').select('organization_id, role, created_at').eq('user_id', authorId);
-    const sorted = ((ms ?? []) as Raw[]).sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) || String(a.created_at).localeCompare(String(b.created_at)));
+    const { data: ms } = await supabase.from('organization_members').select('organization_id, role, joined_at').eq('user_id', authorId);
+    const sorted = ((ms ?? []) as Raw[]).sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) || String(a.joined_at).localeCompare(String(b.joined_at)));
     orgId = sorted[0]?.organization_id ?? null;
   }
   const history = ((historyRes.data ?? []) as Raw[]);

@@ -3,9 +3,10 @@
  * Pure: no import, so tests/market-email.test.mjs can check these lists against the database's
  * (supabase/migrations/20261021175000_market_requests.sql, market_request_statuses).
  *
- *   rfp           public.rfps            a marina asks partners for proposals (published on the marketplace)
+ *   rfp           public.rfps            a marina asks for proposals (published on the marketplace)
  *   consultation  public.consultations   a marina asks the network a question
- *   project       public.marina_projects a marina describes a project it plans
+ *   project       public.marina_projects a marina describes a project it plans (private: its
+ *                                        author and M3 only; M3 approves it, never "publishes" it)
  *   lead          public.partner_leads   a company that filled the old public "become a partner"
  *                                        form: a sales contact for M3, without an account
  */
@@ -56,8 +57,8 @@ export function isRequestKind(value: string | null | undefined): value is Reques
 /** Status filters across the four kinds, in plain words. */
 export const STATUS_FILTERS: { value: string; label: string; match: (kind: RequestKind, status: string, waiting: boolean) => boolean }[] = [
   { value: 'waiting', label: 'Waiting for an answer', match: (_k, _s, waiting) => waiting },
-  { value: 'published', label: 'Published', match: (k, s) => k !== 'lead' && (s === 'approved' || s === 'in_progress') },
-  { value: 'rejected', label: 'Not published, or not a fit', match: (_k, s) => s === 'rejected' },
+  { value: 'published', label: 'Published, or project approved', match: (k, s) => k !== 'lead' && (s === 'approved' || s === 'in_progress') },
+  { value: 'rejected', label: 'Turned down, or not a fit', match: (_k, s) => s === 'rejected' },
   { value: 'done', label: 'Closed or completed', match: (_k, s) => s === 'closed' || s === 'completed' },
   { value: 'archived', label: 'Archived', match: (_k, s) => s === 'archived' },
   { value: 'talking', label: 'Leads: qualified or in discussion', match: (k, s) => k === 'lead' && (s === 'qualified' || s === 'in_discussion') },
@@ -84,6 +85,7 @@ export function statusName(kind: RequestKind, status: string | null | undefined)
   if (kind === 'lead') {
     return ({ new: 'New', qualified: 'Qualified', in_discussion: 'In discussion', signed: 'Signed', rejected: 'Not a fit' } as Record<string, string>)[s] ?? fallback(s);
   }
+  if (kind === 'project' && (s === 'approved' || s === 'rejected')) return s === 'approved' ? 'Approved' : 'Not approved';
   const common: Record<string, string> = {
     new: 'Waiting for M3',
     submitted: 'Waiting for M3',
@@ -111,20 +113,20 @@ export function statusHint(kind: RequestKind, status: string): string {
   }
   if (kind === 'project') {
     return ({
-      new: 'Back to waiting for M3. Not shown to partners.',
-      submitted: 'Back to waiting for M3. Not shown to partners.',
-      under_review: 'M3 is looking at it. Not shown to partners yet.',
-      approved: 'Published: partners can see it.',
+      new: 'Back to waiting for M3.',
+      submitted: 'Back to waiting for M3.',
+      under_review: 'M3 is looking at it.',
+      approved: 'Approved by M3. Projects are never shown to other members: M3 puts them in touch.',
       in_progress: 'The works have started.',
       completed: 'The project is done.',
-      rejected: 'Not published. Write the reason: they will read it.',
+      rejected: 'Not approved. Write the reason: they read it in the e-mail.',
       archived: 'Hidden everywhere, kept for the record.',
     } as Record<string, string>)[status] ?? '';
   }
   return ({
     submitted: 'Back to waiting for M3. Not on the marketplace.',
     under_review: 'M3 is looking at it. Not on the marketplace yet.',
-    approved: 'Shown on the marketplace: partners can answer.',
+    approved: 'Shown on the marketplace: members can answer.',
     closed: 'Taken off the marketplace: no more answers.',
     rejected: 'Not published. Write the reason: they will read it.',
     archived: 'Hidden everywhere, kept for the record.',

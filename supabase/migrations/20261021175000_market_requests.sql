@@ -35,7 +35,8 @@
 --    caller, and never to a suspended account. Only for: RFPs and consultations approved
 --    (published), rejected (the reason is then required: the requester also reads it on the
 --    site) or closed; marina projects approved, rejected or completed. M3 may untick "Tell them
---    by e-mail". Never for a partner lead (a sales contact without an account, from the old
+--    by e-mail". Before go-live (sender off) a change is logged as sender_off whatever the
+--    box says. Never for a partner lead (a sales contact without an account, from the old
 --    public "become a partner" form: M3 answers them in person), never for a correction of the
 --    text, never for a note.
 --  - One e-mail per status change (dedupe_key 'market_request_status:<review_log id>'). A newer
@@ -47,7 +48,12 @@
 --    (Victor's rule for the comments, 21 Oct 2026: nothing piles up to leave on day D).
 --  - Every action writes one review_log row: the history of the request page. Notes live in
 --    review_log only (staff read it); the tables' old admin_notes column is readable by the
---    request's author through the API, so this page never writes it.
+--    request's author through the API (and, for RFPs and consultations, by every member with
+--    marketplace access: their read policies return every row and column), so this page never
+--    writes it.
+--  - rejection_reason holds the reason of the CURRENT refusal only: any other status clears it
+--    (rfps and consultations are readable by marketplace members, so an old refusal must not stay
+--    readable on a published request). The reason is kept in review_log.note either way.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -180,7 +186,8 @@ $fn$;
 -- ---- 3. Staff: change the status (and queue the e-mail to the author) ---------------------
 -- p_message: for 'rejected' (RFP, consultation, project) the reason, required: stored as the
 -- request's rejection_reason (the author reads it on the site) and sent in the e-mail. For any
--- other status an optional message added to the e-mail. Always kept in review_log.note.
+-- other status an optional message added to the e-mail, and rejection_reason is cleared. Always
+-- kept in review_log.note.
 -- p_notify false: no e-mail, even for a status that sends one.
 -- Answer: {ok, kind, id, from, to, email, outbox_id, review_log_id}; email says what happened:
 -- queued, sender_off (before go-live), not_asked, not_for_this_status, not_for_leads,
@@ -225,21 +232,21 @@ begin
     if not found then raise exception using errcode = 'P0002', message = 'not_found'; end if;
     if v_from is not distinct from v_to then raise exception using errcode = '22023', message = 'same_status'; end if;
     update public.rfps r
-       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg else r.rejection_reason end
+       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg end
      where r.id = p_id;
   elsif v_kind = 'consultation' then
     select c.status, c.marina_user_id into v_from, v_author from public.consultations c where c.id = p_id for update;
     if not found then raise exception using errcode = 'P0002', message = 'not_found'; end if;
     if v_from is not distinct from v_to then raise exception using errcode = '22023', message = 'same_status'; end if;
     update public.consultations c
-       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg else c.rejection_reason end
+       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg end
      where c.id = p_id;
   elsif v_kind = 'project' then
     select mp.status, mp.user_id into v_from, v_author from public.marina_projects mp where mp.id = p_id for update;
     if not found then raise exception using errcode = 'P0002', message = 'not_found'; end if;
     if v_from is not distinct from v_to then raise exception using errcode = '22023', message = 'same_status'; end if;
     update public.marina_projects mp
-       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg else mp.rejection_reason end
+       set status = v_to, rejection_reason = case when v_to = 'rejected' then v_msg end
      where mp.id = p_id;
   else
     select pl.status into v_from from public.partner_leads pl where pl.id = p_id for update;
@@ -254,10 +261,10 @@ begin
   v_email := case
     when v_kind = 'lead' then 'not_for_leads'
     when not public.market_request_mails(v_kind, v_to) then 'not_for_this_status'
+    when not public.market_request_emails_on() then 'sender_off'
     when not coalesce(p_notify, true) then 'not_asked'
     when v_author is null or not exists (select 1 from auth.users u where u.id = v_author) then 'no_author'
     when v_author_status = 'suspended' then 'author_suspended'
-    when not public.market_request_emails_on() then 'sender_off'
     else 'queued'
   end;
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -295,7 +296,7 @@ export function PreAuditTab() {
       {/* Indicative notice */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
         <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-        <div className="text-sm text-amber-800" dangerouslySetInnerHTML={{ __html: t('preaudit.indicativeNotice') }} />
+        <div className="text-sm text-amber-800" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(t('preaudit.indicativeNotice', { postProcess: [] })) }} />
       </div>
 
       {/* Score Legend */}

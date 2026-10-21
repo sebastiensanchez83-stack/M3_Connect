@@ -6,6 +6,7 @@ import { BRAND_STRINGS } from './brand';
 import { HOME_STRINGS } from './home';
 import { EVENTS_STRINGS } from './refonte-events';
 import { CONTENT_STRINGS } from './refonte-content';
+import { bindSiteContentToI18n, siteContentPostProcessor, SITE_CONTENT_EVENT } from '@/lib/siteContent/store';
 
 const resources = {
   en: {
@@ -2447,8 +2448,13 @@ const resources = {
 // The platform is English only. No language detector (browser locale and any
 // stored choice are ignored), no language switcher anywhere in the UI. The French
 // resources stay registered below, dormant, in case a second language comes back.
+//
+// The text M3 publishes from Admin > Site pages (src/lib/siteContent): the post-processor
+// returns it in place of the code's text for its key, and react-i18next re-renders on
+// SITE_CONTENT_EVENT when it arrives. With nothing published, t() is unchanged.
 i18n
   .use(initReactI18next)
+  .use(siteContentPostProcessor)
   .init({
     resources,
     lng: 'en',
@@ -2456,7 +2462,12 @@ i18n
     interpolation: {
       escapeValue: false,
     },
+    postProcess: ['siteContent'],
+    react: {
+      bindI18n: `languageChanged ${SITE_CONTENT_EVENT}`,
+    },
   });
+bindSiteContentToI18n(() => i18n.emit(SITE_CONTENT_EVENT));
 
 // A French choice stored by an earlier build ('i18nextLng', the key
 // i18next-browser-languagedetector uses) is dropped, and the document is English.

@@ -119,7 +119,7 @@ create table public.site_content (
   published boolean not null default true,
   updated_at timestamptz not null default now(),
   updated_by uuid references auth.users (id) on delete set null,
-  constraint site_content_key_format check (key ~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help).[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$'),
+  constraint site_content_key_format check (key ~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help)[.][A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$'),
   constraint site_content_kind check (kind in ('text', 'rich', 'json')),
   constraint site_content_kind_matches_key check ((key like 'text:%') = (kind = 'text')),
   constraint site_content_body_shape check (
@@ -234,7 +234,7 @@ begin
     if jsonb_typeof(v_body) = 'null' then
       v_body := null;
     end if;
-    if v_key is null or v_key !~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help).[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$' then
+    if v_key is null or v_key !~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help)[.][A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$' then
       raise exception 'site_content_publish: bad key %', coalesce(v_key, '(none)') using errcode = '22023';
     end if;
     if v_kind is null or v_kind not in ('text', 'rich', 'json') or (v_key like 'text:%') <> (v_kind = 'text') then

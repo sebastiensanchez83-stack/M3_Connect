@@ -21,7 +21,9 @@ import { ADMIN_BTN, ADMIN_BTN_DANGER, AdminEmpty, AdminLoading, AdminPanel, Admi
  *    with its open reports; Hide (with a reason its author sees), Show again, Keep (close the
  *    reports and leave the comment).
  *  - AdminCommentReports, Admin > Resources > "Reported comments": the reported comments of
- *    every article, open reports first. Each report also e-mailed the M3 team.
+ *    every article, open reports first, each with the text as it was reported (kept by the
+ *    database even when its author deleted the comment since). Each report also e-mails the M3
+ *    team once the comment e-mails are on (registration_flags.article_comment_emails).
  */
 
 function fmt(iso: string): string {
@@ -194,6 +196,7 @@ export function AdminArticleComments({ resourceId, slug }: { resourceId: string 
 /** Admin > Resources > Reported comments. */
 export function AdminCommentReports() {
   const { t } = useTranslation();
+  const { flags } = useRegistrationFlags();
   const [openOnly, setOpenOnly] = useState(true);
   const [rows, setRows] = useState<ReportedComment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +216,9 @@ export function AdminCommentReports() {
   return (
     <AdminPanel
       title={t('adminComments.reportsTitle', 'Reported comments')}
-      description={t('adminComments.reportsDesc', 'Members reported these comments; the M3 team got an e-mail for each report. Hide the comment, or keep it and close the reports.')}
+      description={flags.article_comment_emails
+        ? t('adminComments.reportsDesc', 'Members reported these comments; the M3 team got an e-mail for each report. Hide the comment, or keep it and close the reports.')
+        : t('adminComments.reportsDescSite', 'Members reported these comments (no e-mail is sent until the comment e-mails are on: look here). Hide the comment, or keep it and close the reports.')}
       icon={Flag}
       padded={false}
       actions={
@@ -235,7 +240,11 @@ export function AdminCommentReports() {
         <AdminEmpty icon={Flag} title={openOnly ? t('adminComments.noOpen', 'No open report') : t('adminComments.noReports', 'No report yet')} />
       ) : (
         <ul className="divide-y divide-rule">
-          {rows.map((r) => (
+          {rows.map((r) => {
+            // The text as the latest report saw it, when it is not the text shown now.
+            const asReported = r.reports.find((rep) => rep.body_snapshot)?.body_snapshot ?? null;
+            const showReported = !!asReported && (r.deleted || asReported !== r.body);
+            return (
             <li key={r.comment_id} className="space-y-2 px-5 py-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px]">
                 <Link to={`${resourcePath({ id: r.resource_id, slug: r.resource_slug })}#${commentAnchor(r.comment_id)}`} className="font-semibold text-navy underline underline-offset-2">
@@ -249,6 +258,14 @@ export function AdminCommentReports() {
                 {r.deleted && <AdminStatusPill tone="neutral">{t('adminComments.deletedPill', 'Deleted by its author')}</AdminStatusPill>}
               </div>
               {!r.deleted && <p className="whitespace-pre-line rounded-field bg-page px-3 py-2 text-[14px] leading-6 text-ink [overflow-wrap:anywhere]">{plainBody(r.body)}</p>}
+              {showReported && asReported && (
+                <div className="rounded-field border border-dashed border-navy/30 px-3 py-2">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-meta">
+                    {r.deleted ? t('adminComments.asReportedDeleted', 'The text as reported (its author deleted it since)') : t('adminComments.asReported', 'The text as reported')}
+                  </p>
+                  <p className="mt-1 whitespace-pre-line text-[14px] leading-6 text-ink [overflow-wrap:anywhere]">{plainBody(asReported)}</p>
+                </div>
+              )}
               <ul className="space-y-1 text-[13px] leading-5 text-meta">
                 {r.reports.map((rep, i) => (
                   <li key={i}>
@@ -262,7 +279,8 @@ export function AdminCommentReports() {
                 <ModerateActions commentId={r.comment_id} hidden={r.hidden} deleted={r.deleted} openReports={r.open_reports} onDone={refresh} />
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </AdminPanel>

@@ -1958,7 +1958,9 @@ async function logUnverifiedOrgEmail(db: Db, actorId: string, orgId: string): Pr
 //   member / staff (the page, right after posting, editing or reporting): data.comment_id
 //     (comment_mention) or data.report_id (comment_report): the unsent rows of that comment or
 //     report the CALLER queued (actor_id) in the last 15 minutes, while
-//     registration_flags.article_comments is on; within the caller's hourly cap of e-mails
+//     registration_flags.article_comments AND article_comment_emails are on (the database
+//     queues nothing while the e-mails switch is off, and resource_comment_email answers "out
+//     of date" while either is off, for the cron too); within the caller's hourly cap of e-mails
 //     (MEMBER_HOURLY_CAP, the "send-notification:%" rows of email_rate_log, as every member
 //     send). What is left waits for registration-cron (outbox job), which leaves rows younger
 //     than 2 minutes to the page.
@@ -2003,6 +2005,17 @@ async function memberSendsLastHour(db: Db, actorId: string): Promise<number> {
   }
 }
 
+/**
+ * A member's words inside an e-mail from the platform: web addresses become "[link]". Mail
+ * programs turn an address in plain text into a link, which would make the platform's own
+ * e-mail carry a link chosen by a member (phishing). The comment itself, on the site, keeps them.
+ */
+function withoutLinks(s: string): string {
+  return s
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link]")
+    .replace(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\/\S*/gi, "[link]");
+}
+
 /** The template's fields from resource_comment_email's answer (database text, cleaned). */
 function commentEmailData(type: string, p: Record<string, unknown>): Record<string, string> {
   const str = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
@@ -2012,13 +2025,13 @@ function commentEmailData(type: string, p: Record<string, unknown>): Record<stri
     author_name: cleanName(str(p.author_name), PERSON_NAME_CHARS) || "A member",
     author_org: cleanName(str(p.author_org_name), ORG_NAME_CHARS),
     article_title: cleanName(str(p.resource_title), 200),
-    excerpt: cleanName(str(p.excerpt), 320),
+    excerpt: withoutLinks(cleanName(str(p.excerpt), 320)),
     comment_path: slug && UUID_RE.test(commentId) ? `/resources/${encodeURIComponent(slug)}#comment-${commentId}` : "/resources",
   };
   if (type === "comment_mention") out.via_org = cleanName(str(p.via_org_name), ORG_NAME_CHARS);
   if (type === "comment_report") {
     out.reporter_name = cleanName(str(p.reporter_name), PERSON_NAME_CHARS) || "A member";
-    out.reason = cleanName(str(p.reason), 500);
+    out.reason = withoutLinks(cleanName(str(p.reason), 500));
     out.open_reports = String(Number(p.open_reports || 0) || 0);
   }
   return out;
@@ -2068,7 +2081,8 @@ async function sendCommentEmails(
     if (row.sent_at) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
     rows = [row];
   } else {
-    if (!callerId || !(await registrationFlag(db, "article_comments"))) {
+    const flags = callerId ? await registrationFlags(db) : {};
+    if (!callerId || flags.article_comments !== true || flags.article_comment_emails !== true) {
       return reply({ error: "This notification is not allowed for this recipient" }, 403);
     }
     const subject = type === "comment_mention" ? notifData.comment_id : notifData.report_id;

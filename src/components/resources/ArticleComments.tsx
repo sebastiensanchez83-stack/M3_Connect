@@ -35,23 +35,40 @@ import { CommentComposer } from './CommentComposer';
  * technology, Victor 21 Oct). A comment opened from an e-mail or the dashboard
  * (/resources/<slug>#comment-<id>) is scrolled to and outlined; the reader's "you were tagged"
  * notices on this page count as seen.
+ *
+ * Two layouts (Victor, 21 Oct: "il y a de la place"):
+ *  - "panel", the right column of the article on large screens, under the Authors card: a card
+ *    that stays on screen while the article scrolls (sticky, placed by ResourceDetailPage), the
+ *    list scrolling inside it and the box to write always at its bottom;
+ *  - "inline", under the article on phones and tablets (one column).
+ * The teaser for visitors and accounts not validated yet sits in the same place.
  */
 export function ArticleComments({
   resourceId,
   onSignIn,
   onSignUp,
+  variant = 'inline',
 }: {
   resourceId: string;
   onSignIn: () => void;
   onSignUp: () => void;
+  variant?: 'inline' | 'panel';
 }) {
   const { t } = useTranslation();
   const location = useLocation();
   const { user, isVerified, isModerator } = useAuth();
   const { flags, ready } = useRegistrationFlags();
   const on = ready && flags.article_comments;
+  const emailsOn = on && flags.article_comment_emails;
+  const panel = variant === 'panel';
   const member = !!user && isVerified;
   const uid = user?.id ?? null;
+  /** The list's own scrolling box (panel only). */
+  const listRef = useRef<HTMLDivElement>(null);
+  /** After my own post: show the end of the list, where it lands (panel only). */
+  const scrollToEnd = useRef(false);
+  /** The panel's list is taller than its box: say it scrolls (only then). */
+  const [listScrolls, setListScrolls] = useState(false);
 
   const [count, setCount] = useState<number | null>(null);
   const [comments, setComments] = useState<ArticleComment[] | null>(null);
@@ -104,6 +121,27 @@ export function ArticleComments({
     return () => window.clearTimeout(timer);
   }, [comments, location.hash]);
 
+  // My new comment is the last one: in the panel, scroll its list down to it.
+  useEffect(() => {
+    if (!scrollToEnd.current || !comments) return;
+    scrollToEnd.current = false;
+    const box = listRef.current;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+  }, [comments]);
+
+  // Whether the panel's list has more than it shows (comments, window size, a list of names opening).
+  useEffect(() => {
+    const box = listRef.current;
+    if (!panel || !box) return;
+    const check = () => setListScrolls(box.scrollHeight > box.clientHeight + 4);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(check);
+    ro.observe(box);
+    if (box.firstElementChild) ro.observe(box.firstElementChild);
+    return () => ro.disconnect();
+  }, [panel, comments, member]);
+
   const refresh = useCallback(() => setReload((n) => n + 1), []);
 
   if (!on) return null;
@@ -120,62 +158,65 @@ export function ArticleComments({
     } catch (err) {
       throw new Error(commentErrorText(err, t));
     }
-    toast({ title: t('comments.posted', 'Your comment is published'), description: t('comments.postedDesc', 'The people you tagged are told on the site and by e-mail.') });
+    toast({
+      title: t('comments.posted', 'Your comment is published'),
+      description: emailsOn
+        ? t('comments.postedDesc', 'The people you tagged are told on the site and by e-mail.')
+        : t('comments.postedDescSite', 'The people you tagged see it on their dashboard.'),
+    });
+    scrollToEnd.current = panel;
     refresh();
   };
 
-  return (
-    <section aria-labelledby="comments-heading" className="mt-10 max-w-[68ch] scroll-mt-24 border-t border-rule pt-8" id="comments">
-      <h2 id="comments-heading" className="flex items-center gap-2.5 text-h3 text-navy">
-        <MessageCircle className="h-6 w-6 text-gold-text" aria-hidden="true" />
-        {heading}
-      </h2>
+  const teaser = !user ? (
+    <Teaser
+      compact={panel}
+      title={t('comments.teaserSignIn', 'Sign in to read and join the discussion')}
+      body={t('comments.teaserSignInBody', 'The comments, and who wrote them, are for Smart Marina Connect members. Members can also tag a person or a company in a comment.')}
+    >
+      <Button variant="cta" size="sm" onClick={onSignIn}>
+        {t('comments.signIn', 'Sign in to read the comments')}
+      </Button>
+      <Button variant="ctaOutline" size="sm" onClick={onSignUp}>
+        {t('comments.join', 'Become a member')}
+      </Button>
+    </Teaser>
+  ) : !isVerified ? (
+    <Teaser
+      compact={panel}
+      title={t('comments.teaserPending', 'Your account is being reviewed')}
+      body={t('comments.teaserPendingBody', 'Once the M3 team has validated your account, you can read the comments and join the discussion.')}
+    >
+      <Button asChild variant="ctaNavy" size="sm">
+        <Link to="/">{t('comments.seeAccount', 'See where my account stands')}</Link>
+      </Button>
+    </Teaser>
+  ) : null;
 
-      {!user ? (
-        <Teaser
-          title={t('comments.teaserSignIn', 'Sign in to read and join the discussion')}
-          body={t('comments.teaserSignInBody', 'The comments, and who wrote them, are for Smart Marina Connect members. Members can also tag a person or a company in a comment.')}
-        >
-          <Button variant="cta" size="sm" onClick={onSignIn}>
-            {t('comments.signIn', 'Sign in to read the comments')}
-          </Button>
-          <Button variant="ctaOutline" size="sm" onClick={onSignUp}>
-            {t('comments.join', 'Become a member')}
-          </Button>
-        </Teaser>
-      ) : !isVerified ? (
-        <Teaser
-          title={t('comments.teaserPending', 'Your account is being reviewed')}
-          body={t('comments.teaserPendingBody', 'Once the M3 team has validated your account, you can read the comments and join the discussion.')}
-        >
-          <Button asChild variant="ctaNavy" size="sm">
-            <Link to="/">{t('comments.seeAccount', 'See where my account stands')}</Link>
-          </Button>
-        </Teaser>
+  const list = (
+    <>
+      {loadError && (
+        <div role="alert" className={cn('flex flex-wrap items-center gap-3 rounded-field border border-red-200 bg-red-50 px-4 py-3 text-[15px] leading-6 text-red-900', panel ? 'mb-4' : 'mt-5')}>
+          <span className="flex-1">{loadError}</span>
+          <button type="button" onClick={refresh} className={ACTION_BTN}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            {t('comments.retry', 'Try again')}
+          </button>
+        </div>
+      )}
+
+      {comments === null ? (
+        <div className={cn('flex items-center gap-2 text-[15px] text-meta', !panel && 'mt-6')} role="status">
+          <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          {t('comments.loading', 'Loading the comments…')}
+        </div>
+      ) : comments.length === 0 && !loadError ? (
+        <p className={cn('rounded-field bg-page px-5 py-4 text-[16px] leading-6 text-meta', !panel && 'mt-5')}>
+          {t('comments.empty', 'No comment yet. Be the first to comment.')}
+        </p>
       ) : (
-        <>
-          {loadError && (
-            <div role="alert" className="mt-5 flex flex-wrap items-center gap-3 rounded-field border border-red-200 bg-red-50 px-4 py-3 text-[15px] leading-6 text-red-900">
-              <span className="flex-1">{loadError}</span>
-              <button type="button" onClick={refresh} className={ACTION_BTN}>
-                <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                {t('comments.retry', 'Try again')}
-              </button>
-            </div>
-          )}
-
-          {comments === null ? (
-            <div className="mt-6 flex items-center gap-2 text-[15px] text-meta" role="status">
-              <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              {t('comments.loading', 'Loading the comments…')}
-            </div>
-          ) : comments.length === 0 && !loadError ? (
-            <p className="mt-5 rounded-field bg-page px-5 py-4 text-[16px] leading-6 text-meta">
-              {t('comments.empty', 'No comment yet. Be the first to comment.')}
-            </p>
-          ) : (
-            <ol className="mt-6 space-y-4">
-              {comments.map((c) => (
+        <ol className={cn(panel ? 'space-y-3' : 'mt-6 space-y-4')}>
+          {comments.map((c) => (
                 <li key={c.id}>
                   <CommentCard
                     comment={c}
@@ -209,20 +250,30 @@ export function ArticleComments({
                   />
                 </li>
               ))}
-            </ol>
-          )}
-
-          <div className="mt-8 rounded-card border border-rule bg-white p-5 sm:p-6">
-            <CommentComposer
-              label={t('comments.writeLabel', 'Write a comment')}
-              submitLabel={t('comments.publish', 'Publish my comment')}
-              busyLabel={t('comments.publishing', 'Publishing…')}
-              onSubmit={submitNew}
-            />
-          </div>
-        </>
+        </ol>
       )}
+    </>
+  );
 
+  const composer = (
+    <CommentComposer
+      compact={panel}
+      label={t('comments.writeLabel', 'Write a comment')}
+      submitLabel={t('comments.publish', 'Publish my comment')}
+      busyLabel={t('comments.publishing', 'Publishing…')}
+      onSubmit={submitNew}
+    />
+  );
+
+  const titleEl = (
+    <h2 id="comments-heading" className={cn('flex items-center gap-2.5 text-navy', panel ? 'text-[20px] font-semibold leading-7' : 'text-h3')}>
+      <MessageCircle className={cn('shrink-0 text-gold-text', panel ? 'h-5 w-5' : 'h-6 w-6')} aria-hidden="true" />
+      {heading}
+    </h2>
+  );
+
+  const dialogs = (
+    <>
       <ReportDialog
         comment={reporting}
         onClose={() => setReporting(null)}
@@ -251,6 +302,57 @@ export function ArticleComments({
           }
         }}
       />
+    </>
+  );
+
+  if (panel) {
+    // The right column: a card the size of the screen at most; the list scrolls inside it and
+    // the box to write stays at its bottom.
+    return (
+      <section
+        aria-labelledby="comments-heading"
+        id="comments"
+        className="flex max-h-[calc(100vh-6.5rem)] min-h-0 scroll-mt-24 flex-col overflow-hidden rounded-card border border-rule bg-white shadow-[0_1px_3px_rgba(11,38,83,0.08)]"
+      >
+        <div className="shrink-0 border-b border-rule px-5 py-4">
+          {titleEl}
+          {member && listScrolls && (
+            <p className="mt-1 text-[14px] leading-5 text-meta">
+              {t('comments.panelHint', 'Oldest first. Scroll inside this box to read them all.')}
+            </p>
+          )}
+        </div>
+        {teaser ? (
+          <div className="px-5 py-5">{teaser}</div>
+        ) : (
+          <>
+            <div ref={listRef} className="min-h-[96px] flex-1 overflow-y-auto px-4 py-4">
+              {list}
+            </div>
+            {/* Never squeezed by the list above (which scrolls instead); scrolls itself only when the
+                names to tag make it taller than what is left over the list's last few lines. */}
+            <div className="max-h-[calc(100vh-17rem)] shrink-0 overflow-y-auto border-t border-rule bg-page px-4 py-4">
+              {composer}
+            </div>
+          </>
+        )}
+        {dialogs}
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="comments-heading" className="mt-10 max-w-[68ch] scroll-mt-24 border-t border-rule pt-8" id="comments">
+      {titleEl}
+      {teaser ?? (
+        <>
+          {list}
+          <div className="mt-8 rounded-card border border-rule bg-white p-5 sm:p-6">
+            {composer}
+          </div>
+        </>
+      )}
+      {dialogs}
     </section>
   );
 }
@@ -265,9 +367,9 @@ const DANGER_BTN = cn(
   'transition-colors hover:border-red-500 hover:bg-red-50 focus:outline-none focus-visible:shadow-focus',
 );
 
-function Teaser({ title, body, children }: { title: string; body: string; children: ReactNode }) {
+function Teaser({ title, body, children, compact = false }: { title: string; body: string; children: ReactNode; compact?: boolean }) {
   return (
-    <div className="mt-5 rounded-card border border-rule bg-page px-5 py-6 sm:px-7">
+    <div className={cn('rounded-card border border-rule bg-page', compact ? 'px-5 py-5' : 'mt-5 px-5 py-6 sm:px-7')}>
       <p className="text-[18px] font-semibold leading-7 text-navy">{title}</p>
       <p className="mt-1.5 max-w-prose text-[16px] leading-6 text-meta">{body}</p>
       <div className="mt-5 flex flex-wrap items-center gap-3">{children}</div>

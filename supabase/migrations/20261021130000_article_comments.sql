@@ -1,9 +1,11 @@
 -- Comments under articles, with tags of people and companies (Victor, 21 Oct 2026: "les membres
 -- de la plateforme peuvent mettre des commentaires sous les articles et tagger une personne ou
--- une entreprise"). Switched on at go-live (around 4-5 Nov) with registration_flags.article_comments.
+-- une entreprise"). Two switches: registration_flags.article_comments (the comments; on the
+-- preview first, for validated members to try them) and registration_flags.article_comment_emails
+-- (their e-mails; go-live only, around 4-5 Nov).
 -- NOT APPLIED. Apply with Victor's OK, after the dry run
 -- supabase/dryrun/20261021130000_article_comments.dryrun.sql (it runs this file, checks it as a
--- visitor, a pending account, two validated members, the author and M3 staff, then runs the
+-- visitor, a pending account, three validated members, the author and M3 staff, then runs the
 -- down, in one rolled-back transaction).
 -- Down: supabase/migrations/down/20261021130000_article_comments.down.sql.
 -- How to switch it on: docs/operations/article-comments.md.
@@ -15,38 +17,49 @@
 -- redefined, no policy changes, no existing table gains a column.
 --
 -- The rules (Victor, 21 Oct 2026):
---  - The switch: registration_flags.article_comments, JSON true only (missing = off, as every
---    registration switch). Off: every member function refuses ('comments_off') and the public
---    count answers null, so nothing about comments shows. M3 staff can still read and moderate.
+--  - The switches, JSON true only (missing = off, as every registration switch):
+--     article_comments: off, every member function refuses ('comments_off') and the public
+--       count answers null, so nothing about comments shows. M3 staff can still read and moderate.
+--     article_comment_emails: off, a tag or a report tells people ON THE SITE only (the
+--       dashboard To do; Admin > Resources > Reported comments) and writes NO notification_outbox
+--       row, so nothing can leave later either. resource_comment_email answers "out of date"
+--       while either switch is off: turning one off also stops what is already queued.
 --  - Only VALIDATED members (profiles.access_status = 'verified', public.is_verified()) write,
 --    tag, report and read the comments with their authors' names. A visitor or an account M3 has
 --    not validated gets the number of comments only (resource_comment_count).
 --  - Published at once, no pre-moderation. M3 staff (public.is_moderator()) hide or show again a
 --    comment at any time; every member may report a comment once; each report e-mails the M3
---    team (verified admins and moderators), one e-mail each.
+--    team (verified admins and moderators), one e-mail each (e-mails switch on). A report keeps
+--    the text as it was (body_snapshot, M3 only), and the author cannot edit a comment while a
+--    report on it is open ('comment_under_review'): the evidence stays.
 --  - Only on an article the reader may read: published and public.can_access_resource(level).
 --  - Tags: in the stored text a tag is "@[Name](user:<uuid>)" or "@[Name](org:<uuid>)". The
 --    server checks every tag: a validated person, or a verified company that is not archived and
 --    not merged; the name is rewritten from the database (nobody can tag X under Y's name); a
---    tag that does not check out becomes plain text "@Name". At most 5 tags per comment.
+--    tag that does not check out becomes plain text "@Name", and the text is checked again until
+--    nothing changes (a tag hidden inside another is checked too). At most 5 tags per comment.
 --  - A tagged person, or for a tagged company its owners (organization_members role owner, or
 --    organizations.owner_user_id; up to 3; a company without an owner: up to 3 of its validated
---    members), is told on the site (resource_comment_notice: the dashboard's To do) and by one
---    e-mail (notification_outbox 'comment_mention', sent at once by send-notification when the
---    author's page asks for it, else by registration-cron's outbox job). Never the author; one
---    notice and one e-mail per person and comment, however many ways they are tagged; only
---    validated members who may read the article. An edit that adds a tag tells the new people
---    only; a removed tag takes its notice away.
+--    members), is told on the site (resource_comment_notice: the dashboard's To do) and, while
+--    the e-mails are on, by one e-mail (notification_outbox 'comment_mention', sent at once by
+--    send-notification when the author's page asks for it, else by registration-cron's outbox
+--    job). Never the author; one notice per person and comment, ever; one e-mail per person and
+--    comment, and at most one a day from the same author to the same person; only validated
+--    members who may read the article. An edit that adds a tag tells the new people only; a
+--    removed tag or a deleted comment withdraws the notice (kept: it still counts for the limit;
+--    a tag put back brings it back as it was, with no new e-mail).
 --  - Limits: 2000 characters of text, 10 comments an hour per member, 60 people told a day per
---    author, 20 reports a day per member.
---  - Edit: the author, any time, while the comment is not hidden; it then shows "edited".
---    Delete: the author; the text is erased at once (the row stays, empty, so the hourly limit
---    and M3's report list still count it).
+--    author (every notice made in the last 24 hours counts, withdrawn ones too), 20 reports a
+--    day per member.
+--  - Edit: the author, any time, while the comment is neither hidden nor under review; it then
+--    shows "edited". Delete: the author; the text is erased at once (the row stays, empty, so
+--    the hourly limit and M3's report list still count it; a report keeps its own copy).
 --  - E-mail opt-out: send-notification files comment_mention under the new category
 --    "comments" (notification_prefs.comments = false stops them) and comment_report under
 --    "admin". resource_comment_email(outbox id) gives the sender every word of the e-mail
 --    from the database (service role only) and says when the news is out of date (comment
---    deleted or hidden, tag removed, report already handled).
+--    deleted or hidden, tag removed, report already handled, a switch off, the recipient no
+--    longer allowed to read the article).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -127,19 +140,22 @@ create table public.resource_comment_report (
   comment_id uuid not null references public.resource_comment(id) on delete cascade,
   reporter_user_id uuid not null references auth.users(id) on delete cascade,
   reason text,
+  -- The text as it was when reported (M3 only): an edit or a delete by its author cannot erase it.
+  body_snapshot text not null,
   created_at timestamptz not null default now(),
   resolved_at timestamptz,
   resolved_by uuid references auth.users(id) on delete set null,
   resolution text,
   constraint resource_comment_report_once unique (comment_id, reporter_user_id),
   constraint resource_comment_report_reason_len check (reason is null or char_length(reason) <= 500),
+  constraint resource_comment_report_snapshot_len check (char_length(body_snapshot) <= 4000),
   constraint resource_comment_report_resolution check (resolution is null or resolution in ('hidden', 'kept', 'deleted')),
   constraint resource_comment_report_resolved check ((resolved_at is null) = (resolution is null))
 );
 create index resource_comment_report_open_idx on public.resource_comment_report (created_at) where resolved_at is null;
 create index resource_comment_report_reporter_idx on public.resource_comment_report (reporter_user_id, created_at);
 comment on table public.resource_comment_report is
-  'Members reporting a comment to M3 (once each). Closed when M3 hides the comment (hidden), keeps it (kept), or its author deletes it (deleted). 20261021130000.';
+  'Members reporting a comment to M3 (once each), with the text as it was (body_snapshot). Closed when M3 hides the comment (hidden), keeps it (kept), or its author deletes it (deleted). 20261021130000.';
 
 create table public.resource_comment_notice (
   id bigint generated always as identity primary key,
@@ -149,12 +165,15 @@ create table public.resource_comment_notice (
   via_org_id uuid references public.organizations(id) on delete set null,
   created_at timestamptz not null default now(),
   seen_at timestamptz,
+  -- The tag was removed or the comment deleted: not shown any more, but kept (the daily limit
+  -- counts it; the tag put back brings the same notice back, seen or not, with no new e-mail).
+  withdrawn_at timestamptz,
   constraint resource_comment_notice_once unique (user_id, comment_id)
 );
-create index resource_comment_notice_unseen_idx on public.resource_comment_notice (user_id, created_at) where seen_at is null;
+create index resource_comment_notice_unseen_idx on public.resource_comment_notice (user_id, created_at) where seen_at is null and withdrawn_at is null;
 create index resource_comment_notice_comment_idx on public.resource_comment_notice (comment_id);
 comment on table public.resource_comment_notice is
-  'On-site notice "you were tagged in a comment" (the dashboard To do), one per person and comment; also the list of people e-mailed. 20261021130000.';
+  'On-site notice "you were tagged in a comment" (the dashboard To do), one per person and comment, ever (withdrawn_at: tag removed or comment deleted); also the list of people e-mailed and the daily limit. 20261021130000.';
 
 alter table public.resource_comment enable row level security;
 alter table public.resource_comment_mention enable row level security;
@@ -187,6 +206,19 @@ security definer
 set search_path = ''
 as $fn$
   select coalesce((select (ps.value -> 'article_comments') = 'true'::jsonb
+                     from public.platform_settings ps where ps.key = 'registration_flags'), false)
+$fn$;
+
+-- The e-mails switch: registration_flags.article_comment_emails, JSON true only. Off (until
+-- go-live): tags and reports tell people on the site only, no notification_outbox row at all.
+create function public.resource_comment_emails_on()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select coalesce((select (ps.value -> 'article_comment_emails') = 'true'::jsonb
                      from public.platform_settings ps where ps.key = 'registration_flags'), false)
 $fn$;
 
@@ -304,6 +336,10 @@ as $fn$
 $fn$;
 
 -- The text to store and the people and companies it tags, after checking every tag (header).
+-- The check runs again until the text no longer changes: turning a bad tag into "@Name" can
+-- make a new tag of the text around it ("@[@[Z](user:bad)](user:x)" gives "@[@Z](user:x)"),
+-- which the next round checks. Valid tags are rewritten to themselves on the second round, so a
+-- plain comment needs two; a text still changing after three is refused ('comment_bad_tag').
 create function public.resource_comment_prepare(p_body text, out o_body text, out o_people uuid[], out o_orgs uuid[])
 language plpgsql
 stable
@@ -312,6 +348,8 @@ set search_path = ''
 as $fn$
 declare
   v_body text := public.resource_comment_clean(p_body, 6000);
+  v_prev text;
+  v_round integer;
   v_m text[];
   v_tok text;
   v_id uuid;
@@ -320,32 +358,39 @@ declare
 begin
   o_people := '{}';
   o_orgs := '{}';
-  for v_m in
-    select regexp_matches(v_body, '@\[([^][[:cntrl:]]{1,120})\]\((user|org):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)', 'g')
-  loop
-    v_tok := '@[' || v_m[1] || '](' || v_m[2] || ':' || v_m[3] || ')';
-    v_id := v_m[3]::uuid;
-    v_label := null;
-    if v_m[2] = 'user' then
-      select public.resource_comment_label(concat_ws(' ', p.first_name, p.last_name)) into v_label
-        from public.profiles p where p.user_id = v_id and p.access_status = 'verified';
-      if coalesce(v_label, '') <> '' and not (v_id = any(o_people)) then
-        o_people := o_people || v_id;
+  for v_round in 1..3 loop
+    v_prev := v_body;
+    for v_m in
+      select regexp_matches(v_body, '@\[([^][[:cntrl:]]{1,120})\]\((user|org):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)', 'g')
+    loop
+      v_tok := '@[' || v_m[1] || '](' || v_m[2] || ':' || v_m[3] || ')';
+      v_id := v_m[3]::uuid;
+      v_label := null;
+      if v_m[2] = 'user' then
+        select public.resource_comment_label(concat_ws(' ', p.first_name, p.last_name)) into v_label
+          from public.profiles p where p.user_id = v_id and p.access_status = 'verified';
+        if coalesce(v_label, '') <> '' and not (v_id = any(o_people)) then
+          o_people := o_people || v_id;
+        end if;
+      else
+        select public.resource_comment_label(o.name) into v_label
+          from public.organizations o
+         where o.id = v_id and o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null;
+        if coalesce(v_label, '') <> '' and not (v_id = any(o_orgs)) then
+          o_orgs := o_orgs || v_id;
+        end if;
       end if;
-    else
-      select public.resource_comment_label(o.name) into v_label
-        from public.organizations o
-       where o.id = v_id and o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null;
-      if coalesce(v_label, '') <> '' and not (v_id = any(o_orgs)) then
-        o_orgs := o_orgs || v_id;
+      if coalesce(v_label, '') = '' then
+        v_body := replace(v_body, v_tok, '@' || v_m[1]);
+      else
+        v_body := replace(v_body, v_tok, '@[' || v_label || '](' || v_m[2] || ':' || v_id::text || ')');
       end if;
-    end if;
-    if coalesce(v_label, '') = '' then
-      v_body := replace(v_body, v_tok, '@' || v_m[1]);
-    else
-      v_body := replace(v_body, v_tok, '@[' || v_label || '](' || v_m[2] || ':' || v_id::text || ')');
-    end if;
+    end loop;
+    exit when v_body = v_prev;
   end loop;
+  if v_body <> v_prev then
+    raise exception using errcode = 'P0001', message = 'comment_bad_tag';
+  end if;
   v_plain := char_length(btrim(public.resource_comment_plain(v_body)));
   if v_plain = 0 then
     raise exception using errcode = 'P0001', message = 'comment_empty';
@@ -411,9 +456,14 @@ as $fn$
    order by t.uid, t.prio
 $fn$;
 
--- The notices and e-mails of a comment, after a post or an edit: people no longer tagged lose
--- their notice, new ones get one and one queued e-mail (once per person and comment, ever).
--- Returns the number of e-mails queued. Over 60 people told in a day by one author: refused.
+-- The notices and e-mails of a comment, after a post or an edit (header): people no longer told
+-- have their notice withdrawn (kept, so it still counts below); people told again get the same
+-- notice back as it was (seen or not), with no new e-mail; new people get a notice and, while the
+-- e-mails are on, one queued e-mail, unless the same author already e-mailed them in the last 24
+-- hours (any comment; the outbox rows are never deleted, only settled). Returns the number of
+-- e-mails queued. Over 60 notices made in 24 hours for one author's comments: refused (the whole
+-- post or edit with it). Every count here is of rows nothing deletes, so deleting or editing a
+-- comment never makes room for more.
 create function public.resource_comment_notify(p_comment_id uuid)
 returns integer
 language plpgsql
@@ -422,13 +472,17 @@ set search_path = ''
 as $fn$
 declare
   v_author uuid;
+  v_emails boolean := public.resource_comment_emails_on();
   v_n integer := 0;
   v_day integer;
 begin
   select rc.author_user_id into v_author from public.resource_comment rc where rc.id = p_comment_id;
-  delete from public.resource_comment_notice n
-   where n.comment_id = p_comment_id
+  update public.resource_comment_notice n set withdrawn_at = now()
+   where n.comment_id = p_comment_id and n.withdrawn_at is null
      and not exists (select 1 from public.resource_comment_recipients(p_comment_id) r where r.user_id = n.user_id);
+  update public.resource_comment_notice n set withdrawn_at = null, via_org_id = r.via_org_id
+    from public.resource_comment_recipients(p_comment_id) r
+   where n.comment_id = p_comment_id and n.user_id = r.user_id and n.withdrawn_at is not null;
   with ins as (
     insert into public.resource_comment_notice (user_id, comment_id, via_org_id)
     select r.user_id, p_comment_id, r.via_org_id from public.resource_comment_recipients(p_comment_id) r
@@ -440,6 +494,10 @@ begin
          'comment_mention:' || p_comment_id::text || ':' || i.uid::text,
          jsonb_build_object('comment_id', p_comment_id)
     from ins i
+   where v_emails
+     and not exists (select 1 from public.notification_outbox o
+                      where o.kind = 'comment_mention' and o.actor_id = v_author and o.user_id = i.uid
+                        and o.created_at > now() - interval '24 hours')
   on conflict (dedupe_key) do nothing;
   get diagnostics v_n = row_count;
   select count(*) into v_day
@@ -455,8 +513,9 @@ $fn$;
 
 -- ---- 4. Members ---------------------------------------------------------------------------
 
--- Post a comment. Returns {id, emails}: emails = e-mails queued for the people tagged (the page
--- then asks send-notification to send them: type comment_mention, data.comment_id).
+-- Post a comment. Returns {id, emails}: emails = e-mails queued for the people tagged, always 0
+-- while the e-mails are off (the page then asks send-notification to send them: type
+-- comment_mention, data.comment_id).
 create function public.resource_comment_post(p_resource_id uuid, p_body text)
 returns jsonb
 language plpgsql
@@ -487,7 +546,8 @@ begin
 end
 $fn$;
 
--- Edit my comment (not once M3 hid it). Returns {id, emails, changed}.
+-- Edit my comment (not once M3 hid it, nor while a report on it is open: M3 judges the text
+-- that was reported). Returns {id, emails, changed}.
 create function public.resource_comment_edit(p_comment_id uuid, p_body text)
 returns jsonb
 language plpgsql
@@ -512,6 +572,9 @@ begin
   if v_c.hidden_at is not null then
     raise exception using errcode = 'P0001', message = 'comment_hidden';
   end if;
+  if exists (select 1 from public.resource_comment_report rp where rp.comment_id = p_comment_id and rp.resolved_at is null) then
+    raise exception using errcode = 'P0001', message = 'comment_under_review';
+  end if;
   perform public.resource_comment_gate(v_c.resource_id, false);
   select * into v_prep from public.resource_comment_prepare(p_body);
   if v_prep.o_body = v_c.body then
@@ -532,7 +595,8 @@ begin
 end
 $fn$;
 
--- Delete my comment: the text is erased, tags, notices and unsent e-mails go, open reports close.
+-- Delete my comment: the text is erased, the tags go, the notices are withdrawn (kept for the
+-- daily limit), unsent e-mails are settled, open reports close (each keeps its copy of the text).
 create function public.resource_comment_delete(p_comment_id uuid)
 returns boolean
 language plpgsql
@@ -553,7 +617,7 @@ begin
   end if;
   update public.resource_comment rc set deleted_at = now(), body = '' where rc.id = p_comment_id;
   delete from public.resource_comment_mention m where m.comment_id = p_comment_id;
-  delete from public.resource_comment_notice n where n.comment_id = p_comment_id;
+  update public.resource_comment_notice n set withdrawn_at = now() where n.comment_id = p_comment_id and n.withdrawn_at is null;
   update public.resource_comment_report rp set resolved_at = now(), resolution = 'deleted'
    where rp.comment_id = p_comment_id and rp.resolved_at is null;
   update public.notification_outbox o set sent_at = now(), last_error = 'not sent: the comment was deleted'
@@ -564,8 +628,10 @@ begin
 end
 $fn$;
 
--- Report a comment to M3 (once). Returns {report_id, emails, already}: emails = e-mails queued
--- for the M3 team (the page then asks send-notification: type comment_report, data.report_id).
+-- Report a comment to M3 (once), keeping a copy of its text. Returns {report_id, emails,
+-- already}: emails = e-mails queued for the M3 team while the e-mails are on (the page then asks
+-- send-notification: type comment_report, data.report_id); with them off, M3 finds the report in
+-- Admin > Resources > Reported comments only.
 create function public.resource_comment_report(p_comment_id uuid, p_reason text)
 returns jsonb
 language plpgsql
@@ -579,7 +645,7 @@ declare
   v_n integer := 0;
 begin
   v_uid := public.resource_comment_gate(null, false);
-  select rc.id, rc.resource_id, rc.author_user_id, rc.deleted_at, rc.hidden_at into v_c
+  select rc.id, rc.resource_id, rc.author_user_id, rc.body, rc.deleted_at, rc.hidden_at into v_c
     from public.resource_comment rc where rc.id = p_comment_id;
   if not found or v_c.deleted_at is not null or v_c.hidden_at is not null then
     raise exception using errcode = 'P0001', message = 'comment_not_found';
@@ -595,21 +661,23 @@ begin
        where rp.reporter_user_id = v_uid and rp.created_at > now() - interval '24 hours') >= 20 then
     raise exception using errcode = 'P0001', message = 'comment_report_rate_limited';
   end if;
-  insert into public.resource_comment_report (comment_id, reporter_user_id, reason)
-  values (p_comment_id, v_uid, nullif(public.resource_comment_clean(p_reason, 500), ''))
+  insert into public.resource_comment_report (comment_id, reporter_user_id, reason, body_snapshot)
+  values (p_comment_id, v_uid, nullif(public.resource_comment_clean(p_reason, 500), ''), v_c.body)
   on conflict on constraint resource_comment_report_once do nothing
   returning id into v_rid;
   if v_rid is null then
     return jsonb_build_object('report_id', null, 'emails', 0, 'already', true);
   end if;
-  insert into public.notification_outbox (kind, user_id, actor_id, subject_id, dedupe_key, data)
-  select 'comment_report', p.user_id, v_uid, v_rid,
-         'comment_report:' || v_rid::text || ':' || p.user_id::text,
-         jsonb_build_object('comment_id', p_comment_id)
-    from public.profiles p
-   where p.persona in ('admin', 'moderator') and p.access_status = 'verified' and p.user_id <> v_uid
-  on conflict (dedupe_key) do nothing;
-  get diagnostics v_n = row_count;
+  if public.resource_comment_emails_on() then
+    insert into public.notification_outbox (kind, user_id, actor_id, subject_id, dedupe_key, data)
+    select 'comment_report', p.user_id, v_uid, v_rid,
+           'comment_report:' || v_rid::text || ':' || p.user_id::text,
+           jsonb_build_object('comment_id', p_comment_id)
+      from public.profiles p
+     where p.persona in ('admin', 'moderator') and p.access_status = 'verified' and p.user_id <> v_uid
+    on conflict (dedupe_key) do nothing;
+    get diagnostics v_n = row_count;
+  end if;
   return jsonb_build_object('report_id', v_rid, 'emails', v_n, 'already', false);
 end
 $fn$;
@@ -678,7 +746,8 @@ as $fn$
          case when public.is_moderator() then
            (select count(*)::integer from public.resource_comment_report rp where rp.comment_id = c.id and rp.resolved_at is null) end,
          exists (select 1 from public.resource_comment_report rp where rp.comment_id = c.id and rp.reporter_user_id = auth.uid()),
-         (select n.id from public.resource_comment_notice n where n.comment_id = c.id and n.user_id = auth.uid() and n.seen_at is null)
+         (select n.id from public.resource_comment_notice n
+           where n.comment_id = c.id and n.user_id = auth.uid() and n.seen_at is null and n.withdrawn_at is null)
     from public.resource_comment c
     left join public.profiles ap on ap.user_id = c.author_user_id
     left join public.organizations ao
@@ -767,7 +836,8 @@ as $fn$
   select a.k, a.i, a.l, a.d, a.img, a.s from allx a order by a.r, a.ord, a.l limit 8;
 $fn$;
 
--- My notices "you were tagged in a comment" not seen yet (newest first, 20 at most).
+-- My notices "you were tagged in a comment" not seen yet (newest first, 20 at most): not
+-- withdrawn, on a visible comment, under an article I may still read.
 create function public.resource_comment_my_notices()
 returns table (
   notice_id bigint,
@@ -795,12 +865,12 @@ as $fn$
          n.created_at
     from public.resource_comment_notice n
     join public.resource_comment c on c.id = n.comment_id and c.deleted_at is null and c.hidden_at is null
-    join public.resources r on r.id = c.resource_id and r.published = true
+    join public.resources r on r.id = c.resource_id and r.published = true and public.can_access_resource(r.access_level)
     left join public.profiles ap on ap.user_id = c.author_user_id
     left join public.organizations ao
       on ao.id = c.author_org_id and ao.access_status = 'verified' and ao.archived_at is null and ao.duplicate_of is null
     left join public.organizations vo on vo.id = n.via_org_id
-   where n.user_id = auth.uid() and n.seen_at is null
+   where n.user_id = auth.uid() and n.seen_at is null and n.withdrawn_at is null
    order by n.created_at desc, n.id desc
    limit 20;
 $fn$;
@@ -815,7 +885,7 @@ as $fn$
   select public.resource_comment_gate(null, false);
   with u as (
     update public.resource_comment_notice n set seen_at = now()
-     where n.user_id = auth.uid() and n.seen_at is null
+     where n.user_id = auth.uid() and n.seen_at is null and n.withdrawn_at is null
        and (p_notice_ids is null or n.id = any(p_notice_ids))
     returning 1
   )
@@ -867,7 +937,8 @@ end
 $fn$;
 
 -- The reported comments: open reports first (p_open_only: only those), each with the article,
--- the author, the text and every report (who, why, when).
+-- the author, the text now and every report (who, why, when, and the text as it was reported:
+-- body_snapshot, kept after an edit or a delete).
 create function public.admin_resource_comment_reports(p_open_only boolean)
 returns table (
   comment_id uuid,
@@ -904,7 +975,8 @@ as $fn$
                  max(rp.created_at) as last_at,
                  jsonb_agg(jsonb_build_object(
                    'reporter_name', coalesce(nullif(btrim(concat_ws(' ', pp.first_name, pp.last_name)), ''), 'A member'),
-                   'reason', rp.reason, 'created_at', rp.created_at, 'resolution', rp.resolution, 'resolved_at', rp.resolved_at)
+                   'reason', rp.reason, 'body_snapshot', rp.body_snapshot,
+                   'created_at', rp.created_at, 'resolution', rp.resolution, 'resolved_at', rp.resolved_at)
                    order by rp.created_at desc) as items
             from public.resource_comment_report rp
             left join public.profiles pp on pp.user_id = rp.reporter_user_id
@@ -940,6 +1012,7 @@ declare
   v_via text;
   v_reporter text;
   v_reason text;
+  v_text text;
   v_open integer;
 begin
   select o.id, o.kind, o.user_id, o.subject_id, o.sent_at into v_o from public.notification_outbox o where o.id = p_outbox_id;
@@ -952,8 +1025,15 @@ begin
   if v_o.sent_at is not null then
     return jsonb_build_object('ok', false, 'sent', true, 'why', 'already sent');
   end if;
+  -- A switch turned off (an incident, or the e-mails not live yet) also stops what is queued.
+  if not public.resource_comments_on() then
+    return jsonb_build_object('ok', false, 'stale', true, 'why', 'comments are switched off');
+  end if;
+  if not public.resource_comment_emails_on() then
+    return jsonb_build_object('ok', false, 'stale', true, 'why', 'comment e-mails are switched off');
+  end if;
   if v_o.kind = 'comment_report' then
-    select rp.id, rp.comment_id, rp.reporter_user_id, rp.reason, rp.resolved_at into v_rep
+    select rp.id, rp.comment_id, rp.reporter_user_id, rp.reason, rp.body_snapshot, rp.resolved_at into v_rep
       from public.resource_comment_report rp where rp.id = v_o.subject_id;
     if not found then
       return jsonb_build_object('ok', false, 'stale', true, 'why', 'the report no longer exists');
@@ -967,9 +1047,13 @@ begin
     end if;
     v_cid := v_rep.comment_id;
     v_reason := v_rep.reason;
+    -- The text as it was reported (its author cannot have changed it since: no edit while a
+    -- report is open; a delete closes the reports, and the e-mail with them).
+    v_text := v_rep.body_snapshot;
   else
     v_cid := v_o.subject_id;
-    if not exists (select 1 from public.resource_comment_notice n where n.comment_id = v_cid and n.user_id = v_o.user_id) then
+    if not exists (select 1 from public.resource_comment_notice n
+                    where n.comment_id = v_cid and n.user_id = v_o.user_id and n.withdrawn_at is null) then
       return jsonb_build_object('ok', false, 'stale', true, 'why', 'the person is no longer tagged in this comment');
     end if;
     if not exists (select 1 from public.profiles p where p.user_id = v_o.user_id and p.access_status = 'verified') then
@@ -984,9 +1068,17 @@ begin
   if v_c.hidden_at is not null and v_o.kind = 'comment_mention' then
     return jsonb_build_object('ok', false, 'stale', true, 'why', 'M3 hid the comment');
   end if;
-  select r.title, r.slug, r.published into v_r from public.resources r where r.id = v_c.resource_id;
+  if v_o.kind = 'comment_mention' then
+    v_text := v_c.body;
+  end if;
+  select r.title, r.slug, r.published, r.access_level into v_r from public.resources r where r.id = v_c.resource_id;
   if not found or v_r.published is not true then
     return jsonb_build_object('ok', false, 'stale', true, 'why', 'the article is not published any more');
+  end if;
+  -- The article may have become members-only or marina-only since: nothing of it to someone who
+  -- cannot open it (M3 staff always can).
+  if not public.resource_comment_reader_ok(v_o.user_id, v_r.access_level) then
+    return jsonb_build_object('ok', false, 'stale', true, 'why', 'the recipient may not read the article any more');
   end if;
   select nullif(btrim(concat_ws(' ', p.first_name, p.last_name)), '') into v_author from public.profiles p where p.user_id = v_c.author_user_id;
   select o.name into v_author_org from public.organizations o
@@ -1008,7 +1100,7 @@ begin
     'author_name', coalesce(v_author, 'A member'),
     'author_org_name', v_author_org,
     'via_org_name', v_via,
-    'excerpt', public.resource_comment_excerpt(v_c.body, 300),
+    'excerpt', public.resource_comment_excerpt(v_text, 300),
     'hidden', v_c.hidden_at is not null,
     'reporter_name', case when v_o.kind = 'comment_report' then coalesce(v_reporter, 'A member') end,
     'reason', v_reason,
@@ -1019,7 +1111,7 @@ $fn$;
 -- ---- 7. Who may call what ----------------------------------------------------------------
 
 revoke all on function
-  public.resource_comments_on(), public.resource_comment_gate(uuid, boolean), public.resource_comment_staff(),
+  public.resource_comments_on(), public.resource_comment_emails_on(), public.resource_comment_gate(uuid, boolean), public.resource_comment_staff(),
   public.resource_comment_reader_ok(uuid, text), public.resource_comment_clean(text, integer), public.resource_comment_label(text),
   public.resource_comment_plain(text), public.resource_comment_excerpt(text, integer), public.resource_comment_prepare(text),
   public.resource_comment_recipients(uuid), public.resource_comment_notify(uuid),

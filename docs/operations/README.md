@@ -12,7 +12,7 @@
 | [`backups.md`](backups.md) | Victor, Sébastien, technical contact | What is protected today and what is not, recovery procedures (rows, files, migrations, edge functions, whole project), the monthly export, decisions for Victor |
 | [`health-monitor.md`](health-monitor.md) | technical contact, Victor | The `ops-health` monitor: what it checks, its e-mail rule and heartbeat, settings, deploy order, which alerts are urgent during WYS |
 | [`wys-dubai-runbook.md`](wys-dubai-runbook.md) | the whole M3 team | World Yachting Summit 27 Nov: timeline to 28 Nov, roles and accounts, confirming guests, the door (gala rule, refresh, lost phone), fallback, contacts, do-not-touch list, the 18 Nov rehearsal |
-| [`article-comments.md`](article-comments.md) | Victor, technical contact | Comments under articles with @tags (21 Oct 2026): what is in the repository, the go-live order (dry run, migration, three functions, the `article_comments` switch), switching off, the rules the database enforces |
+| [`article-comments.md`](article-comments.md) | Victor, technical contact | Comments under articles with @tags (21 Oct 2026): the two switches (`article_comments` for trying them on the preview now, `article_comment_emails` at go-live), what to apply and deploy at each step, deleting the test comments before go-live, switching off, the rules the database enforces |
 
 Related: `docs/registration-contract.md` (what the registration code promises),
 `docs/rights-switch-runbook.md` (the rights switch at go-live),

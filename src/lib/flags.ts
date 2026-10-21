@@ -55,14 +55,18 @@ import { supabase } from '@/lib/supabase';
  *    say where a decision e-mail waits ("queued until the sender is on"), so it is listed.
  *  - article_comments (21 Oct 2026): comments under articles, with tags of people and companies
  *    (src/components/resources/ArticleComments.tsx, the dashboard To do, Admin > Resources).
- *    Off: nothing about comments shows and the database refuses them. Switch it on the day the
- *    redesign is the live site, once the go-live send-notification is deployed
- *    (docs/operations/article-comments.md).
+ *    Off: nothing about comments shows and the database refuses them. Only the redesign shows
+ *    them, so it can go on once the database update is applied, for validated members to try
+ *    them on the preview (docs/operations/article-comments.md).
+ *  - article_comment_emails (21 Oct 2026): the e-mails of the comments (a tag, a report to M3).
+ *    Off: the database tells people on the site only and queues no e-mail at all; the pages say
+ *    "on the site" instead of "by e-mail" and the e-mail preferences hide "Comments". Go-live
+ *    only, after the go-live send-notification is deployed.
  */
 export const REGISTRATION_FLAG_KEYS = [
   'webinar_v2', 'onsite_v2', 'front_door', 'account_signup_v2', 'password_only_login',
   'wys_form_v2', 'wys_status_edit', 'review_queue', 'provisioning', 'capabilities_enforced', 'turnstile',
-  'outbox_sender', 'article_comments',
+  'outbox_sender', 'article_comments', 'article_comment_emails',
 ] as const;
 
 export type RegistrationFlag = typeof REGISTRATION_FLAG_KEYS[number];

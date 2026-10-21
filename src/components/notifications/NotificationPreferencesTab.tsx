@@ -19,8 +19,8 @@ interface CategoryDef {
   description: string;
   examples: string;
   critical?: boolean;
-  /** Shown only while this registration switch is on (a kind of e-mail that does not exist before). */
-  flag?: RegistrationFlag;
+  /** Shown only while these registration switches are all on (a kind of e-mail that does not exist before). */
+  flags?: RegistrationFlag[];
 }
 
 export const CATEGORIES: CategoryDef[] = [
@@ -37,7 +37,8 @@ export const CATEGORIES: CategoryDef[] = [
     title: 'Comments',
     description: 'When someone tags you or your company in a comment under an article.',
     examples: 'Example: "Alex Morel tagged you in a comment".',
-    flag: 'article_comments',
+    // The e-mails exist once both are on (the comments, then their e-mails at go-live).
+    flags: ['article_comments', 'article_comment_emails'],
   },
   {
     key: 'submissions',
@@ -94,7 +95,7 @@ export const CATEGORIES: CategoryDef[] = [
 /** The categories to show: those of a switch that is off are left out. */
 export function useVisibleCategories(): CategoryDef[] {
   const { flags } = useRegistrationFlags();
-  return CATEGORIES.filter((c) => !c.flag || flags[c.flag]);
+  return CATEGORIES.filter((c) => !c.flags || c.flags.every((k) => flags[k]));
 }
 
 export function NotificationPreferencesTab() {

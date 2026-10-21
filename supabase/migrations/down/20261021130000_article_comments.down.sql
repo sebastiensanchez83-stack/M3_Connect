@@ -1,10 +1,10 @@
 -- DOWN for supabase/migrations/20261021130000_article_comments.sql
 -- Removes the article comments: the functions, the four tables (every comment, tag, report and
--- notice is lost: export them first if they matter) and the two comment kinds of
+-- notice is lost: export them first if they matter), the two comment kinds of
 -- notification_outbox (their queued or sent rows are deleted, then the list of kinds is the
--- eight of Phase 3 again). Turn registration_flags.article_comments off first: the pages then
--- show nothing about comments, and with the functions gone they fail quietly into "no comments".
--- Refused while another SQL function still calls one of the functions it drops.
+-- eight of Phase 3 again) and the two switches registration_flags.article_comments and
+-- article_comment_emails (left on, the redesign's pages would show a comments section whose
+-- every call fails). Refused while another SQL function still calls one of the functions it drops.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -18,9 +18,9 @@ begin
    where p.pronamespace = 'public'::regnamespace
      and (p.prosrc ilike '%resource_comment%' or p.prosrc ilike '%resource_comments_%')
      and p.proname not in (
-       'resource_comments_on', 'resource_comment_gate', 'resource_comment_staff', 'resource_comment_reader_ok',
-       'resource_comment_clean', 'resource_comment_label', 'resource_comment_plain', 'resource_comment_excerpt',
-       'resource_comment_prepare', 'resource_comment_recipients', 'resource_comment_notify',
+       'resource_comments_on', 'resource_comment_emails_on', 'resource_comment_gate', 'resource_comment_staff',
+       'resource_comment_reader_ok', 'resource_comment_clean', 'resource_comment_label', 'resource_comment_plain',
+       'resource_comment_excerpt', 'resource_comment_prepare', 'resource_comment_recipients', 'resource_comment_notify',
        'resource_comment_post', 'resource_comment_edit', 'resource_comment_delete', 'resource_comment_report',
        'resource_comments_list', 'resource_comment_count', 'resource_comment_mention_search',
        'resource_comment_my_notices', 'resource_comment_mark_seen',
@@ -30,6 +30,13 @@ begin
   end if;
 end
 $pre$;
+
+-- The switches first: nothing about comments shows any more.
+update public.platform_settings ps
+   set value = ps.value - 'article_comments' - 'article_comment_emails'
+ where ps.key = 'registration_flags'
+   and jsonb_typeof(ps.value) = 'object'
+   and ((ps.value -> 'article_comments') is not null or (ps.value -> 'article_comment_emails') is not null);
 
 drop function if exists
   public.resource_comment_email(bigint),
@@ -54,6 +61,7 @@ drop function if exists
   public.resource_comment_reader_ok(uuid, text),
   public.resource_comment_staff(),
   public.resource_comment_gate(uuid, boolean),
+  public.resource_comment_emails_on(),
   public.resource_comments_on();
 
 drop table if exists public.resource_comment_notice, public.resource_comment_report, public.resource_comment_mention, public.resource_comment;

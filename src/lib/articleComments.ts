@@ -8,8 +8,10 @@ import { supabase } from '@/lib/supabase';
  * the server), the limits, the dashboard notices and the queued e-mails. This file is the
  * site's one door to it, plus the few pure helpers the pages share.
  *
- * Switch: registration_flags.article_comments (src/lib/flags.ts). Off, the pages show nothing
- * about comments and every function below except the count answers "comments_off".
+ * Switches (src/lib/flags.ts): registration_flags.article_comments (off, the pages show nothing
+ * about comments and every function below except the count answers "comments_off") and
+ * article_comment_emails (off, a tag or a report tells people on the site only: the database
+ * queues no e-mail, "emails" is always 0 and nothing is asked of send-notification).
  *
  * A tag in the stored text: "@[Name](user:<uuid>)" (a person) or "@[Name](org:<uuid>)" (a
  * company). People read "@Name"; the page turns it into a link (company page, or the person's
@@ -92,7 +94,15 @@ export interface ReportedComment {
   open_reports: number;
   total_reports: number;
   last_reported_at: string;
-  reports: { reporter_name: string; reason: string | null; created_at: string; resolution: string | null; resolved_at: string | null }[];
+  /** Each report, with the text as it was when reported (kept after an edit or a delete by its author). */
+  reports: {
+    reporter_name: string;
+    reason: string | null;
+    body_snapshot: string | null;
+    created_at: string;
+    resolution: string | null;
+    resolved_at: string | null;
+  }[];
 }
 
 /** The longest comment, in characters as people read them (tags count as "@Name"). */
@@ -236,6 +246,10 @@ export function commentErrorText(err: unknown, t: TFunction): string {
       return t('comments.err.notYours', 'Only its author can change this comment.');
     case 'comment_hidden':
       return t('comments.err.hidden', 'The M3 team hid this comment: it cannot be changed.');
+    case 'comment_under_review':
+      return t('comments.err.underReview', 'The M3 team is looking at this comment, so it cannot be changed for now. You can still delete it.');
+    case 'comment_bad_tag':
+      return t('comments.err.badTag', 'Some tags in your comment could not be read. Please remove them and tag again with "@".');
     case 'comment_report_own':
       return t('comments.err.reportOwn', 'You cannot report your own comment.');
     case 'comment_report_rate_limited':

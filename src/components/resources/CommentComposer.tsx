@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AtSign, Building2, Loader2, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoTile } from '@/components/brand/OrgCard';
+import { useRegistrationFlags } from '@/lib/flags';
 import { cn } from '@/lib/utils';
 import {
   activeQuery, COMMENT_MAX, COMMENT_MAX_TAGS, searchMentions, tagLabel, tagsInText, toStoredBody,
@@ -19,6 +20,10 @@ import {
  * The text stays readable while typing ("@Alex Morel"); the people and companies chosen show
  * under it as "Tagged: …" with a way to remove each one. On send, each "@Name" still in the
  * text becomes a stored tag (src/lib/articleComments.ts); the server checks them again.
+ *
+ * `compact`: the side panel of the article page on large screens (a smaller box and list, so the
+ * comments above keep room). The help line says "by e-mail" only once the comment e-mails are on
+ * (registration_flags.article_comment_emails).
  */
 export function CommentComposer({
   initialText = '',
@@ -28,6 +33,7 @@ export function CommentComposer({
   onSubmit,
   onCancel,
   autoFocus = false,
+  compact = false,
   label,
 }: {
   initialText?: string;
@@ -38,10 +44,14 @@ export function CommentComposer({
   onSubmit: (storedBody: string) => Promise<void>;
   onCancel?: () => void;
   autoFocus?: boolean;
+  /** Smaller box and suggestion list (the side panel on large screens). */
+  compact?: boolean;
   /** The box's visible label. */
   label: string;
 }) {
   const { t } = useTranslation();
+  const { flags } = useRegistrationFlags();
+  const emailsOn = flags.article_comments && flags.article_comment_emails;
   const baseId = useId();
   const boxId = `${baseId}-box`;
   const listId = `${baseId}-list`;
@@ -65,7 +75,12 @@ export function CommentComposer({
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
 
-  const q = activeQuery(text, cursor);
+  // The "@..." being typed, unless it is a tag already chosen and the cursor is past its name:
+  // after "@Sam Rivera " the person writes on, they are not looking for anyone.
+  const typed = activeQuery(text, cursor);
+  const q = typed && picked.some((p) => text.startsWith(`@${p.label}`, typed.start) && cursor >= typed.start + 1 + p.label.length)
+    ? null
+    : typed;
   const open = !!q && dismissedAt !== q.start;
   const query = q?.query.trim() ?? '';
   const tagsLeft = COMMENT_MAX_TAGS - tagsInText(text, picked).length;
@@ -213,13 +228,17 @@ export function CommentComposer({
         </button>
       </div>
       <p id={helpId} className="text-[15px] leading-6 text-meta">
-        {t('comments.tagHelp', 'Type @ to tag a person or a company: they will be told on the site and by e-mail.')}
+        {compact
+          ? t('comments.tagHelpShort', 'Type @ to tag a person or a company.')
+          : emailsOn
+          ? t('comments.tagHelp', 'Type @ to tag a person or a company: they will be told on the site and by e-mail.')
+          : t('comments.tagHelpSite', 'Type @ to tag a person or a company: they will see it on their dashboard.')}
       </p>
       <textarea
         id={boxId}
         ref={ref}
         value={text}
-        rows={4}
+        rows={compact ? 2 : 4}
         onChange={(e) => {
           setText(e.target.value);
           setCursor(e.target.selectionStart ?? e.target.value.length);
@@ -239,7 +258,8 @@ export function CommentComposer({
         aria-describedby={[helpId, error ? errorId : ''].filter(Boolean).join(' ')}
         aria-invalid={!!error || tooLong}
         className={cn(
-          'block min-h-[132px] w-full resize-y rounded-field border bg-white px-4 py-3 text-[16px] leading-6 text-ink placeholder:text-meta/70',
+          compact ? 'min-h-[88px]' : 'min-h-[132px]',
+          'block w-full resize-y rounded-field border bg-white px-4 py-3 text-[16px] leading-6 text-ink placeholder:text-meta/70',
           'focus:border-navy focus:outline-none focus-visible:shadow-focus',
           error || tooLong ? 'border-red-400' : 'border-navy/40',
         )}
@@ -260,7 +280,7 @@ export function CommentComposer({
                     : t('comments.noMatch', { q: query, defaultValue: 'No member or company found with "{{q}}". Only validated members and companies can be tagged.' })}
           </p>
           {suggestions.length > 0 && (
-            <ul id={listId} role="listbox" aria-label={t('comments.suggestions', 'People and companies to tag')} className="max-h-[320px] overflow-y-auto py-1">
+            <ul id={listId} role="listbox" aria-label={t('comments.suggestions', 'People and companies to tag')} className={cn(compact ? 'max-h-[200px]' : 'max-h-[320px]', 'overflow-y-auto py-1')}>
               {suggestions.map((s, i) => {
                 const on = i === Math.min(active, suggestions.length - 1);
                 return (

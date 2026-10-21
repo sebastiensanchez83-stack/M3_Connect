@@ -119,7 +119,7 @@ function load(fn, names, env = {}) {
 }
 
 const auth = load("send-email", ["COPY", "buildEmail", "buildEmailText"]);
-const notif = load("send-notification", ["renderNotification", "TYPE_TO_CATEGORY"]);
+const notif = load("send-notification", ["renderNotification", "TYPE_TO_CATEGORY", "commentEmailData"]);
 const claim = load("claim-code-signup", ["buildConfirmationEmail"]);
 const status = load("send-status-notification", ["renderStatusEmail", "renderDecisionEmail", "DECISION_TYPES"]);
 const contact = load("contact-submit", ["renderInboxEmail"]);
@@ -842,6 +842,12 @@ for (const it of items) {
   const offComment = notif.renderNotification("comment_mention", { author_name: "X", comment_path: "https://evil.example.com/resources/x" }, "", u);
   if (offComment.html.includes("evil.example.com") || offComment.text.includes("evil.example.com")) fail("send-notification: the comment button left the site origin");
   if (notif.TYPE_TO_CATEGORY.comment_mention !== "comments" || notif.TYPE_TO_CATEGORY.comment_report !== "admin") fail("send-notification: comment e-mails must be filed under comments (tags) and admin (reports)");
+  // A member's words never carry a web address into the platform's own e-mail (mail programs link them).
+  const linky = "see https://evil.example.com/a and www.evil.example.com and evil.example.com/login now";
+  const cm = notif.commentEmailData("comment_report", { excerpt: linky, reason: linky, comment_id: "x", resource_slug: "x" });
+  if ([cm.excerpt, cm.reason].some((v) => v.includes("evil.example.com") || !v.includes("[link]"))) fail("send-notification: a web address typed in a comment reached the e-mail");
+  const calm = "Berths: 1.5 m, and/or 2.5 m. Thanks @Alex Morel.";
+  if (notif.commentEmailData("comment_mention", { excerpt: calm }).excerpt !== calm) fail("send-notification: a comment excerpt without any link was changed");
   // The invitation button can only ever point at the site, whatever join_url says.
   const off = notif.renderNotification("team_invitation", { org_name: "X", join_url: "https://evil.example.com/join/x" }, "", u);
   if (off.html.includes("evil.example.com") || off.text.includes("evil.example.com")) fail("send-notification: the invitation button left the site origin");

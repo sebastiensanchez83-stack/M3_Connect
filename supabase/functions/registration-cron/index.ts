@@ -24,7 +24,8 @@
 // review decisions: user_account_approved, user_account_rejected, account_info_requested,
 // company_validated, claim_approved, claim_declined; article comments, 21 Oct 2026:
 // comment_mention, comment_report, sent by send-notification from the database's own words,
-// resource_comment_email). This job sends the ones nobody sent:
+// resource_comment_email; marina requests, 21 Oct 2026: market_request_status, the same way
+// with market_request_email). This job sends the ones nobody sent:
 //   - only while registration_flags.outbox_sender is JSON true (off until go-live; M3 may
 //     turn it on earlier), or with force;
 //   - each kind goes through the function that owns its template: send-notification
@@ -1489,6 +1490,9 @@ const OUTBOX_SENDERS: Record<string, OutboxSender> = {
   // send-notification at once; these are the ones it could not send.
   comment_mention: "send-notification",
   comment_report: "send-notification",
+  // Marina requests (20261021175000_market_requests.sql): M3's page asks send-notification at
+  // once after a status change; these are the ones it could not send.
+  market_request_status: "send-notification",
 };
 /** Sent per run (each is one call to a sending function, about a second). */
 const OUTBOX_BATCH = 20;
@@ -1526,6 +1530,8 @@ const OUTBOX_DECISION_MAX_AGE_MS = 72 * 3600000;
 /** A comment e-mail (a tag, a report) queued longer ago than this is settled unsent: old news. */
 const OUTBOX_COMMENT_MAX_AGE_MS = 72 * 3600000;
 const isCommentKind = (kind: string) => kind === "comment_mention" || kind === "comment_report";
+/** A marina request's status e-mail (to its author) queued longer ago than this is settled unsent: old news. */
+const OUTBOX_MARKET_MAX_AGE_MS = 72 * 3600000;
 const OUTBOX_COLS = "id, kind, user_id, subject_id, data, created_at, claimed_at, attempts, last_error";
 const FN_BASE = `${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1`;
 
@@ -1666,6 +1672,9 @@ const invitationOf = (r: OutboxRow) =>
 async function outboxOutOfDate(r: OutboxRow): Promise<string | null> {
   if (isCommentKind(r.kind) && Date.now() - Date.parse(r.created_at) > OUTBOX_COMMENT_MAX_AGE_MS) {
     return "stale: a comment e-mail queued more than 72 hours ago is never sent late";
+  }
+  if (r.kind === "market_request_status" && Date.now() - Date.parse(r.created_at) > OUTBOX_MARKET_MAX_AGE_MS) {
+    return "stale: a marina request e-mail queued more than 72 hours ago is never sent late";
   }
   if (senderOf(r.kind) === "send-status-notification" && Date.now() - Date.parse(r.created_at) > OUTBOX_DECISION_MAX_AGE_MS) {
     return "stale: a decision queued more than 72 hours ago is never sent late";

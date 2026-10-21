@@ -124,7 +124,7 @@ function load(fn, names, env = {}) {
 }
 
 const auth = load("send-email", ["COPY", "buildEmail", "buildEmailText"]);
-const notif = load("send-notification", ["renderNotification", "TYPE_TO_CATEGORY", "commentEmailData"]);
+const notif = load("send-notification", ["renderNotification", "TYPE_TO_CATEGORY", "commentEmailData", "marketEmailData"]);
 const claim = load("claim-code-signup", ["buildConfirmationEmail"]);
 const status = load("send-status-notification", ["renderStatusEmail", "renderDecisionEmail", "DECISION_TYPES"]);
 const contact = load("contact-submit", ["renderInboxEmail"]);
@@ -282,6 +282,21 @@ const items = [];
     article_title: "Five lessons from the first fully connected marina", reason: "Advertising for their own product.",
     excerpt: "Buy our berth sensors now, 30% off this week only!", open_reports: "1", comment_path: commentPath,
   }, "to the M3 team");
+  // Marina requests (21 Oct 2026): M3 changes the status in Admin > Marina requests; every field
+  // comes from the database (market_request_email) through marketEmailData, as in the function.
+  const market = (first, p) => ({ ...notif.marketEmailData(p), first_name: first });
+  add("m1", "market_request_status", "camille.durand@example.com",
+    market("Camille", { request_kind: "rfp", status: "approved", title: "Shore power for pontoons C to F", message: null }), "RFP published");
+  add("m2", "market_request_status", "camille.durand@example.com",
+    market("Camille", { request_kind: "rfp", status: "rejected", title: "Fuel dock renovation", message: "The scope is too short for service providers to quote. Please add the length of the dock and when the works should start." }), "RFP not published, with the reason");
+  add("m3", "market_request_status", "alex.martin@example.com",
+    market("Alex", { request_kind: "consultation", status: "closed", title: "Blue Flag renewal: what changed in 2026?", message: "Thank you, three members answered. We closed it as you asked." }), "consultation closed, with a message");
+  add("m4", "market_request_status", "alex.martin@example.com",
+    market("Alex", { request_kind: "project", status: "approved", title: "Energy project", message: null }), "marina project approved");
+  add("m5", "market_request_status", "alex.martin@example.com",
+    market("Alex", { request_kind: "project", status: "rejected", title: "Energy project", message: "A marina project needs a short description of the works." }), "marina project not approved");
+  add("m6", "market_request_status", "alex.martin@example.com",
+    market("Alex", { request_kind: "project", status: "completed", title: "Energy project", message: null }), "marina project completed");
   // Every other notification type, with one generic set of fictional data (C4: a preview of
   // every e-mail the site can send).
   const generic = {
@@ -866,6 +881,21 @@ for (const it of items) {
   const offComment = notif.renderNotification("comment_mention", { author_name: "X", comment_path: "https://evil.example.com/resources/x" }, "", u);
   if (offComment.html.includes("evil.example.com") || offComment.text.includes("evil.example.com")) fail("send-notification: the comment button left the site origin");
   if (notif.TYPE_TO_CATEGORY.comment_mention !== "comments" || notif.TYPE_TO_CATEGORY.comment_report !== "admin") fail("send-notification: comment e-mails must be filed under comments (tags) and admin (reports)");
+  // Marina requests: the requester's title is their own words; the reason or message is M3's.
+  const marketEvil = ["approved", "rejected", "closed", "completed"].map((st) =>
+    notif.renderNotification("market_request_status", { first_name: bad, request_kind: "rfp", status: st, title: evilImg, message: evilImg }, "", u).html).join("");
+  if (spoiled(marketEvil)) fail("escaping: send-notification marina request e-mails let a typed value reach the HTML as markup");
+  if (notif.TYPE_TO_CATEGORY.market_request_status !== "submissions") fail("send-notification: marina request e-mails must be filed under submissions");
+  const mk = notif.marketEmailData({ request_kind: "lead", status: "approved", title: "see https://evil.example.com/a and www.evil.example.com now", message: "Read https://smartmarinaconnect.com/help\nThen reply." });
+  if (mk.title.includes("evil.example.com") || !mk.title.includes("[link]")) fail("send-notification: a web address in a requester's title reached the e-mail");
+  if (!mk.message.includes("https://smartmarinaconnect.com/help") || !mk.message.includes("\n")) fail("send-notification: M3's message lost its link or its line break");
+  if (mk.request_kind !== "") fail("send-notification: a partner lead was accepted as a marina request e-mail");
+  for (const [kind, tab] of [["rfp", "rfps"], ["consultation", "consultations"], ["project", "projects"]]) {
+    const r = notif.renderNotification("market_request_status", { request_kind: kind, status: "approved", title: "T" }, "", u);
+    if (!r.html.includes(`${SITE}/account?tab=${tab}`) || !r.text.includes(`${SITE}/account?tab=${tab}`)) fail(`send-notification: the ${kind} e-mail does not open the requester's ${tab}`);
+  }
+  const rej = notif.renderNotification("market_request_status", { request_kind: "consultation", status: "rejected", title: "T", message: "Too short." }, "", u);
+  if (!rej.text.includes("Reason: Too short.") || !rej.subject.includes("was not published")) fail("send-notification: a turned-down marina request does not give its reason");
   // A member's words never carry a web address into the platform's own e-mail (mail programs link them).
   const linky = "see https://evil.example.com/a and www.evil.example.com and evil.example.com/login now";
   const cm = notif.commentEmailData("comment_report", { excerpt: linky, reason: linky, comment_id: "x", resource_slug: "x" });
@@ -932,6 +962,7 @@ for (const it of items) {
 
   // Outbox sender: routes, requests, back-off.
   const S = regCron.OUTBOX_SENDERS;
+  if (S.market_request_status !== "send-notification") fail("registration-cron: no outbox route for market_request_status");
   if (S.account_under_review !== "send-notification" || S.team_join_request !== "send-notification" || S.user_account_approved !== "send-status-notification" || S.claim_declined !== "send-status-notification") fail("registration-cron: outbox routes");
   for (const t of status.DECISION_TYPES) if (S[t] !== "send-status-notification") fail(`registration-cron: no outbox route for ${t}`);
   const uid = "00000000-0000-4000-8000-0000000000a1";
@@ -1174,6 +1205,7 @@ if (!checkOnly) {
     consultation_closed: "Une consultation est clôturée.",
     project_rejected: "M3 refuse un projet publié par un membre.",
     project_status_updated: "Le statut d'un projet d'un membre change.",
+    market_request_status: "Admin > Marina requests : M3 publie, refuse (avec la raison), clôture une demande d'un membre (appel d'offres, consultation, projet), ou marque un projet terminé. Un e-mail par changement, à l'auteur seulement ; jamais pour un lead partenaire. À partir du jour J (outbox_sender).",
     reference_confirmed: "Le client confirme une recommandation (e-mail au partenaire).",
     reference_rejected: "Le client refuse une recommandation (e-mail au partenaire).",
     exposition_approved: "M3 accepte une demande d'exposant.",

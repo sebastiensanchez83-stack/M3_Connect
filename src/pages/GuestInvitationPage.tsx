@@ -172,6 +172,7 @@ export function GuestInvitationPage() {
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<EditValues | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDecline, setConfirmDecline] = useState(false);
   const [reqBusy, setReqBusy] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [reqError, setReqError] = useState<string | null>(null);
@@ -477,7 +478,15 @@ export function GuestInvitationPage() {
                 <span className="font-semibold">{guestName}</span>
                 {guest.company && <span className="block text-ink">{guest.company}</span>}
               </Detail>
-              <Detail label={t('wysGuest.details.admission', 'Admission')}>{partsLabel(guest)}</Detail>
+              {/* Under review, nothing is granted yet (conference/gala are set at approval): show
+                  what was asked for when the request is known, never an empty "Admission —". */}
+              {guest.status === 'requested'
+                ? req?.request && (
+                  <Detail label={t('wysGuest.details.asked', 'Asked for')}>
+                    {partsLabel({ conference: req.request.wants_conference, gala: req.request.wants_gala })}
+                  </Detail>
+                )
+                : <Detail label={t('wysGuest.details.admission', 'Admission')}>{partsLabel(guest)}</Detail>}
               {guest.host && <Detail label={t('wysGuest.details.host', 'Guest of')}>{guest.host.first_name} {guest.host.last_name}</Detail>}
             </dl>
           )}
@@ -493,12 +502,32 @@ export function GuestInvitationPage() {
             </div>
           )}
 
-          {guest.status === 'confirmed' && (
+          {/* One tap used to give the place up at once (and stop the door QR): ask first. */}
+          {guest.status === 'confirmed' && !confirmDecline && (
             <p className="mt-6 text-center">
-              <UnderlineLink onClick={() => answer('decline')} disabled={busy} arrow={false} className="!text-sm">
+              <UnderlineLink onClick={() => { setConfirmDecline(true); focusSoon('inv-decline-title'); }} disabled={busy} arrow={false} className="min-h-11 !text-sm">
                 {t('wysGuest.confirmed.cancel', 'I can no longer attend')}
               </UnderlineLink>
             </p>
+          )}
+          {guest.status === 'confirmed' && confirmDecline && (
+            <div role="group" aria-labelledby="inv-decline-title" className="mt-6 rounded-field bg-page p-4 ring-1 ring-inset ring-rule sm:p-5">
+              <p id="inv-decline-title" tabIndex={-1} className="scroll-mt-28 text-[15px] font-semibold leading-6 text-navy focus:outline-none">{t('wysGuest.decline.title', 'Give up your place?')}</p>
+              <p className="mt-1 text-sm leading-6 text-ink">
+                {t('wysGuest.decline.body', 'Your entry pass will no longer admit you.')}{' '}
+                {guest.source !== 'request' && !guest.is_plus_one
+                  ? t('wysGuest.decline.again', 'If you change your mind, you can accept again from this page.')
+                  : t('wysGuest.decline.againContact', 'If you change your mind, write to the M3 team.')}
+              </p>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <Button variant="ctaNavy" size="sm" disabled={busy} arrow={false} roll={!busy} onClick={() => { setConfirmDecline(false); void answer('decline'); }} className="w-full sm:w-auto">
+                  {t('wysGuest.decline.confirm', 'Yes, I can no longer attend')}
+                </Button>
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmDecline(false)} className="w-full sm:w-auto">
+                  {t('wysGuest.decline.keep', 'Keep my place')}
+                </Button>
+              </div>
+            </div>
           )}
         </section>
 

@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
  */
 
 /**
- * Deep-sea and gold, the brand's own family. Deliberately no rainbow: a grid of
- * these has to look curated, so every pair stays inside navy → teal → gold.
+ * Deep sea and sky, the brand's own family. Deliberately no rainbow: a grid of
+ * these has to look curated, so every pair stays inside navy → teal → sky blue.
  * `from`/`to` are raw hex because these go into an inline gradient, not Tailwind.
  */
 const SEA_GRADIENTS: { from: string; to: string }[] = [
@@ -32,15 +32,17 @@ const SEA_GRADIENTS: { from: string; to: string }[] = [
 ];
 
 /**
- * Gold reads as an accent on a logo or a card, but stretched across a full-width
- * band under a dark scrim it turns khaki. Large surfaces ask for `tone="sea"`.
+ * Two lighter pairs toward the sky-blue accent, for cards (the accent is sky blue
+ * since 21 Oct 2026: no gold or brass any more). They replace, in place, the two
+ * gold pairs of before, so every other seed keeps its gradient. Large surfaces
+ * still ask for `tone="sea"`.
  */
-const GOLD_GRADIENTS: { from: string; to: string }[] = [
-  { from: '#3a2f14', to: '#9a7520' }, // dark gold
-  { from: '#0b2653', to: '#8a6a2a' }, // navy to brass
+const ACCENT_GRADIENTS: { from: string; to: string }[] = [
+  { from: '#0b2653', to: '#3d7fb0' }, // navy to sky
+  { from: '#0f3557', to: '#4f9fcf' }, // harbour to sky
 ];
 
-const ALL_GRADIENTS = [...SEA_GRADIENTS, ...GOLD_GRADIENTS];
+const ALL_GRADIENTS = [...SEA_GRADIENTS, ...ACCENT_GRADIENTS];
 
 export type CoverTone = 'any' | 'sea';
 
@@ -85,7 +87,7 @@ interface CoverImageProps {
   /** Watermarked into the fallback; skip it for a plain gradient. */
   icon?: LucideIcon;
   aspect?: CoverAspect;
-  /** 'sea' keeps the fallback out of the gold family — use it for wide bands. */
+  /** 'sea' keeps the fallback to the deep-sea pairs (no lighter sky pair): use it for wide bands. */
   tone?: CoverTone;
   /**
    * Where the subject sits vertically in the photo, 0 = top, 1 = bottom. The same

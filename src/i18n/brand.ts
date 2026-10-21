@@ -89,7 +89,7 @@ export const BRAND_STRINGS = {
       notch: {
         label: 'Featured M3 events',
         show: 'Show: {{title}}',
-        wysKicker: 'Next event',
+        wysKicker: 'Next summit',
         wysMeta: 'Dubai · 27 Nov 2026 · By invitation',
         webinarsTitle: 'Webinars',
         webinarsMeta: 'One-click registration for members',
@@ -189,7 +189,7 @@ export const BRAND_STRINGS = {
       notch: {
         label: 'Événements M3 à l’affiche',
         show: 'Afficher : {{title}}',
-        wysKicker: 'Prochain événement',
+        wysKicker: 'Prochain sommet',
         wysMeta: 'Dubaï · 27 nov. 2026 · Sur invitation',
         webinarsTitle: 'Webinaires',
         webinarsMeta: 'Inscription en un clic',

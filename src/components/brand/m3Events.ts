@@ -42,7 +42,7 @@ export function featuredEventItems(t: TFunction, now = Date.now()): EventCardIte
   if (wys26Upcoming(now)) {
     items.push({
       id: 'wys26',
-      kicker: t('brand.notch.wysKicker', 'Next event'),
+      kicker: t('brand.notch.wysKicker', 'Next summit'),
       title: t('brand.events.wys.title', 'World Yachting Summit'),
       meta: t('brand.notch.wysMeta', 'Dubai · 27 Nov 2026 · By invitation'),
       href: WYS26_PATH,

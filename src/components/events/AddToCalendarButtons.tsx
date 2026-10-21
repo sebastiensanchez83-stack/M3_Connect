@@ -30,10 +30,11 @@ export function AddToCalendarButtons({ event, className = '', tone = 'light' }: 
 
   // Pill buttons of the refonte; on navy they turn to glass with white words.
   const pill = cn(
-    'justify-center rounded-pill',
+    // 44 px tall on phones (one per row, easy to tap), 36 px from tablets.
+    'h-11 justify-center rounded-pill sm:h-9',
     tone === 'dark'
       ? 'border-white/30 bg-white/10 text-white hover:border-white hover:bg-white hover:text-navy'
-      : 'border-navy/25 bg-white text-navy hover:border-navy hover:bg-navy hover:text-white',
+      : 'border-navy/55 bg-white text-navy hover:border-navy hover:bg-navy hover:text-white',
   );
 
   return (

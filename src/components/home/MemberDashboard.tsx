@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { CoverImage } from '@/components/ui/CoverImage';
 import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
-import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { HelpTip } from '@/components/help/HelpTip';
 import { NeedHelpCard } from '@/components/help/NeedHelpCard';
 import {
@@ -33,7 +32,7 @@ import {
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { cn } from '@/lib/utils';
 import {
-  ActionCue, CardLink, MiniRow, PanelRegion, Tile, panelDomId, type IconTone, type TileTone,
+  ActionCue, CardButton, CardLink, MiniRow, PanelRegion, Tile, panelDomId, type IconTone, type TileTone,
 } from './dashboard/DashboardKit';
 import { DashboardBand, type BandFigure, type Completeness } from './dashboard/DashboardBand';
 import { ComingUpList, NextEventCard, agendaAhead } from './dashboard/EventBlocks';
@@ -142,7 +141,8 @@ export default function MemberDashboard() {
   const inbox = useInboxCount(active);
   const sm26 = useSm26Participation(active);
   // The agenda, read once: "Coming up" lists it, the band counts down to its next event.
-  const agenda = useHomeAgenda(8);
+  // Not for a draft (no dashboard to show it on).
+  const agenda = useHomeAgenda(8, active);
 
   const uid = user?.id;
   const orgId = organization?.id;
@@ -448,7 +448,8 @@ export default function MemberDashboard() {
     }
     tiles.push({
       key: 'team', panel: 'team', icon: getHomeSection('team')!.icon, iconTone: 'navy', title: label('team'), status, tone,
-      action: isOwner && inbox.joins > 0 ? t('dash.act.reviewRequests', 'Review the requests')
+      // "Requests" are the needs a member publishes (My requests): never this word here.
+      action: isOwner && inbox.joins > 0 ? t('dash.act.seeWhoJoins', 'See who wants to join')
         : isOwner && counts && members <= 1 && roomForMore ? t('dash.act.invite', 'Invite a colleague')
           : t('dash.act.seeTeam', 'See my team'),
     });
@@ -472,11 +473,12 @@ export default function MemberDashboard() {
     });
   }
 
-  // Messages: "3 unread messages · 1 request waiting" (useInboxCount, the navbar dot's count).
+  // Messages: "3 unread messages · 1 message from a company waiting" (useInboxCount, the
+  // navbar dot's count). The same words as the To do list; "requests" are My requests.
   {
     const parts: string[] = [];
     if (inbox.messages > 0) parts.push(t('dash.st.unreadMessages', { count: inbox.messages, defaultValue_one: '{{count}} unread message', defaultValue_other: '{{count}} unread messages' }));
-    if (inbox.requests > 0) parts.push(t('dash.st.requestsWaiting', { count: inbox.requests, defaultValue_one: '{{count}} request waiting', defaultValue_other: '{{count}} requests waiting' }));
+    if (inbox.requests > 0) parts.push(t('dash.st.companyMessagesWaiting', { count: inbox.requests, defaultValue_one: '{{count}} message from a company waiting', defaultValue_other: '{{count}} messages from companies waiting' }));
     tiles.push({
       key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, iconTone: 'accent', title: label('inbox'),
       tone: inbox.total > 0 ? 'action' : 'plain',
@@ -491,7 +493,8 @@ export default function MemberDashboard() {
   // My requests
   tiles.push({
     key: 'requests', panel: 'requests', icon: getHomeSection('requests')!.icon, iconTone: 'accent', title: label('requests'), tone: 'plain',
-    action: requestTotal > 0 || createActions.length === 0 ? t('dash.act.seeRequests', 'See my requests') : t('dash.act.publish', 'Publish a need'),
+    // It opens the panel (whose first button publishes): "Publish a need" is the band's, which opens the window itself.
+    action: t('dash.act.seeRequests', 'See my requests'),
     // Every request sent, whatever M3 decided: the panel says where each one stands.
     status: data.loading ? loadingLine : requestTotal > 0
       ? t('dash.st.requestsSent', { count: requestTotal, defaultValue_one: '{{count}} request sent', defaultValue_other: '{{count}} requests sent' })
@@ -564,12 +567,14 @@ export default function MemberDashboard() {
   let completeness: Completeness | null = null;
   {
     const checks = [!!profile.avatar_url, !!profile.job_title];
-    const companyPending = !!organization && isOwner && !companyReady;
-    if (organization && isOwner && companyReady) {
+    const withCompany = !!organization && isOwner;
+    const companyPending = withCompany && !companyReady;
+    if (withCompany && companyReady) {
       checks.push(brand.logo, brand.description, brand.banner);
       if (counts) checks.push(brand.sectors);
     }
-    if (!companyPending) completeness = { done: checks.filter(Boolean).length, total: checks.length };
+    // For the owner the company's page counts too, and the words say so ("Profile and company page 50% complete").
+    if (!companyPending) completeness = { done: checks.filter(Boolean).length, total: checks.length, includesCompany: withCompany };
   }
 
   const figures: BandFigure[] = [];
@@ -581,7 +586,7 @@ export default function MemberDashboard() {
     label: inbox.total === 0
       ? t('dash.band.noMessages', 'No message waiting for your answer')
       : t('dash.band.messagesWaiting', { count: inbox.total, defaultValue_one: 'message waiting for your answer', defaultValue_other: 'messages waiting for your answer' }),
-    action: inbox.total > 0 ? t('dash.band.answer', 'Answer') : t('dash.band.openMessages', 'Open'),
+    action: inbox.total > 0 ? t('dash.band.answer', 'Answer') : t('dash.band.seeMessages', 'See messages'),
     onClick: () => goToPanel('inbox'),
   });
   // 2. The company's owner: people asking to join. Another member: the team. No company: my registrations.
@@ -627,7 +632,7 @@ export default function MemberDashboard() {
       label: requestTotal === 0
         ? t('dash.band.noRequests', 'No request sent yet')
         : t('dash.band.requestsSent', { count: requestTotal, defaultValue_one: 'request sent', defaultValue_other: 'requests sent' }),
-      action: requestTotal > 0 ? t('dash.band.seeThem', 'See them') : publishFirst ? t('dash.band.publish', 'Publish a need') : t('dash.band.open', 'Open'),
+      action: requestTotal > 0 ? t('dash.band.seeThem', 'See them') : publishFirst ? t('dash.band.publish', 'Publish a need') : t('dash.band.seeRequests', 'See requests'),
       onClick: publishFirst ? () => setPublishOpen(true) : () => goToPanel('requests'),
     });
   }
@@ -640,13 +645,14 @@ export default function MemberDashboard() {
     const next = waiting ? null : nextReg
       ? { title: nextReg.title, at: nextReg.date_time, end: nextReg.end_date_time, href: eventPath(nextReg), mine: true }
       : nextAgenda ? { title: nextAgenda.title, at: nextAgenda.at, end: null as string | null, href: nextAgenda.href, mine: false } : null;
-    const kicker = next?.mine ? t('dash.band.yourNextEvent', 'Your next event') : t('dash.band.nextEvent', 'Next event');
+    // Not mine: "Next on the agenda", so it never contradicts the hero's featured summit above.
+    const kicker = next?.mine ? t('dash.band.yourNextEvent', 'Your next event') : t('dash.band.nextOnAgenda', 'Next on the agenda');
     if (!next) {
       figures.push({
         key: 'event', kicker,
         value: waiting ? null : '—',
         valueDecorative: true,
-        label: waiting ? loadingLine : t('dash.band.noEvent', 'No event planned yet'),
+        label: waiting ? '' : t('dash.band.noEvent', 'No event planned yet'),
         action: t('dash.band.allEvents', 'See all events'),
         to: '/events',
       });
@@ -660,6 +666,9 @@ export default function MemberDashboard() {
           - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86_400_000,
       );
       const live = startMs <= nowMs && nowMs < endMs;
+      // The date in words ("Fri 30 Oct"), not "In 2 days": "Your next event" below counts in
+      // days and hours, and the two must never seem to disagree. D-xx counts calendar days.
+      const dateWords = start.toLocaleDateString(lang, { weekday: 'short', day: 'numeric', month: 'short' });
       figures.push({
         key: 'event', kicker,
         value: live ? t('dash.band.now', 'Now') : days <= 0 ? t('dash.band.today', 'Today') : `D-${days}`,
@@ -668,7 +677,7 @@ export default function MemberDashboard() {
         hoverTitle: next.title,
         meta: live ? t('dash.band.happeningNow', 'Happening now')
           : days <= 0 ? t('dash.band.startsToday', 'Starts today')
-            : t('dash.band.inDays', { count: days, defaultValue_one: 'Tomorrow', defaultValue_other: 'In {{count}} days' }),
+            : dateWords,
         action: t('dash.band.viewEvent', 'View event'),
         to: next.href,
       });
@@ -888,7 +897,7 @@ export default function MemberDashboard() {
           {/* Resources: the library's own cards — sector matches first, else the newest. */}
           <div className="mt-8 flex items-center justify-between gap-4">
             <p className="text-[16px] font-semibold text-navy">{resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}</p>
-            <UnderlineLink to="/resources" className="min-h-11 !text-[15px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
+            <CardLink to="/resources">{t('dashboard.seeAllResources', 'Browse the library')}</CardLink>
           </div>
           {data.loading ? (
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
@@ -904,7 +913,8 @@ export default function MemberDashboard() {
                 <CardShell key={r.id} interactive>
                   <CardMedia>
                     <CoverImage src={r.thumbnail_url} alt="" seed={r.id} icon={RESOURCE_ICON[r.type] ?? BookOpen} aspect="wide">
-                      <span className="absolute left-3 top-3 rounded-pill bg-white/95 px-2.5 py-0.5 text-[12px] font-semibold text-navy">
+                      {/* A tag, squared: only what can be pressed is a pill ("Read →" below). */}
+                      <span className="absolute left-3 top-3 rounded-[6px] bg-white/95 px-2 py-0.5 text-[12px] font-semibold text-navy">
                         {t(`resources.types.${r.type}`, r.type)}
                       </span>
                     </CoverImage>
@@ -963,7 +973,6 @@ function Alerts({
   const rejected = profile.access_status === 'rejected';
   // Not repeated under the review or rejection banners, which already say what to do.
   const incomplete = !rejected && (!hasOrganization || (profile.onboarding_status !== 'completed' && !pending));
-  const linkCls = '!text-[15px] !leading-5';
   return (
     <>
       {pending && (
@@ -981,11 +990,11 @@ function Alerts({
           // A pending account cannot register for events yet (database rule event_reg_insert): it can look at them.
           body={t('memberHome.alerts.pendingWhile', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and e-mails you as soon as yours is approved. Meanwhile, the public resources are open to you, and you can look at the coming events.')}
           action={(
-            <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
-              <UnderlineLink onClick={() => onOpen('profile')} className={linkCls}>{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
-              <UnderlineLink to="/resources" className={linkCls}>{t('dashboard.pendingLibrary', 'Read the library')}</UnderlineLink>
-              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinarsSee', 'See the coming webinars')}</UnderlineLink>
-              <UnderlineLink to="/contact" className={linkCls}>{t('dashboard.pendingContact', 'Write to the M3 team')}</UnderlineLink>
+            <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col items-start gap-2 sm:items-end">
+              <CardButton onClick={() => onOpen('profile')}>{t('dashboard.pendingProfile', 'Complete your profile')}</CardButton>
+              <CardLink to="/resources">{t('dashboard.pendingLibrary', 'Read the library')}</CardLink>
+              <CardLink to="/events?type=webinar">{t('dashboard.pendingWebinarsSee', 'See the coming webinars')}</CardLink>
+              <CardLink to="/contact">{t('dashboard.pendingContact', 'Write to the M3 team')}</CardLink>
             </nav>
           )}
         />
@@ -1004,9 +1013,9 @@ function Alerts({
           )}
           body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : undefined}
           action={(
-            <div className="flex flex-col gap-1.5 sm:items-end">
-              <UnderlineLink to="/onboarding" className={linkCls}>{t('accountArea.banner.resubmit', 'Edit and resubmit')}</UnderlineLink>
-              <UnderlineLink to="/contact" className={linkCls}>{t('dashboard.contactUs')}</UnderlineLink>
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <CardLink to="/onboarding">{t('accountArea.banner.resubmit', 'Edit and resubmit')}</CardLink>
+              <CardLink to="/contact">{t('dashboard.contactUs', 'Contact us')}</CardLink>
             </div>
           )}
         />
@@ -1036,9 +1045,9 @@ function Alerts({
             ? t('home.completeOrgBanner', 'Complete your organisation profile to unlock all platform features.')
             : t('dash.noCompanyBanner', 'Add your company to unlock the whole platform.')}
           action={(
-            <Button type="button" variant="outline" size="sm" className="h-11 rounded-pill border-navy/25 bg-white px-5 text-[15px] text-navy hover:border-navy hover:bg-chip" onClick={() => onOpen('company')}>
+            <CardButton onClick={() => onOpen('company')}>
               {hasOrganization ? t('homeSections.completeProfileCta', 'Complete my profile') : t('dash.addCompany', 'Add my company')}
-            </Button>
+            </CardButton>
           )}
         />
       )}

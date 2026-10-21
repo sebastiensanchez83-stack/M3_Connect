@@ -11,13 +11,14 @@ import { cn } from "@/lib/utils"
  * Refonte (Oct 2026) adds the rolling "cta" family, for the public pages, in
  * the spirit of the Solar Impulse Foundation site: on hover and keyboard focus
  * the label slides up while a copy rises from below, and the round disc on the
- * right turns gold while its arrow leaves to the right and a
+ * right turns the accent (sky blue) while its arrow leaves to the right and a
  * copy enters from the left (.525 s, cubic-bezier(.625,.05,0,1)).
- * Pill shaped; 52 px by default, 44 px (sm), 56 px (lg).
- *   cta        gold, navy text; hover: navy          THE main action (one per screen), on light backgrounds
- *   ctaOnDark  gold, navy text; hover: white         the same main action on navy panels or photos
+ * Pill shaped; 52 px by default, 44 px (sm), 56 px (lg). The accent is the sky
+ * blue of the `gold` tokens (index.css): never a literal gold.
+ *   cta        accent, navy text; hover: navy        THE main action (one per screen), on light backgrounds
+ *   ctaOnDark  accent, navy text; hover: white       the same main action on navy panels or photos
  *                                                    (a navy hover on a navy band would make it vanish)
- *   ctaNavy    navy, white text; hover: gold         secondary, on light backgrounds
+ *   ctaNavy    navy, white text; hover: accent       secondary, on light backgrounds
  *   ctaOutline 2 px navy border; hover: navy fill    tertiary, on light backgrounds
  *   ctaLight   2 px white border; hover: white fill  on photos and navy panels
  *   ctaWhite   white, navy text                      on photos and navy panels
@@ -53,17 +54,17 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         cta:
-          "cta border-2 border-gold bg-gold text-navy font-semibold [--cta-bg-h:rgb(11_38_83)] [--cta-fg-h:#ffffff] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(215_166_71)] [--cta-disc-fg-h:rgb(11_38_83)]",
+          "cta border-2 border-gold bg-gold text-navy font-semibold [--cta-bg-h:rgb(11_38_83)] [--cta-fg-h:#ffffff] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(124_196_240)] [--cta-disc-fg-h:rgb(11_38_83)]",
         ctaOnDark:
-          "cta border-2 border-gold bg-gold text-navy font-semibold [--cta-bg-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(215_166_71)] [--cta-disc-fg-h:rgb(11_38_83)]",
+          "cta border-2 border-gold bg-gold text-navy font-semibold [--cta-bg-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(124_196_240)] [--cta-disc-fg-h:rgb(11_38_83)]",
         ctaNavy:
-          "cta border-2 border-navy bg-navy text-white font-semibold [--cta-bg-h:rgb(215_166_71)] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:#ffffff] [--cta-disc-fg:rgb(11_38_83)] [--cta-disc-bg-h:rgb(11_38_83)] [--cta-disc-fg-h:#ffffff]",
+          "cta border-2 border-navy bg-navy text-white font-semibold [--cta-bg-h:rgb(124_196_240)] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:#ffffff] [--cta-disc-fg:rgb(11_38_83)] [--cta-disc-bg-h:rgb(11_38_83)] [--cta-disc-fg-h:#ffffff]",
         ctaOutline:
-          "cta border-2 border-navy bg-transparent text-navy font-semibold [--cta-bg-h:rgb(11_38_83)] [--cta-fg-h:#ffffff] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(215_166_71)] [--cta-disc-fg-h:rgb(11_38_83)]",
+          "cta border-2 border-navy bg-transparent text-navy font-semibold [--cta-bg-h:rgb(11_38_83)] [--cta-fg-h:#ffffff] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(124_196_240)] [--cta-disc-fg-h:rgb(11_38_83)]",
         ctaLight:
-          "cta border-2 border-white/50 bg-transparent text-white font-semibold [--cta-bg-h:#ffffff] [--cta-border-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:#ffffff] [--cta-disc-fg:rgb(11_38_83)] [--cta-disc-bg-h:rgb(215_166_71)] [--cta-disc-fg-h:rgb(11_38_83)]",
+          "cta border-2 border-white/50 bg-transparent text-white font-semibold [--cta-bg-h:#ffffff] [--cta-border-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:#ffffff] [--cta-disc-fg:rgb(11_38_83)] [--cta-disc-bg-h:rgb(124_196_240)] [--cta-disc-fg-h:rgb(11_38_83)]",
         ctaWhite:
-          "cta border-2 border-white bg-white text-navy font-semibold [--cta-bg-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(215_166_71)] [--cta-disc-fg-h:rgb(11_38_83)]",
+          "cta border-2 border-white bg-white text-navy font-semibold [--cta-bg-h:#ffffff] [--cta-fg-h:rgb(11_38_83)] [--cta-disc-bg:rgb(11_38_83)] [--cta-disc-fg:#ffffff] [--cta-disc-bg-h:rgb(124_196_240)] [--cta-disc-fg-h:rgb(11_38_83)]",
       },
       size: {
         default: "h-11 md:h-10 px-4 py-2",

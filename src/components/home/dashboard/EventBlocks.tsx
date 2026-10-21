@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, CalendarDays, CheckCircle2, MapPin, Video } from 'lucide-react';
+import { CalendarDays, CheckCircle2, MapPin, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
-import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { CoverImage } from '@/components/ui/CoverImage';
-import { FOCUS } from '@/components/member/MemberUI';
 import { WYS26_PATH } from '@/components/events/WysInvitationCard';
 import type { AgendaEntry } from '@/components/home/useHomeAgenda';
 import { eventCover } from '@/lib/siteMedia';
-import { cn, type CalendarEventInput } from '@/lib/utils';
+import type { CalendarEventInput } from '@/lib/utils';
 import { eventPath } from '@/lib/seoMeta';
 import { DEFAULT_DURATION_MS, type DashEvent } from './useDashboardData';
-import { ActionCue } from './DashboardKit';
+import { ActionCue, CardButton, CardLink } from './DashboardKit';
 
 /** Small date tile: day and month, in the signage face. */
 function DateTile({ start, lang }: { start: Date; lang: string }) {
@@ -83,16 +81,15 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
 
   return (
     <CardShell as="section" className="h-full">
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule px-5 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule px-5 py-3">
         <Eyebrow as="h3">{t('dashboard.nextEventTitle')}</Eyebrow>
-        <UnderlineLink onClick={onOpenEvents} className="-my-3 min-h-11 !text-[14px] !leading-5">
-          {t('memberHome.sections.registrations', 'My events')}
-        </UnderlineLink>
+        {/* The dashboard's one "press here" pill: My events opens further down. */}
+        <CardButton onClick={onOpenEvents}>{t('dash.seeMyEvents', 'See my events')}</CardButton>
       </header>
 
       <div className="md:grid md:flex-1 md:grid-cols-5">
-        {/* The picture repeats the title link below, so it stays out of the tab order. */}
-        <Link to={eventPath(event)} tabIndex={-1} aria-hidden="true" className="block md:col-span-2">
+        {/* The picture repeats "View event" below, so it stays out of the tab order. */}
+        <Link to={eventPath(event)} tabIndex={-1} aria-hidden="true" className="block cursor-pointer md:col-span-2">
           <CoverImage
             src={cover?.src ?? null}
             focusY={cover?.focusY}
@@ -104,20 +101,17 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
             className="h-40 md:h-full md:min-h-[15rem]"
           >
             <div className="absolute left-3 top-3"><DateTile start={start} lang={lang} /></div>
-            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-pill bg-emerald-700 px-2.5 py-0.5 text-[12px] font-semibold text-white">
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {t('dashboard.registered')}
-            </span>
           </CoverImage>
         </Link>
 
         <div className="space-y-4 p-5 md:col-span-3">
-          <div className="group">
-            <h4 className="text-card-title text-navy [overflow-wrap:anywhere]">
-              <Link to={eventPath(event)} className={cn('rounded', FOCUS)}>
-                <span className="card-ul">{event.title}</span>
-                <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
-              </Link>
-            </h4>
+          <div>
+            <h4 className="text-card-title text-navy [overflow-wrap:anywhere]">{event.title}</h4>
+            {/* Registered: plain words with a tick, never a pill (it cannot be pressed). */}
+            <p className="mt-1.5 flex items-center gap-1.5 text-[14px] font-semibold leading-5 text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {t('dashboard.registered')}
+            </p>
             <p className="mt-2 flex items-center gap-2 text-[15px] leading-6 text-meta">
               <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{when}</span>
@@ -126,10 +120,17 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
               {isWebinar ? <Video className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />}
               <span className="truncate">{where}</span>
             </p>
+            <div className="mt-3 flex">
+              <CardLink to={eventPath(event)}>
+                {t('dash.band.viewEvent', 'View event')}
+                <span className="sr-only">: {event.title}</span>
+              </CardLink>
+            </div>
           </div>
 
           {isLive ? (
-            <p className="inline-flex items-center gap-2 rounded-pill bg-red-50 px-3 py-1 text-[14px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">
+            // A status, not a button: plain words with the live dot.
+            <p className="flex items-center gap-2 text-[15px] font-semibold leading-6 text-red-700">
               <span className="relative flex h-2 w-2" aria-hidden="true">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 motion-safe:animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
@@ -221,7 +222,7 @@ export function ComingUpList({ registeredIds, entries, loading }: { registeredId
         const wys = e.href === WYS26_PATH;
         const registered = e.id.startsWith('event-') && registeredIds.has(e.id.slice('event-'.length));
         return (
-          <li key={e.id} className="flex flex-col gap-2 rounded-field py-1.5 sm:flex-row sm:items-center">
+          <li key={e.id} className="flex rounded-field py-1.5">
             <Link to={e.href} className="group -mx-2 flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-field px-2 py-1 transition-colors hover:bg-page active:bg-chip focus:outline-none focus-visible:shadow-focus">
               <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-field bg-chip text-center" aria-hidden="true">
                 <span className="font-signage text-[19px] font-semibold leading-none tabular-nums text-navy">{e.day}</span>
@@ -238,14 +239,18 @@ export function ComingUpList({ registeredIds, entries, loading }: { registeredId
                     {t('dashboard.registered')}
                   </span>
                 )}
+                {/* The summit's page is where an invitation is asked for, and its pill says so
+                    (one control per row). Phones: under the words, where it has room. */}
+                {wys && (
+                  <span className="mt-1.5 flex sm:hidden">
+                    <ActionCue size="sm">{t('homePage.events.wysRequest', 'Request an invitation')}</ActionCue>
+                  </span>
+                )}
               </span>
-              <ActionCue size="sm">{t('dash.cue.view', 'View')}</ActionCue>
+              <ActionCue size="sm" className={wys ? 'hidden sm:inline-flex' : undefined}>
+                {wys ? t('homePage.events.wysRequest', 'Request an invitation') : t('dash.cue.view', 'View')}
+              </ActionCue>
             </Link>
-            {wys && (
-              <Button asChild variant="ctaNavy" size="sm" arrow={false} className="shrink-0 self-start sm:self-center">
-                <Link to={WYS26_PATH}>{t('homePage.events.wysRequest', 'Request an invitation')}</Link>
-              </Button>
-            )}
           </li>
         );
       })}

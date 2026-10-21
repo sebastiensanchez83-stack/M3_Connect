@@ -138,11 +138,11 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
         <InfoRow
           label={t('dash.emailsRow', 'E-mails you receive')}
           value={(
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
               {off === 0
                 ? t('dash.emailsAll', 'All of them')
                 : t('dash.emailsOff', { count: off, defaultValue_one: 'All but {{count}} kind', defaultValue_other: 'All but {{count}} kinds' })}
-              <HelpTip title={t('help.tips.emailsTitle', 'Choosing your e-mails')} more="emails-choose" className="text-meta">
+              <HelpTip title={t('help.tips.emailsTitle', 'Choosing your e-mails')} label={t('dash.helpWhat', 'What is this?')} more="emails-choose" className="text-navy">
                 {t('help.tips.emailsChoose', 'Turn off the kinds of e-mail you do not need. E-mails you ask for, such as a link to choose a new password, always arrive.')}
               </HelpTip>
             </span>

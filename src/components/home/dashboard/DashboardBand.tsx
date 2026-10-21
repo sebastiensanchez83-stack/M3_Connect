@@ -51,6 +51,8 @@ export interface BandFigure {
 export interface Completeness {
   done: number;
   total: number;
+  /** The company's page is counted too (its owner: logo, description, cover…): said in the words. */
+  includesCompany: boolean;
 }
 
 const ON_DARK_FOCUS = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-navy';
@@ -106,12 +108,12 @@ export function DashboardBand({
   const left = completeness ? completeness.total - completeness.done : 0;
 
   return (
-    <div className="relative overflow-hidden rounded-[24px] bg-navy px-4 py-6 text-white sm:px-8 sm:py-8">
+    <div className="relative overflow-hidden rounded-[24px] bg-navy px-3 py-6 text-white sm:px-8 sm:py-8">
       {/* A soft glow of the accent, top right: decoration only. */}
       <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-gold/15 blur-3xl" />
 
       <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
+        <div className="min-w-0 px-1 sm:px-0">
           <Eyebrow as="h2" tone="onDark" className="text-gold">
             <span id="dashboard-title">{t('memberHome.title', 'Your dashboard')}</span>
           </Eyebrow>
@@ -145,7 +147,9 @@ export function DashboardBand({
           pct >= 100 ? (
             <p className="inline-flex items-center gap-2 self-start text-[16px] font-semibold text-white lg:self-center">
               <CheckCircle2 className="h-5 w-5 shrink-0 text-gold" aria-hidden="true" />
-              {t('dash.band.profileComplete', 'Profile complete')}
+              {completeness?.includesCompany
+                ? t('dash.band.profileCompanyComplete', 'Profile and company page complete')
+                : t('dash.band.profileComplete', 'Profile complete')}
             </p>
           ) : (
             <button
@@ -160,7 +164,9 @@ export function DashboardBand({
               <Ring pct={pct} />
               <span className="min-w-0">
                 <span className="block text-[16px] font-semibold leading-6">
-                  {t('dash.band.profilePct', { pct, defaultValue: 'Profile {{pct}}% complete' })}
+                  {completeness?.includesCompany
+                    ? t('dash.band.profileCompanyPct', { pct, defaultValue: 'Profile and company page {{pct}}% complete' })
+                    : t('dash.band.profilePct', { pct, defaultValue: 'Profile {{pct}}% complete' })}
                 </span>
                 <span className="block text-[14px] leading-5 text-white/75">
                   {t('dash.band.toAdd', { count: left, defaultValue_one: '{{count}} thing to add', defaultValue_other: '{{count}} things to add' })}
@@ -174,10 +180,11 @@ export function DashboardBand({
         )}
       </div>
 
-      <ul className="relative mt-6 grid grid-cols-2 gap-3 lg:mt-8 lg:grid-cols-4 lg:gap-4">
+      {/* Phones: a little less room around the tiles, so every pill ("Publish a need", "See my events") stays on one line in a half-width tile. */}
+      <ul className="relative mt-6 grid grid-cols-2 gap-2 sm:gap-3 lg:mt-8 lg:grid-cols-4 lg:gap-4">
         {figures.map((f) => {
           const cls = cn(
-            'group flex h-full min-h-[188px] w-full cursor-pointer flex-col items-start rounded-[18px] bg-white/[0.07] border border-white/15 p-3.5 text-left sm:p-5',
+            'group flex h-full min-h-[188px] w-full cursor-pointer flex-col items-start rounded-[18px] bg-white/[0.07] border border-white/15 p-3 text-left sm:p-5',
             'transition-colors duration-200 hover:bg-white/[0.12] hover:border-white/35 active:bg-white/[0.16] motion-reduce:transition-none',
             ON_DARK_FOCUS,
           );
@@ -185,23 +192,30 @@ export function DashboardBand({
             <>
               <span className="block text-[12px] font-semibold uppercase leading-4 tracking-[0.08em] text-white/75">{f.kicker}</span>
               {f.value === null ? (
+                // While it loads: no words that could be wrong ("No message waiting"), one "Loading…" read out.
                 <>
                   <span aria-hidden="true" className="mt-2.5 block h-10 w-14 animate-pulse rounded-field bg-white/15 motion-reduce:animate-none" />
+                  <span aria-hidden="true" className="mt-2.5 block h-4 w-4/5 animate-pulse rounded-field bg-white/10 motion-reduce:animate-none" />
                   <span className="sr-only">{t('dash.loadingShort', 'Loading…')}</span>
                 </>
               ) : (
-                <span
-                  aria-hidden={f.valueDecorative || undefined}
-                  className="mt-2 block font-signage text-[40px] font-semibold leading-[44px] tabular-nums text-gold sm:text-[48px] sm:leading-[52px]"
-                >
-                  {f.value}
-                </span>
+                <>
+                  <span
+                    aria-hidden={f.valueDecorative || undefined}
+                    className="mt-2 block font-signage text-[40px] font-semibold leading-[44px] tabular-nums text-gold sm:text-[48px] sm:leading-[52px]"
+                  >
+                    {f.value}
+                  </span>
+                  {/* Phones have no hover to show a cut name: one more line there. */}
+                  <span className="mt-1.5 line-clamp-4 text-[15px] leading-5 text-white [overflow-wrap:anywhere] sm:line-clamp-3">{f.label}</span>
+                  {f.meta && <span className="mt-1 block text-[13px] leading-[18px] text-white/75">{f.meta}</span>}
+                </>
               )}
-              <span className="mt-1.5 line-clamp-3 text-[15px] leading-5 text-white [overflow-wrap:anywhere]">{f.label}</span>
-              {f.meta && <span className="mt-1 block text-[13px] leading-[18px] text-white/75">{f.meta}</span>}
-              <span className="mt-auto flex max-w-full pt-4">
-                {/* Phones: a little less padding, so "View event" stays on one line in a half-width tile. */}
-                <ActionCue tone="dark" size="sm" className="gap-1 px-2.5 sm:gap-1.5 sm:px-3">{f.action}</ActionCue>
+              {/* Phones: the pill reaches a little into the tile's padding, with less of its own and a
+                  size smaller, so the longest words ("Publish a need", "See my events", 92 px in Inter)
+                  stay on one line in a half-width tile from 360 px wide; narrower, they may wrap. */}
+              <span className="-mx-1 mt-auto flex max-w-[calc(100%+0.5rem)] pt-4 sm:mx-0 sm:max-w-full">
+                <ActionCue tone="dark" size="sm" className="gap-1 px-2 text-[13px] min-[360px]:whitespace-nowrap sm:gap-1.5 sm:px-3 sm:text-[14px]">{f.action}</ActionCue>
               </span>
             </>
           );

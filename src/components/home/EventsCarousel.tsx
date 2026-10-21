@@ -182,7 +182,7 @@ export function EventsCarousel({ sectionNo }: { sectionNo?: string }) {
             <EventCardLarge
               image={SITE_IMAGES.resourcesHero.src}
               focusY={SITE_IMAGES.resourcesHero.focusY}
-              kicker={t('homePage.events.wysKicker', 'Dubai · Next event')}
+              kicker={t('homePage.events.wysKicker', 'Dubai · Next summit')}
               title={wysTitle}
               titleId="home-event-wys"
               to={WYS26_PATH}

@@ -52,11 +52,13 @@ const WYS26_DATE = '2026-11-27T10:00:00+04:00';
 /** The 6th edition's first day, Monaco time. */
 const RENDEZVOUS_DATE = '2026-09-20T10:00:00+02:00';
 
-export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boolean } {
+/** `enabled` false: no read (yet); `loading` stays true until it is switched on. */
+export function useHomeAgenda(max = 3, enabled = true): { entries: AgendaEntry[]; loading: boolean } {
   const { t, i18n } = useTranslation();
   const [events, setEvents] = useState<EventRow[] | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     (async () => {
       // Slugs when the database has them (withSlug: id links before the slug migration).
@@ -72,7 +74,7 @@ export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boole
     return () => {
       alive = false;
     };
-  }, []);
+  }, [enabled]);
 
   const entries = useMemo<AgendaEntry[]>(() => {
     if (!events) return [];

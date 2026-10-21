@@ -1919,7 +1919,7 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
               </span>
               {current && (
                 <>
-                  <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-card shadow-[inset_0_0_0_2px_rgb(215_166_71),inset_0_0_0_4px_rgb(11_38_83)]" />
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-card shadow-[inset_0_0_0_2px_rgb(124_196_240),inset_0_0_0_4px_rgb(11_38_83)]" />
                   <span className="sr-only">({t('directory.collections.current', 'current selection')})</span>
                 </>
               )}

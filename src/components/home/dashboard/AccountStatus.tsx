@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { Ban, Building2, CheckCircle2, Clock, Loader2, MailWarning, Ticket, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/StatusCard';
-import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { CardButton, CardLink } from './DashboardKit';
 import { MemberBanner } from '@/components/member/MemberUI';
 import { AddCompanyForm, companyPathText, useCompanyRequest } from '@/components/organization/AddCompanyForm';
 import { useAuth } from '@/contexts/AuthContext';
@@ -180,7 +180,7 @@ export function AccountStatus({
   if (status === 'suspended') {
     card = (
       <StatusCard tone="stop" icon={Ban} eyebrow={t('dashStatus.eyebrow', 'Your account')} title={t('dashStatus.suspended', 'Your account is suspended')}
-        actions={<UnderlineLink to="/contact" className="!text-[15px]">{t('dashboard.contactUs', 'Contact us')}</UnderlineLink>}>
+        actions={<CardLink to="/contact">{t('dashboard.contactUs', 'Contact us')}</CardLink>}>
         <p>{t('dashStatus.suspendedBody', 'Please write to the M3 team at events@m3monaco.com.')}</p>
       </StatusCard>
     );
@@ -197,7 +197,7 @@ export function AccountStatus({
               {reviewState === 'busy' && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
               {t('dashStatus.reviewAgain', 'Ask M3 to review again')}
             </Button>
-            <UnderlineLink to="/contact" className="!text-[15px]">{t('dashStatus.write', 'Write to the M3 team')}</UnderlineLink>
+            <CardLink to="/contact">{t('dashStatus.write', 'Write to the M3 team')}</CardLink>
           </>
         )}
       >
@@ -224,8 +224,8 @@ export function AccountStatus({
         actions={(
           <>
             {proofInCard && <ProofButton state={proof.state} onSend={() => void proof.send()} />}
-            <UnderlineLink onClick={() => onOpen('profile')} className="!text-[15px]">{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
-            <UnderlineLink to="/events" className="!text-[15px]">{t('dashStatus.seeEvents', 'See the events')}</UnderlineLink>
+            <CardButton onClick={() => onOpen('profile')}>{t('dashboard.pendingProfile', 'Complete your profile')}</CardButton>
+            <CardLink to="/events">{t('dashStatus.seeEvents', 'See the events')}</CardLink>
           </>
         )}
       >
@@ -263,7 +263,7 @@ export function AccountStatus({
         icon={Ticket}
         eyebrow={t('dashStatus.eyebrow', 'Your account')}
         title={t('dashStatus.participant', 'Participant')}
-        actions={<UnderlineLink to="/events" className="!text-[15px]">{t('dashStatus.seeEvents', 'See the events')}</UnderlineLink>}
+        actions={<CardLink to="/events">{t('dashStatus.seeEvents', 'See the events')}</CardLink>}
       >
         <p>{t('dashStatus.participantBody', 'Verified by M3. The events, the library and the company directory are open to you.')}</p>
         {pathLine && <p>{pathLine}</p>}
@@ -289,9 +289,9 @@ export function AccountStatus({
               </div>
             </div>
             {!addOpen && (
-              <Button type="button" variant="outline" size="sm" className="h-11 shrink-0 rounded-pill border-navy/25 bg-white px-5 text-[15px] text-navy hover:border-navy hover:bg-chip" onClick={() => setAddOpen(true)}>
+              <CardButton onClick={() => setAddOpen(true)} icon="expand" className="self-start sm:self-auto">
                 {t('dashStatus.addCta', 'Add my company')}
-              </Button>
+              </CardButton>
             )}
           </div>
           {addOpen && (

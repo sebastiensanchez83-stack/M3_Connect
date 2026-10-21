@@ -35,7 +35,8 @@ registerMemberRefonteStrings();
 
 /** Dense shadcn buttons: pill, 40 px (the touch-target floor of the member area). */
 export const BTN = 'h-10 rounded-pill px-4';
-export const BTN_OUTLINE = 'h-10 rounded-pill border-navy/25 bg-white px-4 text-navy hover:border-navy hover:bg-chip hover:text-navy';
+/** The outline at navy/55 (3.5:1 on white): the shape of a button is seen, not guessed (Victor, 21 Oct 2026). */
+export const BTN_OUTLINE = 'h-10 rounded-pill border-navy/55 bg-white px-4 text-navy hover:border-navy hover:bg-chip hover:text-navy';
 
 /** A row link inside a card: the card clips, so the focus ring sits inside. */
 export const ROW_FOCUS = 'focus:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_#0b2653]';

@@ -43,7 +43,8 @@ export type CueIcon = 'arrow' | 'down' | 'expand' | 'collapse';
  * The dashboard's one sign that something can be pressed: a pill with a few
  * words and an icon. A plain span inside the card or row that is the actual
  * button or link (its words are part of that control's name, as seen), it
- * reacts to that parent's hover and press (`group`). On white: navy outline, like the panels' "Change" buttons. On
+ * reacts to that parent's hover and press (`group`). On white: a navy outline
+ * (3.5:1, so the shape itself is seen), like the panels' "Change" buttons. On
  * navy (`dark`): the accent with navy words (7.8:1).
  */
 export function ActionCue({
@@ -67,7 +68,8 @@ export function ActionCue({
         size === 'md' ? 'min-h-10 px-4 py-1.5 text-[15px] leading-5' : 'min-h-8 px-3 py-1 text-[14px] leading-5',
         tone === 'dark'
           ? 'bg-gold text-navy group-hover:bg-white group-active:bg-white/85'
-          : 'border border-navy/30 bg-white text-navy group-hover:border-navy group-hover:bg-chip group-active:bg-chip',
+          // navy/55: the outline reaches 3.5:1 on white (WCAG asks 3:1 for a control's edge).
+          : 'border border-navy/55 bg-white text-navy group-hover:border-navy group-hover:bg-chip group-active:bg-chip',
         className,
       )}
     >
@@ -238,25 +240,50 @@ export function MiniRow({
   return <li className="-mx-2 flex min-h-11 items-center gap-3 px-2 py-1.5">{inner}</li>;
 }
 
+/** CardLink's and CardButton's look: ActionCue's pill as a free-standing control, 44 px tall to tap. */
+const CARD_PILL = cn(
+  'group inline-flex min-h-11 max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border border-navy/55 bg-white px-4 py-1 text-left text-[15px] font-semibold leading-5 text-navy',
+  'transition-colors duration-200 hover:border-navy hover:bg-chip active:bg-chip motion-reduce:transition-none focus:outline-none focus-visible:shadow-focus',
+);
+
+function CardPillInner({ children, icon = 'arrow' }: { children: ReactNode; icon?: 'arrow' | 'expand' }) {
+  const Icon = icon === 'expand' ? ChevronDown : ArrowRight;
+  return (
+    <>
+      <span className="min-w-0">{children}</span>
+      <Icon
+        className={cn('h-[18px] w-[18px] shrink-0 transition-transform duration-200 motion-reduce:transition-none', icon === 'arrow' && 'group-hover:translate-x-0.5')}
+        strokeWidth={2.25}
+        aria-hidden="true"
+      />
+    </>
+  );
+}
+
 /**
  * A link at the top or bottom of a block ("All events", "View my company
  * page"): the dashboard's pill with its arrow (ActionCue's look, as a real
  * link), 44 px tall to tap.
  */
-export function CardLink({ to, children, external = false }: { to: string; children: ReactNode; external?: boolean }) {
-  const cls = cn(
-    'group inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border border-navy/30 bg-white px-4 text-[15px] font-semibold leading-5 text-navy',
-    'transition-colors duration-200 hover:border-navy hover:bg-chip active:bg-chip motion-reduce:transition-none focus:outline-none focus-visible:shadow-focus',
-  );
-  const inner = (
-    <>
-      <span>{children}</span>
-      <ArrowRight className="h-[18px] w-[18px] shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none" strokeWidth={2.25} aria-hidden="true" />
-    </>
-  );
+export function CardLink({ to, children, external = false, className }: { to: string; children: ReactNode; external?: boolean; className?: string }) {
+  const inner = <CardPillInner>{children}</CardPillInner>;
   return external
-    ? <a href={to} className={cls}>{inner}</a>
-    : <Link to={to} className={cls}>{inner}</Link>;
+    ? <a href={to} className={cn(CARD_PILL, className)}>{inner}</a>
+    : <Link to={to} className={cn(CARD_PILL, className)}>{inner}</Link>;
+}
+
+/**
+ * The same pill for something on this page ("Complete your profile" opens My
+ * profile further down, "See my events"): a button, so a member learns one
+ * look for "press here", whatever it does. `icon="expand"`: a form opens right
+ * here, under it (the chevron, as on the tiles).
+ */
+export function CardButton({ onClick, children, icon = 'arrow', className }: { onClick: () => void; children: ReactNode; icon?: 'arrow' | 'expand'; className?: string }) {
+  return (
+    <button type="button" onClick={onClick} className={cn(CARD_PILL, className)}>
+      <CardPillInner icon={icon}>{children}</CardPillInner>
+    </button>
+  );
 }
 
 /**

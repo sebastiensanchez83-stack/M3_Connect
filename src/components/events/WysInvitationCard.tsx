@@ -70,7 +70,7 @@ export function WysInvitationCard({
               <div className="flex flex-wrap items-center gap-2">
                 <span className={GLASS_CHIP}>
                   <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-gold" />
-                  {t('brand.notch.wysKicker', 'Next event')}
+                  {t('brand.notch.wysKicker', 'Next summit')}
                 </span>
                 <span className={GLASS_CHIP}>{badge}</span>
               </div>

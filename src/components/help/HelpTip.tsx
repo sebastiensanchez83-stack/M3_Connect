@@ -175,7 +175,8 @@ export function HelpTip({
         className={cn(
           label
             // A small pill with the word: 32 px to look at, 44 px to touch.
-            ? (dark ? 'border-white/40 ' : 'border-navy/25 ') + "relative z-[1] inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 align-middle text-[14px] font-semibold normal-case tracking-normal text-current transition-colors before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none"
+            // navy/55: the pill's edge is seen (3.5:1 on white), like the dashboard's other "press here" pills.
+            ? (dark ? 'border-white/40 ' : 'border-navy/55 ') + "relative z-[1] inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 align-middle text-[14px] font-semibold normal-case tracking-normal text-current transition-colors before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none"
             // 24 px to look at, 44 px to touch.
             : "relative z-[1] inline-grid h-6 w-6 shrink-0 place-items-center rounded-full align-middle text-current transition-colors before:absolute before:-inset-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none",
           dark ? 'hover:bg-white/15' : 'hover:bg-navy/10',

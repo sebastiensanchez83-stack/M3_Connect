@@ -153,14 +153,17 @@ export function PartnersPage() {
         // A media outlet is only shown HERE once an admin has tagged it as one of
         // our media partners. Accredited press that isn't a partner keeps a normal
         // company profile and lives in the network directory, not on this page.
+        // Public columns only (src/lib/orgVisibility.ts); listed companies only (contract 11.6:
+        // not archived, not merged into another).
         const [partnerRes, mediaRes, typeRes] = await Promise.all([
           supabase.from('organizations').select(COLS)
-            .eq('access_status', 'verified').in('tier', SPONSOR_TIERS),
+            .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null).in('tier', SPONSOR_TIERS),
           supabase.from('organizations').select(COLS)
-            .eq('access_status', 'verified').eq('organization_type', 'media_partner')
+            .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null).eq('organization_type', 'media_partner')
             .eq('is_event_media_partner', true),
           // For the "everyone else is in the directory" band: one light row per org.
-          supabase.from('organizations').select('organization_type').eq('access_status', 'verified'),
+          supabase.from('organizations').select('organization_type')
+            .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null),
         ]);
         if (!alive) return;
 

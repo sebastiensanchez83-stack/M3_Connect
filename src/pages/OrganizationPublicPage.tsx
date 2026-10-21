@@ -22,8 +22,14 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
-import { useSM26MarinaTexts } from '@/components/organization/useSM26MarinaTexts';
+import { marinaTextTile, useSM26MarinaTexts } from '@/components/organization/useSM26MarinaTexts';
 import { SM26ShowcaseBlocks, SM26ShowcaseHiddenNote, showcaseCount, useSM26Showcase } from '@/components/organization/SM26Showcase';
+import { LockedBlock, joinList } from '@/components/organization/LockedBlock';
+import {
+  ORG_BASIC_COLUMNS, fetchOrgHighlights, fetchOrgTeaser, seesMore, useOrgViewer, withClaimed, withClaimedFlag,
+  type OrgHighlights, type OrgTeaser,
+} from '@/lib/orgVisibility';
+import type { Showcase } from '@/lib/sm26Showcase';
 import { TextTiles, type TextTileItem } from '@/components/organization/TextTiles';
 import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
@@ -112,6 +118,16 @@ registerOrgRefonteStrings();
  * database allows and the company chose: src/lib/sm26Showcase.ts), and "In the news", the
  * published public articles M3 tagged with this company (resource_organization_mention).
  *
+ * Visitors and members (Victor, 21 Oct 2026, go-live runbook P3; the rule lives in
+ * src/lib/orgVisibility.ts): a visitor, and an account M3 has not validated yet, read the public
+ * columns only (ORG_BASIC_COLUMNS, is_claimed instead of owner_user_id) and never load the team,
+ * the marina details, the purchase projects or the full Smart Marina 2026 texts. The few public
+ * values among those (a marina's key figures, the first Smart Marina 2026 block) come from
+ * org_public_highlights, the counts of what is locked from org_visitor_teaser; each locked block
+ * shows a LockedBlock card in its place, its pill keeps its place in the section bar with a lock.
+ * A company M3 has not validated is "not found" for them. Validated members (and the company's own
+ * members) get a second read with the rest, as before.
+ *
  * Messaging (Victor, 9 Oct 2026): "Request to connect" became "Send a message", a
  * short first message (500 characters) open to any verified member of a company
  * M3 validated, whatever the sectors (the old sector gate is gone). When the two
@@ -180,7 +196,51 @@ interface SimilarOrg {
   country: string | null;
   headquarters_country: string | null;
   description: string | null;
-  owner_user_id: string | null;
+  is_claimed: boolean;
+}
+
+/**
+ * What the page reads of the company for everyone (ORG_BASIC_COLUMNS + is_claimed): never the
+ * internal columns, never owner_user_id (validated members read it apart, for "Send a message").
+ */
+type ProfileOrg = Pick<Organization,
+  | 'id' | 'name' | 'slug' | 'organization_type' | 'tier' | 'logo_url' | 'banner_url' | 'description' | 'audience_description'
+  | 'website' | 'country' | 'city' | 'headquarters_country' | 'gallery' | 'investment_geographies' | 'investment_size_min'
+  | 'investment_size_max' | 'investment_hold_period' | 'investment_thesis' | 'access_status' | 'created_at' | 'updated_at'
+> & {
+  is_claimed: boolean;
+  archived_at?: string | null;
+  duplicate_of?: string | null;
+  featured_partner?: boolean | null;
+  is_event_media_partner?: boolean | null;
+};
+
+/** A marina's public key figures (org_public_highlights) in the shape MarinaDetailsBlock draws: the rest left empty. */
+function publicMarinaDetails(m: NonNullable<OrgHighlights['marina']>, orgId: string): OrganizationMarinaDetails {
+  return {
+    organization_id: orgId,
+    marina_type: m.marina_type ?? null,
+    completion_date: null,
+    berths_count: m.berths_count ?? null,
+    superyacht_berths: m.superyacht_berths ?? null,
+    longest_berth_meters: m.longest_berth_meters ?? null,
+    fresh_water_available: false,
+    mix_range_boats: false,
+    mix_range_description: null,
+    certifications: Array.isArray(m.certifications) ? m.certifications : [],
+    certifications_other: m.certifications_other ?? null,
+    has_yacht_club: false,
+    yacht_club_members: null,
+    has_sailing_school: false,
+    has_boat_yard: false,
+    has_restaurants: false,
+    restaurants_count: null,
+    has_concierge: false,
+    marina_description: null,
+    services_description: null,
+    created_at: '',
+    updated_at: '',
+  };
 }
 
 /** An article of the library, with the themes its sectors touch. */
@@ -364,7 +424,16 @@ export function OrganizationPublicPage() {
   const { t } = useTranslation();
   const seoTr = useSeoTr();
   const { user, profile, organization, organizations, isVerified, can, capabilitiesEnforced, capabilitiesReady, capabilitiesUnavailable } = useAuth();
-  const [org, setOrg] = useState<Organization | null>(null);
+  // Who is reading (src/lib/orgVisibility.ts): 'visitor', 'pending' (an account M3 has not
+  // validated: the visitor version), 'member', or 'loading' while the session is read.
+  const viewer = useOrgViewer();
+  const [org, setOrg] = useState<ProfileOrg | null>(null);
+  // Validated members only (and the company's own members): who to write to, read apart.
+  const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
+  // Visitors and accounts not validated: the counts of the locked blocks, and the few public
+  // values of the members-only tables.
+  const [teaser, setTeaser] = useState<OrgTeaser | null>(null);
+  const [highlights, setHighlights] = useState<OrgHighlights | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   // Member count of a validated company from org_public_member_counts (anyone): the count
   // signed-out visitors see once organization_members is signed-in only
@@ -416,6 +485,9 @@ export function OrganizationPublicPage() {
       setLoadFailed(false);
       // Another organization: drop the previous one's data so nothing leaks across.
       setOrg(null);
+      setOwnerUserId(null);
+      setTeaser(null);
+      setHighlights(null);
       setMembers([]);
       setPublicMemberCount(0);
       setMarinaDetails(null);
@@ -424,14 +496,15 @@ export function OrganizationPublicPage() {
       setConfirmedReferences([]);
       setLightbox(null);
       try {
-        // Explicit columns, never '*': claim_code is readable by nobody but
-        // staff (audit S2), and select=* on organizations is then refused for
-        // anon and signed-in visitors alike.
-        const { data: orgData, error: orgError } = await supabase
+        // The public columns only, the same for every reader (src/lib/orgVisibility.ts): never '*'
+        // (claim_code is readable by nobody but staff, audit S2) and never the internal columns,
+        // which visitors cannot read at go-live. is_claimed, or owner_user_id before that column
+        // exists (withClaimed).
+        const { data: orgData, error: orgError } = await withClaimed((col) => supabase
           .from('organizations')
-          .select('id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner')
+          .select(`${ORG_BASIC_COLUMNS}, ${col}`)
           .eq('slug', slug)
-          .single();
+          .single());
         if (!alive) return;
 
         if (orgError) {
@@ -458,12 +531,10 @@ export function OrganizationPublicPage() {
         }
 
         if (orgData) {
-          const o = orgData as Organization;
+          const o = withClaimedFlag(orgData as unknown as ProfileOrg & { owner_user_id?: string | null }) as ProfileOrg;
           // A copy merged into another company (duplicate_of, set by M3): its old address
-          // opens the company it was merged into. Read apart, so a missing column grant
-          // never breaks the page.
-          const { data: dup } = await supabase.from('organizations').select('duplicate_of').eq('id', o.id).maybeSingle();
-          const keptId = (dup as { duplicate_of?: string | null } | null)?.duplicate_of;
+          // opens the company it was merged into (merged copies stay readable for that).
+          const keptId = o.duplicate_of ?? null;
           if (keptId) {
             const { data: kept } = await supabase.from('organizations').select('slug').eq('id', keptId).maybeSingle();
             if (!alive) return;
@@ -477,31 +548,12 @@ export function OrganizationPublicPage() {
           found = true;
           setOrg(o);
 
-          // Members with job_title (the team: signed-in readers), and the public count
-          // (anyone; a validated company only).
-          const [{ data: membersData }, { data: countRows }] = await Promise.all([
-            supabase
-              .from('organization_members')
-              .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, persona, job_title, avatar_url)')
-              .eq('organization_id', o.id)
-              .order('joined_at', { ascending: true }),
-            supabase.rpc('org_public_member_counts', { p_org_ids: [o.id] }),
-          ]);
+          // The public member count (anyone; a validated company only). The team itself is read
+          // below, for validated members only.
+          const { data: countRows } = await supabase.rpc('org_public_member_counts', { p_org_ids: [o.id] });
           if (!alive) return;
-          if (membersData) setMembers(membersData as unknown as MemberRow[]);
           const countRow = ((countRows ?? []) as { organization_id: string; members: number }[]).find((r) => r.organization_id === o.id);
           setPublicMemberCount(countRow ? Number(countRow.members) || 0 : 0);
-
-          // Marina details if marina org
-          if (o.organization_type === 'marina') {
-            const { data: marinaData } = await supabase
-              .from('organization_marina_details')
-              .select('*')
-              .eq('organization_id', o.id)
-              .maybeSingle();
-            if (!alive) return;
-            if (marinaData) setMarinaDetails(marinaData as OrganizationMarinaDetails);
-          }
 
           // Sectors (interest for marina/developer/investor, service for partners/media)
           const ot = o.organization_type;
@@ -526,23 +578,8 @@ export function OrganizationPublicPage() {
             }
           }
 
-          // Future plans for marinas (slug too, for the French sector names)
-          if (o.organization_type === 'marina') {
-            const { data: plansData } = await supabase
-              .from('organization_future_plans')
-              .select('sector_id, timeline, sectors(slug, label)')
-              .eq('organization_id', o.id);
-            if (!alive) return;
-            if (plansData && plansData.length > 0) {
-              setFuturePlans(
-                (plansData as unknown as { sector_id: string; timeline: string; sectors: { slug: string | null; label: string } | null }[])
-                  .filter((p) => p.sectors)
-                  .map((p) => ({ sector_slug: p.sectors!.slug ?? null, sector_label: p.sectors!.label, timeline: p.timeline })),
-              );
-            }
-          }
-
-          // Confirmed references for partners (the marinas that recommended them)
+          // Confirmed references for partners (the marinas that recommended them): public
+          // (Q1 = C), never the signer's e-mail
           if (o.organization_type === 'partner') {
             const { data: refsData } = await supabase
               .from('reference_requests')
@@ -564,12 +601,72 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [slug, loadAttempt]);
 
-  // Where my company stands with this one: a message waiting (either way) or a
-  // conversation, from me or a colleague. Keyed on ids, not on the user/org objects.
+  // Who sees the full profile (Q2): an account M3 validated, or one of the company's own members
+  // (its page, its data). Everyone else gets the visitor version. Booleans and ids only.
   const userId = user?.id ?? null;
-  const orgOwnerId = org?.owner_user_id ?? null;
   const targetOrgId = org?.id ?? null;
   const myOrgIdsKey = [...new Set([...(organizations ?? []).map((m) => m.organization.id), ...(organization?.id ? [organization.id] : [])])].sort().join(',');
+  const ownMember = !!targetOrgId && myOrgIdsKey.split(',').includes(targetOrgId);
+  const fullView = seesMore(viewer) || ownMember;
+  const viewerReady = viewer !== 'loading';
+  const targetOrgType = org?.organization_type ?? null;
+
+  // The second read, by who is reading. Full profile: who to write to, the team, the marina's
+  // details and purchase projects. Visitor version: only the counts of what is locked and the
+  // public values (org_visitor_teaser, org_public_highlights). Never both for one reader.
+  useEffect(() => {
+    if (loading || !targetOrgId || !viewerReady) return;
+    let alive = true;
+    if (fullView) {
+      setTeaser(null);
+      setHighlights(null);
+      (async () => {
+        const [{ data: ownerRow }, { data: membersData }] = await Promise.all([
+          supabase.from('organizations').select('owner_user_id').eq('id', targetOrgId).maybeSingle(),
+          supabase
+            .from('organization_members')
+            .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, persona, job_title, avatar_url)')
+            .eq('organization_id', targetOrgId)
+            .order('joined_at', { ascending: true }),
+        ]);
+        if (!alive) return;
+        setOwnerUserId((ownerRow as { owner_user_id?: string | null } | null)?.owner_user_id ?? null);
+        setMembers((membersData ?? []) as unknown as MemberRow[]);
+        if (targetOrgType !== 'marina') return;
+        // The marina's details and its purchase projects (slug too, for the sector names).
+        const [{ data: marinaData }, { data: plansData }] = await Promise.all([
+          supabase.from('organization_marina_details').select('*').eq('organization_id', targetOrgId).maybeSingle(),
+          supabase.from('organization_future_plans').select('sector_id, timeline, sectors(slug, label)').eq('organization_id', targetOrgId),
+        ]);
+        if (!alive) return;
+        setMarinaDetails((marinaData as OrganizationMarinaDetails | null) ?? null);
+        setFuturePlans(
+          ((plansData ?? []) as unknown as { sector_id: string; timeline: string; sectors: { slug: string | null; label: string } | null }[])
+            .filter((p) => p.sectors)
+            .map((p) => ({ sector_slug: p.sectors!.slug ?? null, sector_label: p.sectors!.label, timeline: p.timeline })),
+        );
+      })().catch((err) => { if (import.meta.env.DEV) console.error('Error loading the full profile:', err); });
+    } else {
+      setOwnerUserId(null);
+      setMembers([]);
+      setMarinaDetails(null);
+      setFuturePlans([]);
+      (async () => {
+        const [tz, hl] = await Promise.all([
+          fetchOrgTeaser(targetOrgId),
+          fetchOrgHighlights(targetOrgId, targetOrgType === 'marina'),
+        ]);
+        if (!alive) return;
+        setTeaser(tz);
+        setHighlights(hl);
+      })();
+    }
+    return () => { alive = false; };
+  }, [loading, targetOrgId, targetOrgType, fullView, viewerReady]);
+
+  // Where my company stands with this one: a message waiting (either way) or a
+  // conversation, from me or a colleague. Keyed on ids, not on the user/org objects.
+  const orgOwnerId = ownerUserId;
   useEffect(() => {
     if (!userId || !orgOwnerId || !targetOrgId) {
       setConnection(null);
@@ -635,27 +732,33 @@ export function OrganizationPublicPage() {
     let alive = true;
     (async () => {
       try {
-        const COLS = 'id, slug, name, organization_type, logo_url, city, country, headquarters_country, description, owner_user_id';
-        const base = () => supabase
+        // Public columns only; is_claimed (or owner_user_id before it exists) for "Verified member".
+        const COLS = 'id, slug, name, organization_type, logo_url, city, country, headquarters_country, description';
+        const base = (col: string) => supabase
           .from('organizations')
-          .select(COLS)
+          .select(`${COLS}, ${col}`)
           .eq('access_status', 'verified')
+          .is('archived_at', null)
+          .is('duplicate_of', null)
           .eq('organization_type', extrasType)
           .neq('id', extrasOrgId);
+        const asRows = (data: unknown): SimilarOrg[] =>
+          ((data ?? []) as (Omit<SimilarOrg, 'is_claimed'> & { is_claimed?: boolean | null; owner_user_id?: string | null })[])
+            .map((r) => withClaimedFlag(r) as SimilarOrg);
         // Members first, then pages with a logo: the cards that look finished lead.
         const rank = (list: SimilarOrg[]) => [...list].sort(
-          (a, b) => Number(!!b.owner_user_id) - Number(!!a.owner_user_id) || Number(!!b.logo_url) - Number(!!a.logo_url),
+          (a, b) => Number(b.is_claimed) - Number(a.is_claimed) || Number(!!b.logo_url) - Number(!!a.logo_url),
         );
         let sameCountry: SimilarOrg[] = [];
         if (extrasCountry) {
-          const { data } = await base().eq('country', extrasCountry).order('created_at', { ascending: false }).limit(12);
-          sameCountry = (data ?? []) as SimilarOrg[];
+          const { data } = await withClaimed((col) => base(col).eq('country', extrasCountry).order('created_at', { ascending: false }).limit(12));
+          sameCountry = asRows(data);
         }
         let rows = rank(sameCountry);
         if (rows.length < 9) {
-          const { data } = await base().order('created_at', { ascending: false }).limit(30);
+          const { data } = await withClaimed((col) => base(col).order('created_at', { ascending: false }).limit(30));
           const seen = new Set(rows.map((r) => r.id));
-          rows = [...rows, ...rank(((data ?? []) as SimilarOrg[]).filter((r) => !seen.has(r.id)))];
+          rows = [...rows, ...rank(asRows(data).filter((r) => !seen.has(r.id)))];
         }
         if (alive) setSimilar(rows.slice(0, 9));
       } catch {
@@ -754,8 +857,9 @@ export function OrganizationPublicPage() {
   const conversationHref = connection ? `/?open=inbox&thread=${connection.id}` : '/?open=inbox';
   const canEdit = !!organization && !!org && isMemberOfThisOrg;
 
-  // The Smart Marina 2026 texts (anyone), and for the company's own members whether some are hidden.
-  const sm26Show = useSM26Showcase(org?.id ?? null, canEdit);
+  // The Smart Marina 2026 texts in full (validated members and the company's own members), and for
+  // its own members whether some are hidden. Visitors get the first block only (highlights).
+  const sm26Show = useSM26Showcase(fullView ? org?.id ?? null : null, canEdit);
 
   // ------------------------------------------------------------------ sections
   // Which sections this organization has. Worked out before any early return,
@@ -768,9 +872,9 @@ export function OrganizationPublicPage() {
     [org],
   );
 
-  // The marina's Smart Marina 2026 texts (tiles). The section, and its pill in the
-  // section bar, only exist when there is at least one text.
-  const sm26 = useSM26MarinaTexts(isMarina && org ? org.id : null);
+  // The marina's Smart Marina 2026 texts (tiles), in full for those who see the full profile.
+  // The section, and its pill in the section bar, only exist when there is at least one text.
+  const sm26 = useSM26MarinaTexts(fullView && isMarina && org ? org.id : null);
 
   // Smart Marina award wins (the gold badge in the header): read once, shared with the directory.
   const awardWins = useAwardWins();
@@ -785,18 +889,51 @@ export function OrganizationPublicPage() {
   );
   const showSectors = sectors.length > 0;
   const showGallery = gallery.length > 0;
+
+  // The visitor version (not fullView): what is public of the members-only blocks
+  // (org_public_highlights), and how much is locked (org_visitor_teaser, counts only).
+  const visitorMarina = !fullView && isMarina && org && highlights?.marina ? publicMarinaDetails(highlights.marina, org.id) : null;
+  const marinaLocked = !fullView && isMarina && teaser
+    ? { facilities: teaser.marina_facilities || 0, texts: teaser.marina_texts || 0, plans: teaser.plans || 0 }
+    : null;
+  const marinaLockedCount = marinaLocked ? marinaLocked.facilities + marinaLocked.texts + marinaLocked.plans : 0;
+  const visitorSustainTile = !fullView && isMarina && highlights?.sm26_marina
+    ? marinaTextTile(highlights.sm26_marina.key, highlights.sm26_marina.text)
+    : null;
+  const sustainMore = !fullView && isMarina ? teaser?.sm26_texts_more || 0 : 0;
+  const visitorShowcase: Showcase | null = !fullView && highlights?.showcase && highlights.showcase.blocks?.length
+    ? (highlights.showcase as unknown as Showcase)
+    : null;
+  const showcaseMore = !fullView ? teaser?.showcase_more || 0 : 0;
+  const teamLocked = !fullView && publicMemberCount > 0;
+
   // A details row can exist with every field empty: only a row with something
   // to show earns a section (and a pill), or a mention in the members-only card.
   const marinaHasDetails = isMarina && marinaHasContent(marinaDetails, futurePlans);
-  const showMarina = isVerified && marinaHasDetails;
-  const showSustain = isMarina && sm26.items.length > 0;
-  const showSmartMarina = !!sm26Show.showcase;
-  const smartMarinaCount = showcaseCount(sm26Show.showcase);
+  const visitorMarinaFigures = !!visitorMarina && marinaHasContent(visitorMarina, []);
+  const showMarina = fullView ? marinaHasDetails : isMarina && (visitorMarinaFigures || marinaLockedCount > 0);
+  const showSustain = isMarina && (fullView ? sm26.items.length > 0 : !!visitorSustainTile || sustainMore > 0);
+  const sustainCount = fullView ? sm26.items.length : (visitorSustainTile ? 1 : 0) + sustainMore;
+  const showSmartMarina = fullView ? !!sm26Show.showcase : !!visitorShowcase || showcaseMore > 0;
+  const smartMarinaCount = fullView ? showcaseCount(sm26Show.showcase) : showcaseCount(visitorShowcase) + showcaseMore;
   const showNews = news.length > 0;
   // An article tagged with this company is in "In the news"; it is not repeated in "Related articles".
   const relatedShown = related.filter((r) => !news.some((n) => n.id === r.id));
   const showRefs = orgType === 'partner' && confirmedReferences.length > 0;
-  const showTeam = isVerified && members.length > 0;
+  const showTeam = fullView ? members.length > 0 : teamLocked;
+  const teamCount = fullView ? members.length : publicMemberCount;
+  // The sections a visitor sees only as a locked card: their pill carries a lock.
+  const lockedSections = new Set<SectionId>(fullView ? [] : [
+    ...(showMarina && !visitorMarinaFigures ? ['marina' as const] : []),
+    ...(showSustain && !visitorSustainTile ? ['sustainability' as const] : []),
+    ...(showSmartMarina && !visitorShowcase ? ['smartmarina' as const] : []),
+    ...(showTeam ? ['team' as const] : []),
+  ]);
+  const partlyLocked = new Set<SectionId>(fullView ? [] : [
+    ...(showMarina && visitorMarinaFigures && marinaLockedCount > 0 ? ['marina' as const] : []),
+    ...(showSustain && !!visitorSustainTile && sustainMore > 0 ? ['sustainability' as const] : []),
+    ...(showSmartMarina && !!visitorShowcase && showcaseMore > 0 ? ['smartmarina' as const] : []),
+  ]);
 
   const sectionIds: SectionId[] = org
     ? ([
@@ -868,8 +1005,12 @@ export function OrganizationPublicPage() {
   // sponsors), so everyone goes back to it.
   const back = { to: '/directory', label: t('orgProfile.backToDirectory', 'Back to the directory') };
 
+  // A company M3 has not validated (pending, suspended) is not public (Q5): visitors and accounts
+  // not validated get "not found", as they will from the database at go-live. Members still see it.
+  const hiddenFromReader = !!org && org.access_status !== 'verified' && !fullView;
+
   // ------------------------------------------------------------------ loading / not found
-  if (loading) {
+  if (loading || (hiddenFromReader && !viewerReady)) {
     return (
       <div className="min-h-screen bg-page" aria-busy="true">
         <span className="sr-only" role="status">{t('common.loading', 'Loading...')}</span>
@@ -910,19 +1051,48 @@ export function OrganizationPublicPage() {
     );
   }
 
-  if (!org) {
+  if (!org || hiddenFromReader) {
+    const signedOut = viewer === 'visitor';
     return (
       <StateScreen
         seo={<Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organisation not found'))} noindex />}
         title={t('orgProfile.notFoundTitle', 'Organisation not found')}
-        body={t('orgProfile.notFoundBody', 'This organisation does not exist or has been removed.')}
+        body={signedOut
+          ? t('orgProfile.notFoundBodyVisitor', 'This organisation does not exist, has been removed, or its page is not public yet. Members can sign in to see more.')
+          : t('orgProfile.notFoundBody', 'This organisation does not exist or has been removed.')}
       >
         <Button asChild variant="ctaOutline" size="sm">
           <Link to={back.to}>{back.label}</Link>
         </Button>
-        <Button asChild variant="ctaNavy" size="sm">
-          <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
-        </Button>
+        {signedOut ? (
+          <Button variant="ctaNavy" size="sm" onClick={() => setLoginOpen(true)}>
+            {t('orgProfile.locked.signIn', 'Sign in')}
+          </Button>
+        ) : (
+          <Button asChild variant="ctaNavy" size="sm">
+            <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
+          </Button>
+        )}
+        {signedOut && (
+          <AuthDialog
+            mode="login"
+            open={loginOpen}
+            onOpenChange={setLoginOpen}
+            switchTo={{ onClick: () => { setLoginOpen(false); setSignupOpen(true); } }}
+          >
+            <LoginForm onSuccess={() => setLoginOpen(false)} />
+          </AuthDialog>
+        )}
+        {signedOut && (
+          <AuthDialog
+            mode="signup"
+            open={signupOpen}
+            onOpenChange={setSignupOpen}
+            switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+          >
+            <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+          </AuthDialog>
+        )}
       </StateScreen>
     );
   }
@@ -976,16 +1146,16 @@ export function OrganizationPublicPage() {
     },
     gallery: { label: t('orgProfile.nav.gallery', 'Gallery'), icon: Camera, count: gallery.length },
     marina: { label: t('orgProfile.nav.marina', 'Marina details'), icon: Anchor },
-    sustainability: { label: t('orgProfile.nav.sustainability', 'Sustainability'), icon: Leaf, count: sm26.items.length },
+    sustainability: { label: t('orgProfile.nav.sustainability', 'Sustainability'), icon: Leaf, count: sustainCount },
     smartmarina: { label: t('orgProfile.nav.smartmarina', 'Smart Marina 2026'), icon: Lightbulb, count: smartMarinaCount },
     news: { label: t('orgProfile.nav.news', 'In the news'), icon: Newspaper, count: news.length },
     recommendations: { label: t('orgProfile.nav.recommendations', 'Recommendations'), icon: Award, count: confirmedReferences.length },
-    team: { label: t('orgProfile.nav.team', 'Team'), icon: Users, count: members.length },
+    team: { label: t('orgProfile.nav.team', 'Team'), icon: Users, count: teamCount },
   };
 
   // Imported marinas have no owner until the M3 team hands the page over: those
   // are invited to claim and complete it, and are not shown as verified members.
-  const claimed = !!org.owner_user_id;
+  const claimed = org.is_claimed;
   const verifiedMember = claimed && org.access_status === 'verified';
   const tone = orgTypeTone(orgType);
   const numberOf = (id: SectionId) => String(sectionIds.indexOf(id) + 1).padStart(2, '0');
@@ -1033,6 +1203,7 @@ export function OrganizationPublicPage() {
         name={name}
         conversationHref={conversationHref}
         onSignup={() => setSignupOpen(true)}
+        onSignIn={() => setLoginOpen(true)}
         onConnect={() => setConnectOpen(true)}
       />
     )
@@ -1077,19 +1248,52 @@ export function OrganizationPublicPage() {
     media_partner: t('orgPage.similar.titleMedia', 'Other media'),
   };
 
-  // What verification would really unlock on THIS profile, built from data the
-  // page already has (members and marina details are readable before
-  // verification): most marinas have no team and no details, and promising
-  // either would be false. No item, no card.
+  // The lines of the locked blocks: what is inside, with counts (org_visitor_teaser), never the
+  // values. A block with nothing locked gets no card.
+  const marinaLockedLine = marinaLocked && marinaLockedCount > 0
+    ? `${joinList([
+        marinaLocked.facilities > 0 ? plural('orgProfile.locked.facilities', marinaLocked.facilities, '{{count}} facility', '{{count}} facilities') : '',
+        marinaLocked.texts > 0
+          ? (marinaLocked.texts === 1
+            ? t('orgProfile.locked.oneDescription', 'a description of the marina')
+            : t('orgProfile.locked.twoDescriptions', 'descriptions of the marina and its services'))
+          : '',
+        marinaLocked.plans > 0 ? plural('orgProfile.locked.plans', marinaLocked.plans, '{{count}} purchase project', '{{count}} purchase projects') : '',
+      ])}.`.replace(/^./, (c) => c.toUpperCase())
+    : '';
+  const sustainLockedLine = sustainMore > 0
+    ? plural('orgProfile.locked.sustain', sustainMore,
+      '{{count}} more text from its Smart Marina 2026 entry: sustainability, innovation and services.',
+      '{{count}} more texts from its Smart Marina 2026 entry: sustainability, innovation and services.')
+    : '';
+  const showcaseLockedLine = showcaseMore > 0
+    ? plural('orgProfile.locked.showcase', showcaseMore,
+      '{{count}} more section of its Smart Marina 2026 dossier, such as its market, its model and its references.',
+      '{{count}} more sections of its Smart Marina 2026 dossier, such as its market, its model and its references.')
+    : '';
+  const teamLockedLine = viewer === 'pending'
+    ? plural('orgProfile.locked.teamPending', publicMemberCount,
+      '{{count}} person from {{name}} is on Smart Marina Connect.', '{{count}} people from {{name}} are on Smart Marina Connect.', { name })
+    : plural('orgProfile.locked.team', publicMemberCount,
+      '{{count}} person from {{name}} is on Smart Marina Connect. Sign in to see who.',
+      '{{count}} people from {{name}} are on Smart Marina Connect. Sign in to see who.', { name });
+  const lockedProps = { viewer, onSignIn: () => setLoginOpen(true), onSignUp: () => setSignupOpen(true) };
+
+  // "See the full profile": what an account M3 validated would also see on THIS profile, from the
+  // counts only (most marinas have no team and no details, and promising either would be false).
+  // No item, no card.
   const membersOnlyItems: { key: string; icon: LucideIcon; label: string }[] = [];
-  if (!isVerified) {
-    if (marinaHasDetails) {
-      membersOnlyItems.push({ key: 'marina', icon: Anchor, label: t('orgProfile.membersOnlyMarina', "The marina's detailed profile") });
+  if (!fullView && viewerReady) {
+    if (marinaLockedCount > 0) {
+      membersOnlyItems.push({ key: 'marina', icon: Anchor, label: t('orgProfile.membersOnlyMarinaMore', "The marina's facilities, texts and purchase projects") });
     }
-    if (memberCount > 0) {
+    if (publicMemberCount > 0) {
       membersOnlyItems.push({ key: 'team', icon: Users, label: t('orgProfile.membersOnlyTeam', 'The team behind {{name}}', { name }) });
     }
-    if (org.owner_user_id && !isMemberOfThisOrg) {
+    if (sustainMore + showcaseMore > 0) {
+      membersOnlyItems.push({ key: 'sm26', icon: Lightbulb, label: t('orgProfile.membersOnlySm26', 'Its full Smart Marina 2026 texts') });
+    }
+    if (claimed && !isMemberOfThisOrg) {
       membersOnlyItems.push({ key: 'connect', icon: Link2, label: t('orgProfile.membersOnlyMessage', 'A direct message to {{name}}', { name }) });
     }
   }
@@ -1120,7 +1324,7 @@ export function OrganizationPublicPage() {
     <Button asChild variant="cta">
       <Link to="/?open=inbox">{t('orgProfile.answerTheirMessage', 'Answer their message')}</Link>
     </Button>
-  ) : canConnect && org.owner_user_id ? (
+  ) : canConnect && ownerUserId ? (
     <Button variant="cta" onClick={() => setConnectOpen(true)}>
       {t('orgProfile.sendMessage', 'Send a message')}
     </Button>
@@ -1259,9 +1463,15 @@ export function OrganizationPublicPage() {
                     active ? 'font-semibold text-navy after:scale-x-100' : 'font-medium text-meta hover:text-navy',
                   )}
                 >
+                  {(lockedSections.has(id) || partlyLocked.has(id)) && (
+                    <Lock className="h-3.5 w-3.5 shrink-0 text-meta" aria-hidden="true" />
+                  )}
                   {item.label}
                   {item.count !== undefined && item.count > 0 && (
                     <span className="tabular text-xs font-normal text-meta">{item.count}</span>
+                  )}
+                  {lockedSections.has(id) && (
+                    <span className="sr-only"> {t('orgProfile.locked.pill', '(members only)')}</span>
                   )}
                 </a>
               );
@@ -1302,10 +1512,28 @@ export function OrganizationPublicPage() {
           </div>
         </ProfileSection>
 
-        {/* Marina details (verified members only): the figures first, then the texts as tiles */}
-        {showMarina && marinaDetails && (
+        {/* Marina details: everything for members (the figures first, then the texts as tiles);
+            for visitors the key figures (public) and a locked card for the rest */}
+        {showMarina && (fullView ? !!marinaDetails : true) && (
           <ProfileSection id="marina" number={numberOf('marina')} label={navLabels.marina.label} title={t('orgProfile.marina.title', 'Marina details')}>
-            <MarinaDetailsBlock details={marinaDetails} futurePlans={futurePlans} sectorLabel={sectorLabel} />
+            {fullView && marinaDetails ? (
+              <MarinaDetailsBlock details={marinaDetails} futurePlans={futurePlans} sectorLabel={sectorLabel} />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {visitorMarina && visitorMarinaFigures && (
+                  <MarinaDetailsBlock details={visitorMarina} futurePlans={[]} sectorLabel={sectorLabel} />
+                )}
+                {marinaLockedLine && (
+                  <LockedBlock
+                    title={visitorMarinaFigures
+                      ? t('orgProfile.locked.marinaMoreTitle', 'More about the marina, for members')
+                      : t('orgProfile.locked.marinaTitle', 'Marina details, for members')}
+                    line={marinaLockedLine}
+                    {...lockedProps}
+                  />
+                )}
+              </div>
+            )}
           </ProfileSection>
         )}
 
@@ -1430,14 +1658,29 @@ export function OrganizationPublicPage() {
             number={numberOf('sustainability')}
             label={navLabels.sustainability.label}
             title={t('orgProfile.sm26.title', 'Sustainability & innovation')}
-            count={sm26.items.length}
+            count={sustainCount}
           >
-            <SM26MarinaSustainability items={sm26.items} />
+            {fullView ? (
+              <SM26MarinaSustainability items={sm26.items} />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* The first written text is public (Q3 = c), the rest for members */}
+                {visitorSustainTile && <SM26MarinaSustainability items={[visitorSustainTile]} />}
+                {sustainLockedLine && (
+                  <LockedBlock
+                    title={t('orgProfile.locked.sustainTitle', 'The rest of its Smart Marina 2026 entry, for members')}
+                    line={sustainLockedLine}
+                    {...lockedProps}
+                  />
+                )}
+              </div>
+            )}
           </ProfileSection>
         )}
 
-        {/* Smart Marina 2026: the e-catalogue and jury texts the company lets visitors read */}
-        {showSmartMarina && sm26Show.showcase && (
+        {/* Smart Marina 2026: the e-catalogue and jury texts the company lets show (members), the
+            first block (activity and solution) for visitors */}
+        {showSmartMarina && (fullView ? !!sm26Show.showcase : true) && (
           <ProfileSection
             id="smartmarina"
             number={numberOf('smartmarina')}
@@ -1445,7 +1688,20 @@ export function OrganizationPublicPage() {
             title={t('orgProfile.sm26show.title', 'At Smart Marina 2026')}
             count={smartMarinaCount}
           >
-            <SM26ShowcaseBlocks showcase={sm26Show.showcase} name={name} canManage={canEdit} />
+            {fullView && sm26Show.showcase ? (
+              <SM26ShowcaseBlocks showcase={sm26Show.showcase} name={name} canManage={canEdit} />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {visitorShowcase && <SM26ShowcaseBlocks showcase={visitorShowcase} name={name} canManage={false} />}
+                {showcaseLockedLine && (
+                  <LockedBlock
+                    title={t('orgProfile.locked.showcaseTitle', 'The full Smart Marina 2026 dossier, for members')}
+                    line={showcaseLockedLine}
+                    {...lockedProps}
+                  />
+                )}
+              </div>
+            )}
           </ProfileSection>
         )}
         {/* Its own members only: the texts exist but the page does not show them */}
@@ -1497,8 +1753,14 @@ export function OrganizationPublicPage() {
           </ProfileSection>
         )}
 
-        {/* Team (verified members only): photo, name and job title. People have no page of their own. */}
-        {showTeam && (
+        {/* Team (validated members only): photo, name and job title. People have no page of their
+            own. Visitors: how many, and a locked card. */}
+        {showTeam && !fullView && (
+          <ProfileSection id="team" number={numberOf('team')} label={navLabels.team.label} title={t('orgProfile.team.title', 'Team')} count={teamCount}>
+            <LockedBlock title={t('orgProfile.locked.teamTitle', 'Who works at {{name}}', { name })} line={teamLockedLine} {...lockedProps} />
+          </ProfileSection>
+        )}
+        {showTeam && fullView && (
           <ProfileSection id="team" number={numberOf('team')} label={navLabels.team.label} title={t('orgProfile.team.title', 'Team')} count={members.length}>
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 lg:grid-cols-4">
               {members.map((member) => {
@@ -1519,15 +1781,20 @@ export function OrganizationPublicPage() {
           </ProfileSection>
         )}
 
-        {/* What a verified member would also get here — only what this profile really has. */}
+        {/* "See the full profile": what a validated member would also see here, only what this
+            profile really has (from the counts). */}
         {membersOnlyItems.length > 0 && (
-          <div className={cn(CARD, 'flex flex-col gap-5 p-6 sm:flex-row sm:items-center md:p-8')}>
+          <div className={cn(CARD, 'flex flex-col gap-5 p-6 md:p-8 lg:flex-row lg:items-center')}>
             <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-pill bg-foam text-teal">
               <Lock className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-card-title text-navy">{t('orgProfile.membersOnlyTitle', 'More for verified members')}</h2>
-              <p className="mt-1 text-sm text-meta">{t('orgProfile.membersOnlyIntro', 'Verified members also get:')}</p>
+              <h2 className="text-card-title text-navy">{t('orgProfile.fullProfileTitle', 'See the full profile')}</h2>
+              <p className="mt-1 text-sm text-meta">
+                {viewer === 'pending'
+                  ? t('orgProfile.fullProfileIntroPending', 'Your account is being reviewed. Once the M3 team has validated it, you will also see:')
+                  : t('orgProfile.fullProfileIntro', 'Members validated by the M3 team also see:')}
+              </p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {membersOnlyItems.map((item) => (
                   <li key={item.key} className="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-chip px-3.5 py-1.5 text-sm font-medium text-navy">
@@ -1537,15 +1804,18 @@ export function OrganizationPublicPage() {
                 ))}
               </ul>
             </div>
-            {user ? (
-              <Button asChild variant="ctaNavy" size="sm" className="shrink-0">
-                <Link to={accountHref('dashboard')}>{t('orgProfile.checkStatus', 'Check your account status')}</Link>
-              </Button>
-            ) : (
-              <Button variant="ctaNavy" size="sm" className="shrink-0" onClick={() => setSignupOpen(true)}>
-                {t('orgProfile.join', 'Sign up')}
-              </Button>
-            )}
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
+              {viewer === 'pending' ? (
+                <Button asChild variant="ctaOutline" size="sm">
+                  <Link to={accountHref('dashboard')}>{t('orgProfile.locked.checkStatus', 'Check my account status')}</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ctaNavy" size="sm" onClick={() => setLoginOpen(true)}>{t('orgProfile.locked.signIn', 'Sign in')}</Button>
+                  <Button variant="cta" size="sm" onClick={() => setSignupOpen(true)}>{t('orgProfile.locked.signUp', 'Sign up for free')}</Button>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1610,7 +1880,7 @@ export function OrganizationPublicPage() {
                     city={displayCase(o.city) || null}
                     country={englishCountryName(o.country ?? o.headquarters_country) || null}
                     description={o.description}
-                    verified={!!o.owner_user_id}
+                    verified={o.is_claimed}
                     className="w-full"
                   />
                 ))}
@@ -1649,11 +1919,11 @@ export function OrganizationPublicPage() {
       />
 
       {/* "Send a message": a short first message to the whole company (src/components/messages). */}
-      {org.owner_user_id && (
+      {ownerUserId && (
         <SendMessageDialog
           open={connectOpen}
           onOpenChange={setConnectOpen}
-          org={{ id: org.id, name, contactUserId: org.owner_user_id, type: org.organization_type }}
+          org={{ id: org.id, name, contactUserId: ownerUserId, type: org.organization_type }}
           onSent={handleMessageSent}
         />
       )}
@@ -1956,13 +2226,14 @@ type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'conne
  * first, the way to answer. Its own members get the way to keep the page up to date.
  */
 function TouchCard({
-  state, name, conversationHref, onSignup, onConnect,
+  state, name, conversationHref, onSignup, onSignIn, onConnect,
 }: {
   state: TouchState;
   name: string;
   /** The conversation (connected), or Messages. */
   conversationHref: string;
   onSignup: () => void;
+  onSignIn: () => void;
   onConnect: () => void;
 }) {
   const { t } = useTranslation();
@@ -2027,7 +2298,10 @@ function TouchCard({
           </Button>
         )}
         {state === 'visitor' && (
-          <Button variant="cta" size="sm" onClick={onSignup}>{t('orgProfile.touch.signup', 'Sign up for free')}</Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="ctaNavy" size="sm" onClick={onSignIn}>{t('orgProfile.locked.signIn', 'Sign in')}</Button>
+            <Button variant="cta" size="sm" onClick={onSignup}>{t('orgProfile.touch.signup', 'Sign up for free')}</Button>
+          </div>
         )}
         {state === 'connect' && (
           <Button variant="cta" size="sm" onClick={onConnect}>{t('orgProfile.sendMessage', 'Send a message')}</Button>

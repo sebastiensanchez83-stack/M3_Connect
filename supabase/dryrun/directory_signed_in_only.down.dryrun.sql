@@ -1,3 +1,7 @@
+-- SUPERSEDED on 21 Oct 2026 by supabase/migrations/held/directory_visitor_basic.sql (go-live runbook P4,
+-- Victor's answers of 21 Oct 2026), which contains both statements of this file and more.
+-- DO NOT APPLY OR RUN THIS FILE. Kept for the record only.
+--
 -- DRY RUN of the DOWN of supabase/migrations/held/directory_signed_in_only.sql. NOT A MIGRATION.
 -- ONE execute_sql call, after 20261016090000_review_and_validation_orgs and BEFORE the held file:
 -- snapshot, the held file verbatim, the down verbatim, then every policy must be as before.

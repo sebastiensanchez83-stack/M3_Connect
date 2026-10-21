@@ -13,7 +13,10 @@ const EVENT = { id: '66666666-7777-4888-8999-000000000000', slug: 'blue-ports-we
 const DRAFT = { ...EVENT, id: '66666666-7777-4888-8999-000000000001', slug: 'secret-draft', published: false };
 const WYS = { ...EVENT, id: WYS26_EVENT_ID, slug: 'world-yachting-summit-2026', title: 'World Yachting Summit 2026' };
 const RENDEZVOUS = { ...EVENT, id: RENDEZVOUS_6TH_EVENT_ID, slug: 'monaco-smart-and-sustainable-marina-2026-6th-edition', title: 'Monaco Smart & Sustainable Marina 2026, 6th edition', event_type: 'on_site' };
-const ORG = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', slug: 'port-example', name: 'Port Example', organization_type: 'marina' };
+const ORG = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', slug: 'port-example', name: 'Port Example', organization_type: 'marina', access_status: 'verified', duplicate_of: null };
+// Visitors (21 Oct 2026, Q5): a company M3 has not validated is not public; a merged copy moves to the kept one.
+const PENDING_ORG = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee1', slug: 'pending-yard', name: 'Pending Yard', organization_type: 'partner', access_status: 'pending', duplicate_of: null };
+const MERGED_ORG = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee2', slug: 'port-example-old', name: 'Port Example (old)', organization_type: 'marina', access_status: 'suspended', duplicate_of: ORG.id };
 
 /**
  * A fake PostgREST: `slugs` says whether the slug column (and the lookups) exist; `answer`, when
@@ -44,7 +47,7 @@ function fakeDb({ slugs, answer = null }) {
     let rows = [];
     if (table === 'resources') rows = [ARTICLE];
     if (table === 'events') rows = [EVENT, DRAFT, WYS, RENDEZVOUS];
-    if (table === 'organizations') rows = [ORG];
+    if (table === 'organizations') rows = [ORG, PENDING_ORG, MERGED_ORG];
     if (q.has('id')) rows = rows.filter((r) => r.id === eq('id'));
     if (q.has('slug') && !(q.get('slug') ?? '').startsWith('not.')) rows = rows.filter((r) => r.slug === eq('slug'));
     if (q.get('published') === 'eq.true') rows = rows.filter((r) => r.published !== false);
@@ -167,6 +170,48 @@ test('a company by id moves to its slug; the 301 keeps the security headers; a p
     assert.equal(preview.status, 301);
     assert.equal(preview.headers.get('Location'), 'https://refonte--m3connectv2.netlify.app/resources/marinas-and-standards');
     assert.equal(preview.headers.get('X-Robots-Tag'), 'noindex, nofollow');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.Netlify = originalNetlify;
+  }
+});
+
+test('companies: the head is the visitor version (a pending company is not found, a merged copy moves)', async () => {
+  const db = fakeDb({ slugs: true });
+  let { response, html } = await visit('/organizations/port-example', db);
+  assert.equal(response.headers.get('X-SMC-SEO'), 'organization');
+  assert.ok(html.includes('Port Example'));
+  ({ response, html } = await visit('/organizations/pending-yard', db));
+  assert.equal(response.headers.get('X-SMC-SEO'), 'not-found');
+  assert.ok(!html.includes('Pending Yard'));
+  ({ response } = await visit(`/organizations/${PENDING_ORG.id}`, db));
+  assert.notEqual(response.status, 301);
+  ({ response } = await visit('/organizations/port-example-old?tab=about', db));
+  assert.equal(response.status, 301);
+  assert.equal(response.headers.get('Location'), `${SITE}/organizations/port-example?tab=about`);
+  ({ response } = await visit(`/organizations/${MERGED_ORG.id}`, db));
+  assert.equal(response.status, 301);
+  assert.equal(response.headers.get('Location'), `${SITE}/organizations/port-example`);
+  // Only public columns are named (anon keeps exactly these at go-live).
+  for (const url of db.calls.filter((u) => u.pathname.endsWith('/organizations'))) {
+    assert.ok(!/owner_user_id|primary_domain|rejection_reason/.test(url.searchParams.get('select') ?? ''), url.search);
+  }
+});
+
+test('the sitemap names explicit event columns, never select=* (the meeting link closes to visitors at go-live)', async () => {
+  const db = fakeDb({ slugs: true });
+  const originalFetch = globalThis.fetch;
+  const originalNetlify = globalThis.Netlify;
+  globalThis.Netlify = { env: { get: (name) => ({ SUPABASE_URL: 'https://db.example', SUPABASE_ANON_KEY: 'sb_publishable_fixture' })[name] } };
+  globalThis.fetch = db.fetchImpl;
+  try {
+    await sitemapEntries();
+    const selects = db.calls.filter((u) => u.pathname.endsWith('/events')).map((u) => u.searchParams.get('select'));
+    assert.ok(selects.length > 0);
+    assert.ok(selects.every((s) => s && s !== '*' && !s.includes('meeting_url')), selects.join(' | '));
+    const orgQuery = db.calls.find((u) => u.pathname.endsWith('/organizations'));
+    assert.equal(orgQuery.searchParams.get('archived_at'), 'is.null');
+    assert.equal(orgQuery.searchParams.get('duplicate_of'), 'is.null');
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.Netlify = originalNetlify;

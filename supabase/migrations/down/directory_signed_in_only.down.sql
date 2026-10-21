@@ -1,3 +1,7 @@
+-- SUPERSEDED on 21 Oct 2026 by supabase/migrations/held/directory_visitor_basic.sql (go-live runbook P4,
+-- Victor's answers of 21 Oct 2026), which contains both statements of this file and more.
+-- DO NOT APPLY OR RUN THIS FILE. Kept for the record only.
+--
 -- DOWN for supabase/migrations/held/directory_signed_in_only.sql: signed-out visitors read team
 -- members and validated marinas' details again, exactly as before (policies recreated as they were
 -- on 15 Oct 2026).

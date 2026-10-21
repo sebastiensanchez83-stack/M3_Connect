@@ -37,6 +37,13 @@ import { ParticipateCardAction } from '@/components/registration/ParticipateCard
 import { withSiteSuffix } from '@/lib/seoText';
 import { eventPath } from '@/lib/seoMeta';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
+import { withSlug } from '@/lib/slugRoutes';
+
+/**
+ * What the list reads of each event (ListEvent and Event below). Never meeting_url for a visitor:
+ * that column is closed to them at go-live (Q10 = a, held/directory_visitor_basic.sql).
+ */
+const EVENT_LIST_COLUMNS = 'id, title, description, date_time, end_date_time, location, language, access_level, event_type, invitation_only, is_full_day, published, speakers, replay_url, image_url';
 
 /**
  * Events and webinars.
@@ -125,10 +132,14 @@ export function EventsPage() {
     // "Try again" shows the skeleton again; a refresh after a first good load swaps the data in place.
     if (!loadedOnce.current) { setLoading(true); setLoadFailed(false); }
     (async () => {
-      const { data, error } = await supabase
+      // Explicit columns, never '*': visitors cannot read the webinar meeting link at go-live
+      // (held/directory_visitor_basic.sql), and select=* would then be refused. Signed-in
+      // readers add it (the "Join now" link of a webinar they registered for). The slug when the
+      // database has it (withSlug).
+      const { data, error } = await withSlug('events', (slug) => supabase
         .from('events')
-        .select('*')
-        .order('date_time', { ascending: true, nullsFirst: false });
+        .select(`${EVENT_LIST_COLUMNS}${signedIn ? ', meeting_url' : ''}${slug}`)
+        .order('date_time', { ascending: true, nullsFirst: false }));
       if (!alive) return;
 
       if (error) {
@@ -146,7 +157,7 @@ export function EventsPage() {
       // its events row stays a draft and is never listed here, not even for an
       // admin (it showed as a "Draft" card with no picture); the WysInvitationCard
       // below (photo, link to /wys26) stands for it.
-      const allEvents = ((data || []) as Event[]).filter((e) => e.id !== WYS26_EVENT_ID);
+      const allEvents = ((data || []) as unknown as Event[]).filter((e) => e.id !== WYS26_EVENT_ID);
       const visible = isModerator ? allEvents : allEvents.filter((e) => e.published !== false);
       setEvents(visible);
 
@@ -173,7 +184,7 @@ export function EventsPage() {
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [isModerator, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isModerator, reloadKey, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The member's own registrations (and exhibition requests), for the
   // "Registered" badge, the join link and the "My events" filter.

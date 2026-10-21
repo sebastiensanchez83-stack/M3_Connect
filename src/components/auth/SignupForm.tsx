@@ -16,6 +16,7 @@ import { Anchor, ArrowRight, Building2, Newspaper, Loader2, ChevronLeft, Info, H
 import { useRegistrationFlagsOnce } from '@/lib/flags';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { safeNext } from '@/lib/safeNext';
+import { findCompanyByEmailDomain } from '@/lib/orgVisibility';
 
 // The sign-up v2 (flag account_signup_v2): its own chunk, loaded when a sign-up window opens.
 const AccountSignup = lazyWithRetry(() => import('@/components/auth/AccountSignup').then((m) => ({ default: m.AccountSignup })));
@@ -229,24 +230,16 @@ function LegacySignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
   };
 
-  // Domain detection: check if an organization exists for this email domain
-  // (Public/personal email domains are now allowed — no blacklist)
+  // Domain detection: check if a validated company exists for this email domain
+  // (Public/personal email domains are now allowed — no blacklist). Through
+  // org_by_email_domain (exact domain, validated companies only, id and name), never by
+  // reading organizations.primary_domain, which visitors cannot read at go-live; the old
+  // direct filter only while that function does not exist yet (src/lib/orgVisibility.ts).
   const checkDomain = useCallback(async (email: string) => {
     if (!email.includes('@')) { setDetectedOrg(null); return; }
     const domain = email.split('@')[1]?.toLowerCase();
     if (!domain) { setDetectedOrg(null); return; }
-
-    // Check if organization already exists for this domain
-    try {
-      const { data } = await supabase
-        .from('organizations')
-        .select('id, name')
-        .eq('primary_domain', domain)
-        .maybeSingle();
-      setDetectedOrg(data || null);
-    } catch {
-      setDetectedOrg(null);
-    }
+    setDetectedOrg(await findCompanyByEmailDomain(domain));
   }, []);
 
   // Debounced email domain check

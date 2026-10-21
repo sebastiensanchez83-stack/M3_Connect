@@ -137,7 +137,9 @@ export function useNetworkFigures(): { figures: NetworkFigures; loading: boolean
       // allSettled: a failed count leaves that one figure empty (a dash) instead of blanking the band.
       const [settingsRes, orgsRes, resourcesRes] = await Promise.allSettled([
         supabase.from('platform_settings').select('value').eq('key', 'display_stats').maybeSingle(),
-        supabase.from('organizations').select('organization_type, country, headquarters_country').eq('access_status', 'verified'),
+        // Listed companies only (contract 11.6: not archived, not merged into another).
+        supabase.from('organizations').select('organization_type, country, headquarters_country')
+          .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null),
         supabase.from('resources').select('id', { count: 'exact', head: true }).eq('published', true),
       ]);
       if (!alive) return;

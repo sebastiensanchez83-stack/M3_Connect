@@ -24,6 +24,10 @@ const CompanyAdminPage = lazyWithRetry(() => import('@/components/admin/v2/Compa
 const PersonAdminPage = lazyWithRetry(() => import('@/components/admin/v2/PersonAdminPage').then(m => ({ default: m.PersonAdminPage })));
 const InboxPage = lazyWithRetry(() => import('@/components/admin/v2/InboxPage').then(m => ({ default: m.InboxPage })));
 const EmailLogPage = lazyWithRetry(() => import('@/components/admin/v2/EmailLogPage').then(m => ({ default: m.EmailLogPage })));
+const RequestsPage = lazyWithRetry(() => import('@/components/admin/v2/market/RequestsPage').then(m => ({ default: m.RequestsPage })));
+const RequestDetailPage = lazyWithRetry(() => import('@/components/admin/v2/market/RequestDetailPage').then(m => ({ default: m.RequestDetailPage })));
+const SiteHealthPage = lazyWithRetry(() => import('@/components/admin/v2/SiteHealthPage').then(m => ({ default: m.SiteHealthPage })));
+const ExportsPage = lazyWithRetry(() => import('@/components/admin/v2/ExportsPage').then(m => ({ default: m.ExportsPage })));
 const SitePagesPage = lazyWithRetry(() => import('@/components/admin/v2/SitePagesPage').then(m => ({ default: m.SitePagesPage })));
 const AdminHome = lazyWithRetry(() => import('@/components/admin/home/AdminHome').then(m => ({ default: m.AdminHome })));
 const AdminUsers = lazyWithRetry(() => import('@/components/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
@@ -194,6 +198,10 @@ export function AdminPage() {
             <Route path="/people/:id" element={<AdminOnlyGuard><PersonAdminPage /></AdminOnlyGuard>} />
             <Route path="/site-pages" element={<SitePagesPage />} />
             <Route path="/site-pages/:pageId" element={<SitePagesPage />} />
+            <Route path="/requests" element={<AdminOnlyGuard><RequestsPage /></AdminOnlyGuard>} />
+            <Route path="/requests/:kind/:id" element={<AdminOnlyGuard><RequestDetailPage /></AdminOnlyGuard>} />
+            <Route path="/site-health" element={<SiteHealthPage />} />
+            <Route path="/exports" element={<AdminOnlyGuard><ExportsPage /></AdminOnlyGuard>} />
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
             <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
             <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />

@@ -2,10 +2,10 @@ import { useState, useEffect, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Users, FileText, Calendar, Anchor, Radio, MessageSquare, ClipboardList,
+  FileText, Calendar, Anchor, Radio,
   Award, Home, Settings, Image, Building2, Tag, ChevronRight, Store,
   Plus, CalendarDays,
-  Newspaper, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download, Inbox, PenLine, MailCheck,
+  Newspaper, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download, Inbox, PenLine, MailCheck, Activity, FileSpreadsheet,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -100,7 +100,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
       // opens from their company or the search.
       { to: '/admin/companies', label: t('adminNav.companies', 'Companies'), icon: <Building2 className={ICON} />, adminOnly: true, activeAlso: ['/admin/organizations', '/admin/people'] },
       // Company-to-company conversations (the old "B2B requests").
-      { to: '/admin/partner-requests', label: t('adminNav.conversations', 'Conversations'), icon: <MessagesSquare className={ICON} />, adminOnly: true },
+      { to: '/admin/partner-requests', label: t('adminNav.connectionRequests', 'Connection requests'), icon: <MessagesSquare className={ICON} />, adminOnly: true },
     ] },
     { key: 'content', label: t('adminNav.content', 'Site content'), items: [
       { to: '/admin/resources', label: t('adminNav.articles', 'Articles'), icon: <FileText className={ICON} /> },
@@ -109,17 +109,17 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, i
       { to: '/admin/sponsorships', label: t('adminNav.sponsors', 'Sponsors and partners'), icon: <Award className={ICON} />, adminOnly: true },
     ] },
     { key: 'marketplace', label: t('adminNav.marketplace', 'Marketplace'), items: [
-      { to: '/admin/projects', label: t('adminNav.projects', 'Marina projects'), icon: <Anchor className={ICON} />, adminOnly: true },
-      { to: '/admin/rfps', label: t('adminNav.rfps', 'RFPs'), icon: <ClipboardList className={ICON} />, adminOnly: true },
-      { to: '/admin/consultations', label: t('adminNav.consultations', 'Consultations'), icon: <MessageSquare className={ICON} />, adminOnly: true },
-      { to: '/admin/leads', label: t('adminNav.leads', 'Partner leads'), icon: <Users className={ICON} />, adminOnly: true },
+      // One list for marina projects, RFPs, consultations and partner leads; the old addresses redirect here.
+      { to: '/admin/requests', label: t('adminNav.marinaRequests', 'Marina requests'), icon: <Anchor className={ICON} />, adminOnly: true, activeAlso: ['/admin/projects', '/admin/rfps', '/admin/consultations', '/admin/leads'] },
     ] },
     { key: 'settings', label: t('adminNav.settings', 'Settings'), items: [
-      { to: '/admin/settings', label: t('adminNav.switches', 'Switches'), icon: <Settings className={ICON} />, adminOnly: true },
+      { to: '/admin/settings', label: t('adminNav.siteSettings', 'Site settings'), icon: <Settings className={ICON} />, adminOnly: true },
+      { to: '/admin/site-health', label: t('adminNav.siteHealth', 'Site health'), icon: <Activity className={ICON} /> },
       { to: '/admin/rights', label: t('adminNav.rights', 'Rights per company type'), icon: <ShieldCheck className={ICON} />, adminOnly: true },
       { to: '/admin/sectors', label: t('adminNav.sectors', 'Sectors'), icon: <Tag className={ICON} />, adminOnly: true },
       { to: '/admin/media-downloads', label: t('adminNav.press', 'Press'), icon: <Newspaper className={ICON} />, adminOnly: true },
       { to: '/admin/email-log', label: t('adminNav.emailLog', 'E-mail log'), icon: <MailCheck className={ICON} />, adminOnly: true },
+      { to: '/admin/exports', label: t('adminNav.exports', 'Exports'), icon: <FileSpreadsheet className={ICON} />, adminOnly: true },
       // Every account in one list, its CSV export and the staff accounts. A person's page
       // (/admin/users/:id) opens from their company or the search; this is not a People menu.
       { to: '/admin/users', label: t('adminNav.accounts', 'Accounts and export'), icon: <Download className={ICON} />, adminOnly: true },

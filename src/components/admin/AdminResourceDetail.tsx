@@ -475,6 +475,7 @@ export function AdminResourceDetail() {
       <div className="mx-auto max-w-4xl">
         {/* Header */}
         <AdminDetailHeader
+          className="static sm:sticky"
           back={{ to: '/admin/resources', label: t('adminContent.article.back', 'Back to Articles') }}
           title={draft.title}
           badges={<><AdminStatusPill>Draft</AdminStatusPill>{draftStatusBadge(draft.status)}</>}
@@ -599,7 +600,9 @@ export function AdminResourceDetail() {
   return (
     <div className="mx-auto max-w-4xl">
       {/* Header */}
+      {/* Not pinned on phones: there it would cover a third of the screen; Save is repeated at the bottom. */}
       <AdminDetailHeader
+        className="static sm:sticky"
         back={{ to: '/admin/resources', label: t('adminContent.article.back', 'Back to Articles') }}
         title={isNew ? 'New article' : form.title || 'Article without a title'}
         badges={!isNew ? <AdminStatusPill tone={form.published ? 'success' : 'neutral'}>{form.published ? 'Published' : 'Draft'}</AdminStatusPill> : undefined}

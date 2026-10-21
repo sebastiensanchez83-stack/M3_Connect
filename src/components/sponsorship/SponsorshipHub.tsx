@@ -191,7 +191,7 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New sponsor</DialogTitle>
+            <DialogTitle>{band ? 'New sponsor' : 'Add a sponsor'}</DialogTitle>
             <DialogDescription>Add the company, then build its agreement from a tier template if you want one now.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -216,7 +216,7 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="outline" className={BTN_OUTLINE} onClick={() => setOpen(false)}>Cancel</Button>
-              <Button className={cn(BTN, 'gap-1.5')} disabled={creating} onClick={create}>{creating && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} Create</Button>
+              <Button className={cn(BTN, 'gap-1.5')} disabled={creating} onClick={create}>{creating && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} {band ? 'Create' : 'Create the sponsor'}</Button>
             </div>
           </div>
         </DialogContent>

@@ -214,7 +214,9 @@ export function AdminBannerDetail() {
 
   return (
     <div className="mx-auto max-w-4xl">
+      {/* Not pinned on phones: there it would cover a third of the screen; Save is repeated at the bottom. */}
       <AdminDetailHeader
+        className="static sm:sticky"
         back={{ to: '/admin/banners', label: t('adminContent.banner.back', 'Back to Banners and announcements') }}
         title={isNew ? t('adminContent.banner.newTitle', 'New banner') : form.title || t('adminContent.banner.untitled', 'Banner without a title')}
         badges={!isNew ? (

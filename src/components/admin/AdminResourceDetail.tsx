@@ -3,31 +3,40 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import {
-  ArrowLeft, Save, Trash2, Loader2, Eye, UserPlus, Search,
+  Save, Trash2, Loader2, Eye, UserPlus, Search,
   ChevronUp, ChevronDown, X, CheckCircle, XCircle,
+  FileText, Tags, Users, PenLine, Globe, Gavel, ExternalLink, Link2,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { ImageUpload } from '@/components/ui/ImageUpload';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } from './types';
-import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
+import {
+  AdminDetailHeader, AdminLoading, AdminPanel, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
 import { ResourceM3EditionEditor } from './ResourceM3EditionEditor';
 import { ResourceMentionsPanel } from './ResourceMentionsPanel';
 import { AdminArticleComments } from './AdminArticleComments';
 import { SlugAddressPanel } from './SlugAddressPanel';
+import { Field, Note } from './v2/MembersKit';
+import { ADMIN_INPUT, CheckField, DetailList, FormField } from './v2/ContentFormKit';
+
+/** What the types and the reading rights are called on screen (the stored values stay as they are). */
+const TYPE_LABEL: Record<string, string> = {
+  article: 'Article', whitepaper: 'White paper', guide: 'Guide', replay: 'Replay (video)', case_study: 'Case study',
+};
+const ACCESS_LABEL: Record<string, string> = {
+  public: 'Everyone (public)', members: 'Members only', marina: 'Marinas only',
+};
 
 interface Sector {
   id: string;
@@ -451,288 +460,286 @@ export function AdminResourceDetail() {
   };
 
   // ---- Loading state ----
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   // =============== DRAFT VIEW ===============
   if (isDraft && draft) {
     const draftStatusBadge = (status: string) => {
-      if (status === 'approved') return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>;
-      if (status === 'rejected') return <Badge className="bg-red-100 text-red-800 border-red-200">Rejected</Badge>;
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+      if (status === 'approved') return <AdminStatusPill tone="success">Approved</AdminStatusPill>;
+      if (status === 'rejected') return <AdminStatusPill tone="danger">Rejected</AdminStatusPill>;
+      return <AdminStatusPill tone="warning">Pending</AdminStatusPill>;
     };
+    const awaitingReview = ['submitted', 'review_1', 'review_2'].includes(draft.status);
 
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="mx-auto max-w-4xl">
         {/* Header */}
         <AdminDetailHeader
-          back={{ to: '/admin/resources', label: 'Resources' }}
+          className="static sm:sticky"
+          back={{ to: '/admin/resources', label: t('adminContent.article.back', 'Back to Articles') }}
           title={draft.title}
           badges={<><AdminStatusPill>Draft</AdminStatusPill>{draftStatusBadge(draft.status)}</>}
+          subtitle={awaitingReview
+            ? t('adminContent.draft.subtitle', 'Proposed by a member: read it, then publish it or refuse it at the bottom of the page.')
+            : t('adminContent.draft.subtitleDone', 'Proposed by a member. This draft has already been reviewed.')}
         />
 
-        {/* Draft Meta */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <Eye className="h-4 w-4 text-blue-500" /> Draft Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div><span className="font-medium text-gray-600">Type: </span>{draft.type || '---'}</div>
-              <div><span className="font-medium text-gray-600">Topic: </span>{draft.topic || '---'}</div>
-              <div><span className="font-medium text-gray-600">Language: </span>{draft.language || '---'}</div>
-              <div><span className="font-medium text-gray-600">Access: </span>{draft.access_level || '---'}</div>
-              <div><span className="font-medium text-gray-600">Submitted by: </span>{draft.submitter_name}</div>
-              <div><span className="font-medium text-gray-600">Email: </span>{draft.submitter_email}</div>
-              <div>
-                <span className="font-medium text-gray-600">Submitted: </span>
-                {new Date(draft.created_at).toLocaleString()}
-              </div>
+        <div className="space-y-6">
+          {/* Draft Meta */}
+          <AdminPanel title={t('adminContent.draft.details', 'About this draft')} icon={Eye}>
+            <DetailList>
+              <Field label="Type">{draft.type ? TYPE_LABEL[draft.type] ?? draft.type : '---'}</Field>
+              <Field label="Topic">{draft.topic || '---'}</Field>
+              <Field label="Language">{draft.language || '---'}</Field>
+              <Field label="Who can read it">{draft.access_level ? ACCESS_LABEL[draft.access_level] ?? draft.access_level : '---'}</Field>
+              <Field label="Submitted by">{draft.submitter_name}</Field>
+              <Field label="E-mail">{draft.submitter_email}</Field>
+              <Field label="Submitted on">{new Date(draft.created_at).toLocaleString()}</Field>
               {draft.resource_id && (
-                <div>
-                  <span className="font-medium text-gray-600">Updating resource: </span>
-                  <span className="text-xs text-gray-400 font-mono">{draft.resource_id}</span>
-                </div>
+                <Field label="Updates the article">
+                  <span className="font-mono text-[12px] text-meta">{draft.resource_id}</span>
+                </Field>
               )}
-            </div>
-
-            {/* Summary */}
-            {draft.summary && (
-              <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Summary</p>
-                <p className="text-sm p-3 bg-gray-50 rounded border">{draft.summary}</p>
-              </div>
-            )}
-
-            {/* Content */}
-            <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Content</p>
-              <div
-                className="text-sm p-3 bg-gray-50 rounded border max-h-64 overflow-y-auto prose prose-sm"
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.content) }}
-              />
-            </div>
+            </DetailList>
 
             {/* Links */}
             {(draft.thumbnail_url || draft.file_url) && (
-              <div className="flex gap-4 text-sm">
+              <div className="mt-5 flex flex-wrap gap-2 border-t border-rule pt-5">
                 {draft.thumbnail_url && (
-                  <a href={draft.thumbnail_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                    View Thumbnail
+                  <a href={draft.thumbnail_url} target="_blank" rel="noopener noreferrer" className={EXT_LINK}>
+                    See the cover image <ExternalLink className="h-4 w-4" aria-hidden="true" /><span className="sr-only"> (new tab)</span>
                   </a>
                 )}
                 {draft.file_url && (
-                  <a href={draft.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                    Attached File
+                  <a href={draft.file_url} target="_blank" rel="noopener noreferrer" className={EXT_LINK}>
+                    Open the attached file <ExternalLink className="h-4 w-4" aria-hidden="true" /><span className="sr-only"> (new tab)</span>
                   </a>
                 )}
               </div>
             )}
+          </AdminPanel>
 
-            {/* Reviewer comment */}
-            <div className="space-y-2">
-              <Label>
-                Reviewer Comment <span className="text-gray-400 font-normal">(required to reject)</span>
-              </Label>
-              <Textarea
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                rows={3}
-                placeholder="Add notes or feedback..."
-                disabled={!['submitted', 'review_1', 'review_2'].includes(draft.status)}
-              />
-            </div>
-
-            {/* Actions — a partner-submitted draft awaiting review (the enum has
-                no 'pending'; un-reviewed states are submitted/review_1/review_2) */}
-            {['submitted', 'review_1', 'review_2'].includes(draft.status) && (
-              <div className="flex gap-3 pt-2 border-t">
-                <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white gap-1.5"
-                  onClick={handleApproveDraft}
-                  disabled={saving}
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                  Approve & Publish
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="flex-1 gap-1.5"
-                  onClick={handleRejectDraft}
-                  disabled={saving}
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                  Reject
-                </Button>
+          {/* Summary + content */}
+          <AdminPanel title={t('adminContent.draft.text', 'The text')} icon={FileText}>
+            {draft.summary && (
+              <div className="mb-5">
+                <h3 className="text-meta-caps mb-1.5">Summary</h3>
+                <p className="rounded-xl border border-rule bg-page p-3 text-[15px] leading-6 text-ink">{draft.summary}</p>
               </div>
             )}
+            <h3 className="text-meta-caps mb-1.5">Content</h3>
+            <div
+              className="prose prose-sm max-h-[28rem] max-w-none overflow-y-auto rounded-xl border border-rule bg-page p-4"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.content) }}
+            />
+          </AdminPanel>
 
-            {!['submitted', 'review_1', 'review_2'].includes(draft.status) && (
-              <p className="text-sm text-gray-400 text-center pt-1">
-                This draft has already been {draft.status}.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+          {/* Decision */}
+          <AdminPanel title={t('adminContent.draft.decision', 'Your decision')} icon={Gavel}>
+            <div className="space-y-4">
+              <FormField
+                label="Review comment"
+                htmlFor="draft-review-comment"
+                hint={awaitingReview ? 'Optional to publish, required to refuse.' : undefined}
+              >
+                <Textarea
+                  id="draft-review-comment"
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={3}
+                  placeholder="Add notes or feedback..."
+                  disabled={!awaitingReview}
+                  className="bg-white"
+                />
+              </FormField>
+
+              {/* Actions — a partner-submitted draft awaiting review (the enum has
+                  no 'pending'; un-reviewed states are submitted/review_1/review_2) */}
+              {awaitingReview && (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    variant="secondary"
+                    className={ADMIN_BTN_PRIMARY + ' gap-1.5 sm:flex-1'}
+                    onClick={handleApproveDraft}
+                    disabled={saving}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle className="h-4 w-4" aria-hidden="true" />}
+                    Approve and publish
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className={ADMIN_BTN_DANGER + ' gap-1.5 sm:flex-1'}
+                    onClick={handleRejectDraft}
+                    disabled={saving}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />}
+                    Refuse this draft
+                  </Button>
+                </div>
+              )}
+
+              {!awaitingReview && (
+                <Note>This draft has already been {draft.status}.</Note>
+              )}
+            </div>
+          </AdminPanel>
+        </div>
       </div>
     );
   }
 
+  const saveLabel = isNew ? (isAdmin ? 'Create the article' : 'Submit for review') : 'Save the changes';
+  const saveButton = (
+    <Button variant="secondary" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+      {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+      {saveLabel}
+    </Button>
+  );
+
   // =============== RESOURCE EDIT VIEW ===============
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto max-w-4xl">
       {/* Header */}
+      {/* Not pinned on phones: there it would cover a third of the screen; Save is repeated at the bottom. */}
       <AdminDetailHeader
-        back={{ to: '/admin/resources', label: 'Resources' }}
-        title={isNew ? 'Create Resource' : form.title || 'Edit Resource'}
+        className="static sm:sticky"
+        back={{ to: '/admin/resources', label: t('adminContent.article.back', 'Back to Articles') }}
+        title={isNew ? 'New article' : form.title || 'Article without a title'}
         badges={!isNew ? <AdminStatusPill tone={form.published ? 'success' : 'neutral'}>{form.published ? 'Published' : 'Draft'}</AdminStatusPill> : undefined}
         actions={
           <>
             {!isNew && (
-              <Button variant="outline" size="sm" onClick={handleDelete} className={ADMIN_BTN_DANGER + " gap-1.5"}>
-                <Trash2 className="h-4 w-4" /> Delete
+              <Button variant="outline" onClick={handleDelete} className={ADMIN_BTN_DANGER + ' gap-1.5'}>
+                <Trash2 className="h-4 w-4" aria-hidden="true" /> Delete
               </Button>
             )}
-            <Button variant="secondary" size="sm" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + " gap-1.5"}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isNew ? (isAdmin ? 'Create' : 'Submit for Review') : 'Save Changes'}
-            </Button>
+            {saveButton}
           </>
         }
       />
 
-      {/* Resource Details */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700">Resource Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Title *</Label>
-            <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Resource title" />
-          </div>
-          {!isDraft && (
-            <div className="space-y-2">
-              <Label htmlFor="resource-slug">Web address</Label>
-              <SlugAddressPanel table="resources" recordId={isNew ? null : resourceId} title={form.title} version={slugVersion} inputId="resource-slug" />
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label>Summary *</Label>
-            <Textarea value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} rows={2} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{types.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="resource-topic">Topic</Label>
-              <Select
-                value={form.topic}
-                onValueChange={v => {
-                  if (v === NEW_TOPIC) { setAddingTopic(true); setNewTopicError(''); return; }
-                  setForm({ ...form, topic: v }); setAddingTopic(false);
-                }}
-              >
-                <SelectTrigger id="resource-topic"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {topicOptions.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}
-                  <SelectItem value={NEW_TOPIC} className="font-semibold text-gold-text">
-                    {t('admin.resource.addTopic', '+ Add a new topic…')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {addingTopic && (
-                <div className="space-y-1.5 rounded-md border border-rule bg-chip/50 p-2.5">
-                  <Label htmlFor="resource-new-topic" className="text-[13px]">
-                    {t('admin.resource.newTopicLabel', 'New topic for this article')}
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    <Input
-                      id="resource-new-topic"
-                      autoFocus
-                      value={newTopic}
-                      maxLength={40}
-                      placeholder={t('admin.resource.newTopicPlaceholder', 'For example: Regulation')}
-                      onChange={e => { setNewTopic(e.target.value); setNewTopicError(''); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') { e.preventDefault(); addTopic(); }
-                        if (e.key === 'Escape') { setAddingTopic(false); setNewTopic(''); }
-                      }}
-                      aria-invalid={!!newTopicError}
-                      aria-describedby={newTopicError ? 'resource-new-topic-error' : undefined}
-                      className="min-w-0 flex-1"
-                    />
-                    <Button type="button" size="sm" className={ADMIN_BTN_PRIMARY} onClick={addTopic}>
-                      {t('admin.resource.addTopicButton', 'Add topic')}
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => { setAddingTopic(false); setNewTopic(''); setNewTopicError(''); }}>
-                      {t('common.cancel', 'Cancel')}
-                    </Button>
+      <div className="space-y-6">
+        {/* Resource Details */}
+        <AdminPanel title="The article" icon={FileText}>
+          <div className="space-y-5">
+            <FormField label="Title" htmlFor="resource-title" required>
+              <Input id="resource-title" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Resource title" className={ADMIN_INPUT} />
+            </FormField>
+            {!isDraft && (
+              <FormField label="Web address" htmlFor="resource-slug">
+                <SlugAddressPanel table="resources" recordId={isNew ? null : resourceId} title={form.title} version={slugVersion} inputId="resource-slug" />
+              </FormField>
+            )}
+            <FormField label="Summary" htmlFor="resource-summary" required hint="Two lines at most: shown on the list of articles and under the title.">
+              <Textarea id="resource-summary" value={form.summary} onChange={e => setForm({ ...form, summary: e.target.value })} rows={2} className="bg-white" />
+            </FormField>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <FormField label="Type" htmlFor="resource-type">
+                <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
+                  <SelectTrigger id="resource-type" className={ADMIN_INPUT}><SelectValue /></SelectTrigger>
+                  <SelectContent>{types.map(tp => <SelectItem key={tp} value={tp}>{TYPE_LABEL[tp] ?? tp}</SelectItem>)}</SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="Topic" htmlFor="resource-topic">
+                <Select
+                  value={form.topic}
+                  onValueChange={v => {
+                    if (v === NEW_TOPIC) { setAddingTopic(true); setNewTopicError(''); return; }
+                    setForm({ ...form, topic: v }); setAddingTopic(false);
+                  }}
+                >
+                  <SelectTrigger id="resource-topic" className={ADMIN_INPUT}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {topicOptions.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}
+                    <SelectItem value={NEW_TOPIC} className="font-semibold text-gold-text">
+                      {t('admin.resource.addTopic', '+ Add a new topic…')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {addingTopic && (
+                  <div className="mt-2 space-y-2 rounded-xl border border-rule bg-chip/50 p-3">
+                    <label htmlFor="resource-new-topic" className="block text-[14px] font-semibold leading-5 text-navy">
+                      {t('admin.resource.newTopicLabel', 'New topic for this article')}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        id="resource-new-topic"
+                        autoFocus
+                        value={newTopic}
+                        maxLength={40}
+                        placeholder={t('admin.resource.newTopicPlaceholder', 'For example: Regulation')}
+                        onChange={e => { setNewTopic(e.target.value); setNewTopicError(''); }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); addTopic(); }
+                          if (e.key === 'Escape') { setAddingTopic(false); setNewTopic(''); }
+                        }}
+                        aria-invalid={!!newTopicError}
+                        aria-describedby={newTopicError ? 'resource-new-topic-error' : undefined}
+                        className={ADMIN_INPUT + ' min-w-0 flex-1 basis-40'}
+                      />
+                      <Button type="button" variant="secondary" className={ADMIN_BTN_PRIMARY} onClick={addTopic}>
+                        {t('admin.resource.addTopicButton', 'Add topic')}
+                      </Button>
+                      <Button type="button" variant="outline" className={ADMIN_BTN} onClick={() => { setAddingTopic(false); setNewTopic(''); setNewTopicError(''); }}>
+                        {t('common.cancel', 'Cancel')}
+                      </Button>
+                    </div>
+                    {newTopicError && <p id="resource-new-topic-error" className="text-[13px] text-red-700">{newTopicError}</p>}
+                    <p className="text-[13px] leading-[18px] text-meta">
+                      {t('admin.resource.newTopicHint', 'It is saved with the article and offered in this list for the next articles.')}
+                    </p>
                   </div>
-                  {newTopicError && <p id="resource-new-topic-error" className="text-[13px] text-red-700">{newTopicError}</p>}
-                  <p className="text-[12px] text-meta">
-                    {t('admin.resource.newTopicHint', 'It is saved with the article and offered in this list for the next articles.')}
-                  </p>
-                </div>
-              )}
+                )}
+              </FormField>
+              <FormField label="Language" htmlFor="resource-language">
+                <Select value={form.language} onValueChange={v => setForm({ ...form, language: v })}>
+                  <SelectTrigger id="resource-language" className={ADMIN_INPUT}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EN">English</SelectItem>
+                    <SelectItem value="FR">Fran&#231;ais</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="Who can read it" htmlFor="resource-access">
+                <Select value={form.access_level} onValueChange={v => setForm({ ...form, access_level: v })}>
+                  <SelectTrigger id="resource-access" className={ADMIN_INPUT}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">{ACCESS_LABEL.public}</SelectItem>
+                    <SelectItem value="members">{ACCESS_LABEL.members}</SelectItem>
+                    <SelectItem value="marina">{ACCESS_LABEL.marina}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
             </div>
+            <ImageUpload label="Cover image" value={form.thumbnail_url} onChange={(url) => setForm({ ...form, thumbnail_url: url })} />
+            <FormField label="Attached file (web address)" htmlFor="resource-file" optional hint="A PDF or a document readers can open from the article.">
+              <Input id="resource-file" value={form.file_url} onChange={e => setForm({ ...form, file_url: e.target.value })} placeholder="https://..." className={ADMIN_INPUT} />
+            </FormField>
+            <FormField label="Search keywords (SEO)" htmlFor="resource-seo" optional hint="Separate them with commas. Search engines read them; readers do not see them.">
+              <Input id="resource-seo" value={form.seo_keywords} onChange={e => setForm({ ...form, seo_keywords: e.target.value })} placeholder="marina,sustainability,operations" className={ADMIN_INPUT} />
+            </FormField>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Language</Label>
-              <Select value={form.language} onValueChange={v => setForm({ ...form, language: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="EN">English</SelectItem>
-                  <SelectItem value="FR">Fran&#231;ais</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Access Level</Label>
-              <Select value={form.access_level} onValueChange={v => setForm({ ...form, access_level: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="public">Public</SelectItem>
-                  <SelectItem value="members">Members</SelectItem>
-                  <SelectItem value="marina">Marina</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <ImageUpload label="Thumbnail Image" value={form.thumbnail_url} onChange={(url) => setForm({ ...form, thumbnail_url: url })} />
-          <div className="space-y-2">
-            <Label>File URL</Label>
-            <Input value={form.file_url} onChange={e => setForm({ ...form, file_url: e.target.value })} placeholder="https://..." />
-          </div>
-          <div className="space-y-2">
-            <Label>SEO Keywords</Label>
-            <Input value={form.seo_keywords} onChange={e => setForm({ ...form, seo_keywords: e.target.value })} placeholder="marina,sustainability,operations" />
-            <p className="text-xs text-gray-500">Comma-separated target keywords.</p>
-          </div>
+        </AdminPanel>
 
-          {/* Sectors */}
-          <div className="space-y-2">
-            <Label>Sectors</Label>
-            <p className="text-xs text-gray-500">Select the sectors this resource is relevant to. Users with matching sectors will see this resource.</p>
-            {allSectors.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">Loading sectors...</p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3 bg-gray-50">
-                {allSectors.map(s => {
-                  const isChecked = selectedSectorIds.includes(s.id);
-                  return (
-                    <div key={s.id} className="flex items-center space-x-2">
+        {/* Sectors */}
+        <AdminPanel
+          title={<>Sectors{selectedSectorIds.length > 0 && <span className="ml-2 rounded-pill bg-chip px-2 py-0.5 text-[12px] font-semibold tabular-nums text-navy">{selectedSectorIds.length}</span>}</>}
+          icon={Tags}
+          description="Tick the sectors this article is about. Members whose sectors match will see it, and readers can filter the articles by sector."
+        >
+          {allSectors.length === 0 ? (
+            <p className="flex items-center gap-2 text-[14px] text-meta" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading sectors...</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {allSectors.map(s => {
+                const isChecked = selectedSectorIds.includes(s.id);
+                return (
+                  <CheckField
+                    key={s.id}
+                    id={`sector-${s.id}`}
+                    checked={isChecked}
+                    label={<span className="text-[14px]">{s.label}</span>}
+                    control={
                       <Checkbox
                         id={`sector-${s.id}`}
                         checked={isChecked}
@@ -742,80 +749,83 @@ export function AdminResourceDetail() {
                           );
                         }}
                       />
-                      <Label htmlFor={`sector-${s.id}`} className="text-sm cursor-pointer font-normal">
-                        {s.label}
-                      </Label>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {selectedSectorIds.length > 0 && (
-              <p className="text-xs text-gray-500">{selectedSectorIds.length} sector{selectedSectorIds.length > 1 ? 's' : ''} selected</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+          {selectedSectorIds.length > 0 && (
+            <p className="mt-3 text-[13px] text-meta">{selectedSectorIds.length} sector{selectedSectorIds.length > 1 ? 's' : ''} selected</p>
+          )}
+        </AdminPanel>
 
-      {/* Speakers */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-bold text-gray-700">Speakers ({speakers.length})</CardTitle>
-            <Button variant="outline" size="sm" onClick={addSpeaker} className="gap-1.5">
-              <UserPlus className="h-3.5 w-3.5" /> Add Speaker
+        {/* Speakers */}
+        <AdminPanel
+          title={<>Speakers <span className="ml-1 rounded-pill bg-chip px-2 py-0.5 text-[12px] font-semibold tabular-nums text-navy">{speakers.length}</span></>}
+          icon={Users}
+          description="The people who speak in this article or replay. Link them to their member account when they have one."
+          actions={
+            <Button variant="outline" onClick={addSpeaker} className={ADMIN_BTN + ' h-9 gap-1.5'}>
+              <UserPlus className="h-4 w-4" aria-hidden="true" /> Add a speaker
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
+          }
+        >
           {speakers.length === 0 ? (
-            <p className="text-sm text-gray-400 italic text-center py-4">No speakers added yet.</p>
+            <p className="py-2 text-center text-[14px] text-meta">No speakers added yet.</p>
           ) : (
             <div className="space-y-3">
               {speakers.map((speaker, index) => (
-                <div key={index} className="border rounded-lg p-3 space-y-2 bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-600">
+                <div key={index} className="space-y-3 rounded-xl border border-rule bg-page p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-[14px] font-semibold text-navy">
                       Speaker {index + 1}
-                      {speaker.profile_id && <Badge variant="success" className="ml-2 text-xs">Linked</Badge>}
+                      {speaker.profile_id && <AdminStatusPill tone="success">Linked to a member</AdminStatusPill>}
                     </span>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => moveSpeaker(index, 'up')} disabled={index === 0}><ChevronUp className="h-3 w-3" /></Button>
-                      <Button size="sm" variant="ghost" onClick={() => moveSpeaker(index, 'down')} disabled={index === speakers.length - 1}><ChevronDown className="h-3 w-3" /></Button>
-                      <Button size="sm" variant="ghost" onClick={() => removeSpeaker(index)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                      <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-pill border-navy/25 bg-white text-navy hover:bg-chip" onClick={() => moveSpeaker(index, 'up')} disabled={index === 0} aria-label={`Move speaker ${index + 1} up`} title="Move up"><ChevronUp className="h-4 w-4" aria-hidden="true" /></Button>
+                      <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-pill border-navy/25 bg-white text-navy hover:bg-chip" onClick={() => moveSpeaker(index, 'down')} disabled={index === speakers.length - 1} aria-label={`Move speaker ${index + 1} down`} title="Move down"><ChevronDown className="h-4 w-4" aria-hidden="true" /></Button>
+                      <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-pill border-red-200 bg-white text-red-700 hover:bg-red-50" onClick={() => removeSpeaker(index)} aria-label={`Remove speaker ${index + 1}`} title="Remove"><Trash2 className="h-4 w-4" aria-hidden="true" /></Button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Input placeholder="Full name *" value={speaker.full_name} onChange={e => updateSpeaker(index, 'full_name', e.target.value)} />
-                    <Input placeholder="Job title" value={speaker.job_title} onChange={e => updateSpeaker(index, 'job_title', e.target.value)} />
-                    <Input placeholder="Company" value={speaker.company_name} onChange={e => updateSpeaker(index, 'company_name', e.target.value)} />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <Input placeholder="Full name *" aria-label={`Full name of speaker ${index + 1}`} value={speaker.full_name} onChange={e => updateSpeaker(index, 'full_name', e.target.value)} className={ADMIN_INPUT} />
+                    <Input placeholder="Job title" aria-label={`Job title of speaker ${index + 1}`} value={speaker.job_title} onChange={e => updateSpeaker(index, 'job_title', e.target.value)} className={ADMIN_INPUT} />
+                    <Input placeholder="Company" aria-label={`Company of speaker ${index + 1}`} value={speaker.company_name} onChange={e => updateSpeaker(index, 'company_name', e.target.value)} className={ADMIN_INPUT} />
                   </div>
                   <div className="flex items-center gap-2">
                     {speaker.profile_id ? (
-                      <Button size="sm" variant="outline" onClick={() => unlinkProfile(index)}>
-                        <X className="h-3 w-3 mr-1" /> Unlink user
+                      <Button type="button" variant="outline" className={ADMIN_BTN + ' h-9 gap-1.5'} onClick={() => unlinkProfile(index)}>
+                        <X className="h-4 w-4" aria-hidden="true" /> Unlink from the member
                       </Button>
                     ) : linkingSpeakerIndex === index ? (
-                      <div className="flex-1 space-y-1">
-                        <Input placeholder="Search by name or email..." value={profileSearch} autoFocus
-                          onChange={e => { setProfileSearch(e.target.value); searchProfiles(e.target.value); }} />
+                      <div className="flex-1 space-y-2">
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
+                          <Input placeholder="Search a member by name or e-mail..." aria-label="Search a member by name or e-mail" value={profileSearch} autoFocus
+                            className="h-11 rounded-pill bg-white pl-10"
+                            onChange={e => { setProfileSearch(e.target.value); searchProfiles(e.target.value); }} />
+                        </div>
                         {profileResults.length > 0 && (
-                          <div className="border rounded bg-white max-h-32 overflow-y-auto shadow-sm">
+                          <ul className="max-h-48 divide-y divide-rule overflow-y-auto rounded-xl border border-rule bg-white">
                             {profileResults.map(p => (
-                              <button key={p.user_id} className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 flex items-center gap-2"
-                                onClick={() => linkProfile(index, p)}>
-                                <span className="font-medium">{p.first_name} {p.last_name}</span>
-                                <span className="text-gray-400">--- {p.email}</span>
-                                {p.company_name && <span className="text-gray-400 text-xs">({p.company_name})</span>}
-                              </button>
+                              <li key={p.user_id}>
+                                <button type="button" className="group flex min-h-11 w-full flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 text-left text-[14px] transition-colors hover:bg-page focus:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_#0b2653]"
+                                  onClick={() => linkProfile(index, p)}>
+                                  <span className="font-semibold text-navy">{p.first_name} {p.last_name}</span>
+                                  <span className="text-meta">{p.email}</span>
+                                  {p.company_name && <span className="text-[12px] text-meta">({p.company_name})</span>}
+                                  <span className="ml-auto inline-flex h-8 items-center rounded-pill border border-navy/55 px-3 text-[13px] font-semibold text-navy group-hover:border-navy group-hover:bg-chip">Link</span>
+                                </button>
+                              </li>
                             ))}
-                          </div>
+                          </ul>
                         )}
-                        <Button size="sm" variant="ghost" onClick={() => { setLinkingSpeakerIndex(null); setProfileSearch(''); setProfileResults([]); }}>Cancel</Button>
+                        <Button type="button" variant="outline" className={ADMIN_BTN + ' h-9'} onClick={() => { setLinkingSpeakerIndex(null); setProfileSearch(''); setProfileResults([]); }}>Cancel</Button>
                       </div>
                     ) : (
-                      <Button size="sm" variant="outline" onClick={() => setLinkingSpeakerIndex(index)}>
-                        <Search className="h-3 w-3 mr-1" /> Link to user
+                      <Button type="button" variant="outline" className={ADMIN_BTN + ' h-9 gap-1.5'} onClick={() => setLinkingSpeakerIndex(index)}>
+                        <Link2 className="h-4 w-4" aria-hidden="true" /> Link to a member
                       </Button>
                     )}
                   </div>
@@ -823,59 +833,60 @@ export function AdminResourceDetail() {
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </AdminPanel>
 
-      {/* Content */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700">Content</CardTitle>
-        </CardHeader>
-        <CardContent>
+        {/* Content */}
+        <AdminPanel title="Text of the article" icon={PenLine}>
           <RichTextEditor
             content={form.content}
             onChange={(html) => setForm({ ...form, content: html })}
             placeholder="Write the resource content..."
           />
-        </CardContent>
-      </Card>
+        </AdminPanel>
 
-      {/* Companies the article mentions: linked in the text and listed under it (saved at once). */}
-      <ResourceMentionsPanel resourceId={resourceId} title={form.title} summary={form.summary} content={form.content} />
+        {/* Companies the article mentions: linked in the text and listed under it (saved at once). */}
+        <ResourceMentionsPanel resourceId={resourceId} title={form.title} summary={form.summary} content={form.content} />
 
-      {/* Members' comments under the article (switch article_comments): hide, show again, close reports. */}
-      {!isNew && !isDraft && <AdminArticleComments resourceId={resourceId} />}
+        {/* Members' comments under the article (switch article_comments): hide, show again, close reports. */}
+        {!isNew && !isDraft && <AdminArticleComments resourceId={resourceId} />}
 
-      {isAdmin && resourceId && <ResourceM3EditionEditor key={resourceId} resourceId={resourceId} />}
+        {isAdmin && resourceId && <ResourceM3EditionEditor key={resourceId} resourceId={resourceId} />}
 
-      {/* Published checkbox + Save */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Checkbox id="published" checked={form.published} onCheckedChange={(c) => setForm({ ...form, published: c as boolean })} disabled={!isAdmin && isNew} />
-              <Label htmlFor="published">Published</Label>
-              {!isAdmin && isNew && <span className="text-xs text-amber-600 ml-2">(Requires admin approval to publish)</span>}
-              {/* The feeds that m3monaco.com (/rss.xml) and s3monaco.com (/rss-s3.xml) import (netlify/edge-functions/rss.ts). */}
-              <span className="flex items-center space-x-2 pl-6">
-                <Checkbox id="share_to_m3" checked={form.share_to_m3} onCheckedChange={(c) => setForm({ ...form, share_to_m3: c === true })} />
-                <Label htmlFor="share_to_m3">Also publish on m3monaco.com</Label>
-              </span>
-              <span className="flex items-center space-x-2 pl-4">
-                <Checkbox id="share_to_s3" checked={form.share_to_s3} onCheckedChange={(c) => setForm({ ...form, share_to_s3: c === true })} />
-                <Label htmlFor="share_to_s3">Also publish on s3monaco.com</Label>
-              </span>
-              {(form.share_to_m3 || form.share_to_s3) && (!form.published || form.access_level !== 'public') && (
-                <span className="text-xs text-amber-600">(only once published and public)</span>
-              )}
+        {/* Published checkbox + Save */}
+        <AdminPanel title="Publishing" icon={Globe} description="Saved with the rest of the article when you press the Save button.">
+          <div className="space-y-3">
+            <CheckField
+              id="published"
+              checked={form.published}
+              label="Published on Smart Marina Connect"
+              hint={!isAdmin && isNew ? '(Requires admin approval to publish)' : 'Unticked: a draft, not shown on the site.'}
+              control={<Checkbox id="published" checked={form.published} onCheckedChange={(c) => setForm({ ...form, published: c as boolean })} disabled={!isAdmin && isNew} />}
+            />
+            {/* The feeds that m3monaco.com (/rss.xml) and s3monaco.com (/rss-s3.xml) import (netlify/edge-functions/rss.ts). */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <CheckField
+                id="share_to_m3"
+                checked={form.share_to_m3}
+                label="Also publish on m3monaco.com"
+                control={<Checkbox id="share_to_m3" checked={form.share_to_m3} onCheckedChange={(c) => setForm({ ...form, share_to_m3: c === true })} />}
+              />
+              <CheckField
+                id="share_to_s3"
+                checked={form.share_to_s3}
+                label="Also publish on s3monaco.com"
+                control={<Checkbox id="share_to_s3" checked={form.share_to_s3} onCheckedChange={(c) => setForm({ ...form, share_to_s3: c === true })} />}
+              />
             </div>
-            <Button onClick={handleSave} disabled={saving} className="gap-1.5">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isNew ? (isAdmin ? 'Create' : 'Submit for Review') : 'Save Changes'}
-            </Button>
+            {(form.share_to_m3 || form.share_to_s3) && (!form.published || form.access_level !== 'public') && (
+              <Note tone="warning">The other sites only take it once it is published and readable by everyone (public).</Note>
+            )}
+            <div className="flex justify-end pt-2">{saveButton}</div>
           </div>
-        </CardContent>
-      </Card>
+        </AdminPanel>
+      </div>
     </div>
   );
 }
+
+/** A link that opens in a new tab, as the admin's outline pill. */
+const EXT_LINK = 'inline-flex min-h-10 items-center gap-1.5 rounded-pill border border-navy/55 bg-white px-4 text-[14px] font-semibold text-navy transition-colors hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus';

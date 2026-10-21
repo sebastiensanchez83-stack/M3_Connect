@@ -2,18 +2,20 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, Save, Loader2, Building2, DollarSign, FileText, Calendar,
+  Save, Loader2, Building2, DollarSign, FileText, Flag, Check,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import {
+  AdminDetailHeader, AdminLoading, AdminPanel, ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+import { Field, Note } from './v2/MembersKit';
+import { ADMIN_INPUT, DetailList, FormField } from './v2/ContentFormKit';
+import { ExpositionStatus } from './AdminExpositions';
 
 interface ExpositionRequest {
   id: string; organization_id: string; event_id: string; requested_by: string;
@@ -21,14 +23,6 @@ interface ExpositionRequest {
   amount_due: number | null; payment_confirmed_at: string | null; created_at: string;
   org_name: string; event_title: string; requester_email: string;
 }
-
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-blue-100 text-blue-800',
-  invoice_sent: 'bg-indigo-100 text-indigo-800',
-  paid: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-};
 
 export function AdminExpositionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -145,143 +139,106 @@ export function AdminExpositionDetail() {
     setSaving(false);
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   if (!request) return null;
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/expositions')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Expositions
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{request.org_name}</h1>
-          <Badge className={statusColors[request.status] || 'bg-gray-100 text-gray-800'}>
-            {request.status.replace('_', ' ')}
-          </Badge>
-        </div>
-      </div>
+  const spin = <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />;
 
-      {/* Request Details */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-blue-500" /> Request Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500 font-medium">Organization:</span>
-              <span className="ml-2 text-gray-900 font-semibold">{request.org_name}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5 text-gray-400" />
-              <span className="text-gray-500 font-medium">Event:</span>
-              <span className="ml-1 text-gray-900">{request.event_title}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Requester:</span>
-              <span className="ml-2 text-gray-900">{request.requester_email}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Amount Due:</span>
-              <span className="ml-2 text-gray-900 font-semibold">€{request.amount_due || 1400}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Status:</span>
-              <Badge className={`ml-2 ${statusColors[request.status] || ''}`}>{request.status.replace('_', ' ')}</Badge>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Created:</span>
-              <span className="ml-2 text-gray-900">{new Date(request.created_at).toLocaleString()}</span>
-            </div>
+  return (
+    <div className="mx-auto max-w-4xl">
+      <AdminDetailHeader
+        back={{ to: '/admin/expositions', label: t('adminContent.expo.back', 'Back to Old exposition requests') }}
+        title={request.org_name}
+        badges={<ExpositionStatus status={request.status} />}
+        subtitle={t('adminContent.expo.subtitle', 'Asks for an exhibition stand at {{event}}', { event: request.event_title })}
+      />
+
+      <div className="space-y-6">
+        {/* Request Details */}
+        <AdminPanel title={t('adminContent.expo.details', 'The request')} icon={Building2}>
+          <DetailList>
+            <Field label={t('adminContent.expo.colCompany', 'Company')}>{request.org_name}</Field>
+            <Field label={t('adminContent.expo.colEvent', 'Event')}>{request.event_title}</Field>
+            <Field label={t('adminContent.expo.askedBy', 'Asked by')}>{request.requester_email}</Field>
+            <Field label={t('adminContent.expo.amountDue', 'Amount due')}>
+              <span className="font-semibold text-navy">€{request.amount_due || 1400}</span>
+            </Field>
+            <Field label={t('adminContent.expo.colStatus', 'Status')}><ExpositionStatus status={request.status} /></Field>
+            <Field label={t('adminContent.expo.created', 'Sent on')}>{new Date(request.created_at).toLocaleString()}</Field>
             {request.payment_confirmed_at && (
-              <div>
-                <span className="text-gray-500 font-medium">Payment Confirmed:</span>
-                <span className="ml-2 text-gray-900">{new Date(request.payment_confirmed_at).toLocaleString()}</span>
-              </div>
+              <Field label={t('adminContent.expo.paidOn', 'Payment confirmed on')}>{new Date(request.payment_confirmed_at).toLocaleString()}</Field>
             )}
             {request.invoice_reference && (
-              <div>
-                <span className="text-gray-500 font-medium">Invoice Ref:</span>
-                <span className="ml-2 text-gray-900">{request.invoice_reference}</span>
+              <Field label={t('adminContent.expo.invoiceRef', 'Invoice number')}>{request.invoice_reference}</Field>
+            )}
+          </DetailList>
+        </AdminPanel>
+
+        {/* Editable Fields */}
+        <AdminPanel
+          title={t('adminContent.expo.invoicePanel', 'Invoice and notes')}
+          icon={DollarSign}
+          description={t('adminContent.expo.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes are not shown to the company.')}
+        >
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <FormField label={t('adminContent.expo.invoiceRef', 'Invoice number')} htmlFor="expo-invoice-ref">
+                <Input id="expo-invoice-ref" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" className={ADMIN_INPUT} />
+              </FormField>
+              <FormField label={t('adminContent.expo.amountDueEur', 'Amount due (€)')} htmlFor="expo-amount" hint={t('adminContent.expo.amountHint', 'Empty: €1,400, the usual price of a stand.')}>
+                <Input id="expo-amount" type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="1400" className={ADMIN_INPUT} />
+              </FormField>
+            </div>
+            <FormField label={t('adminContent.expo.notes', 'Notes for the M3 team')} htmlFor="expo-notes" hint={t('adminContent.expo.notesHint', 'Not shown to the company on the site.')}>
+              <Textarea id="expo-notes" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." className="bg-white" />
+            </FormField>
+            <Button variant="outline" onClick={saveFields} disabled={saving} className={ADMIN_BTN + ' gap-1.5'}>
+              {saving ? spin : <Save className="h-4 w-4" aria-hidden="true" />}
+              {t('adminContent.expo.saveFields', 'Save the invoice details and notes')}
+            </Button>
+          </div>
+        </AdminPanel>
+
+        {/* Action Buttons */}
+        <AdminPanel title={t('adminContent.expo.next', 'Next step')} icon={Flag}>
+          {request.status === 'pending' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.expo.pendingHint', 'Approve the stand, or refuse the request. The person who asked is notified either way.')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => updateStatus('approved')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                  {saving ? spin : <Check className="h-4 w-4" aria-hidden="true" />}
+                  {t('adminContent.expo.approve', 'Approve the stand')}
+                </Button>
+                <Button variant="outline" onClick={() => updateStatus('rejected')} disabled={saving} className={ADMIN_BTN_DANGER}>
+                  {t('adminContent.expo.reject', 'Refuse the request')}
+                </Button>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Editable Fields */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-emerald-500" /> Editable Fields
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Invoice Reference</Label>
-              <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" />
-            </div>
-            <div className="space-y-2">
-              <Label>Amount Due (€)</Label>
-              <Input type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="1400" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Admin Notes</Label>
-            <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." />
-          </div>
-          <Button size="sm" variant="outline" onClick={saveFields} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Changes
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Action Buttons */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700">Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {request.status === 'pending' && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => updateStatus('approved')} disabled={saving} className="gap-1.5">
-                  Approve
-                </Button>
-                <Button size="sm" variant="destructive" onClick={() => updateStatus('rejected')} disabled={saving}>
-                  Reject
-                </Button>
-              </>
-            )}
-            {request.status === 'approved' && (
-              <Button size="sm" variant="outline" onClick={() => updateStatus('invoice_sent')} disabled={saving} className="gap-1.5">
-                <FileText className="h-4 w-4" /> Mark Invoice Sent
+            </>
+          )}
+          {request.status === 'approved' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.expo.approvedHint', 'Once the invoice has gone out, mark it as sent. The person who asked is notified.')}</p>
+              <Button variant="secondary" onClick={() => updateStatus('invoice_sent')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                {saving ? spin : <FileText className="h-4 w-4" aria-hidden="true" />}
+                {t('adminContent.expo.markInvoiceSent', 'Mark the invoice as sent')}
               </Button>
-            )}
-            {request.status === 'invoice_sent' && (
-              <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1.5" onClick={() => updateStatus('paid')} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
-                Confirm Payment
+            </>
+          )}
+          {request.status === 'invoice_sent' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.expo.invoicedHint', 'Once the money has arrived, confirm the payment: the company is registered at the event as an exhibitor and the person who asked is notified.')}</p>
+              <Button variant="secondary" onClick={() => updateStatus('paid')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                {saving ? spin : <DollarSign className="h-4 w-4" aria-hidden="true" />}
+                {t('adminContent.expo.confirmPayment', 'Confirm the payment')}
               </Button>
-            )}
-            {(request.status === 'paid' || request.status === 'rejected') && (
-              <p className="text-sm text-gray-500 italic">This request has been {request.status}. No further actions available.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </>
+          )}
+          {(request.status === 'paid' || request.status === 'rejected') && (
+            <Note>{t('adminContent.expo.done', 'This request has been {{status}}. There is nothing more to do.', { status: request.status })}</Note>
+          )}
+        </AdminPanel>
+      </div>
     </div>
   );
 }

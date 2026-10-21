@@ -12,11 +12,18 @@ import { toast } from '@/hooks/use-toast';
 import { SpSponsor, SpTier, SpProgram, deliveredPct } from '@/lib/sponsorship';
 import { FIELD, FIELD_LABEL, ProgressBar, SponsorStatusPill, SponsorshipFrame } from './sponsorshipUi';
 import { cn } from '@/lib/utils';
+import {
+  AdminEmpty, AdminLoading, AdminPageHeader, AdminStatus, ADMIN_BTN_PRIMARY,
+} from '@/components/admin/AdminUI';
+import { LinkCard } from '@/components/admin/v2/ContentFormKit';
 
 // Admin / YCM fulfilment hub: every sponsor with tier, status and % delivered.
 // basePath differs by mount point (/admin/sponsorships vs /sponsorship); `band`
-// puts the marine band on top (the /sponsorship page), the admin workspace
-// brings its own shell and gets a plain heading.
+// puts the marine band on top (the /sponsorship page, for M3 and Yacht Club de
+// Monaco: it looks exactly as before). Without it (the admin workspace) the
+// screen speaks the admin's language (wave 2, 21 Oct 2026): the admin page
+// header, the gold main action, and cards that say where they lead. Same data,
+// same handlers either way.
 
 interface Row extends SpSponsor { tierLabel: string | null; pct: number; hasAgreement: boolean }
 
@@ -75,26 +82,82 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
     await load();
   };
 
-  const frame = (children: React.ReactNode) => (
+  const frame = (children: React.ReactNode) => band ? (
     <SponsorshipFrame
-      band={band}
+      band
       icon={Award}
       eyebrow="Sponsorship"
       title="Sponsorship fulfilment"
       meta={<span>What each sponsor was sold, what we owe, and what we've delivered.</span>}
-      actions={!loading && (band
-        ? <Button variant="ctaOnDark" size="sm" onClick={() => setOpen(true)}>New sponsor</Button>
-        : <Button className={cn(BTN, 'gap-1.5')} onClick={() => setOpen(true)}><Plus className="h-4 w-4" aria-hidden="true" /> New sponsor</Button>)}
+      actions={!loading && <Button variant="ctaOnDark" size="sm" onClick={() => setOpen(true)}>New sponsor</Button>}
     >
       {children}
     </SponsorshipFrame>
+  ) : (
+    <div className="mx-auto w-full max-w-5xl">
+      <AdminPageHeader
+        title="Sponsors and partners"
+        count={loading ? undefined : rows.length}
+        description="The paying sponsors: what each one was sold, what M3 owes them and what has been delivered. Press a sponsor to see its agreement and what is left to deliver."
+        actions={!loading && (
+          <Button variant="secondary" className={cn(ADMIN_BTN_PRIMARY, 'gap-1.5')} onClick={() => setOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" /> Add a sponsor
+          </Button>
+        )}
+      />
+      {children}
+    </div>
   );
 
-  if (loading) return frame(<CardShell><RowSkeleton rows={3} /></CardShell>);
+  if (loading) return frame(band ? <CardShell><RowSkeleton rows={3} /></CardShell> : <AdminLoading />);
+
+  /** What a sponsor's card shows (tier, contact, status, delivery), the same on both screens. */
+  const progress = (s: Row) => s.hasAgreement ? (
+    <>
+      <div className="mb-1.5 flex items-center justify-between text-[13px] leading-5">
+        <span className="text-meta">Delivered</span>
+        <span className="font-semibold tabular-nums text-navy">{s.pct}%</span>
+      </div>
+      <ProgressBar pct={s.pct} label={`${s.company_name}: ${s.pct}% delivered`} />
+    </>
+  ) : (
+    <p className="text-[13px] leading-5 text-meta">No agreement yet</p>
+  );
 
   return frame(
     <>
-      {rows.length === 0 ? (
+      {!band ? (
+        rows.length === 0 ? (
+          <div className="rounded-card border border-rule bg-white">
+            <AdminEmpty
+              icon={Building2}
+              title="No sponsors yet"
+              body="Press “Add a sponsor”, then build its agreement from a tier template."
+            />
+          </div>
+        ) : (
+          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Sponsors">
+            {rows.map(s => (
+              <li key={s.id} className="flex">
+                <LinkCard to={`${basePath}/${s.id}`} cue="Open the sponsor" className="w-full">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
+                        <span className="card-ul">{s.company_name}</span>
+                      </h2>
+                      <p className="mt-1 text-[14px] leading-5 text-meta [overflow-wrap:anywhere]">
+                        {s.tierLabel || 'No tier'}{s.primary_contact_name ? ` · ${s.primary_contact_name}` : ''}
+                      </p>
+                    </div>
+                    <AdminStatus status={s.status} />
+                  </div>
+                  <div className="mt-auto pt-5">{progress(s)}</div>
+                </LinkCard>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : rows.length === 0 ? (
         <CardShell>
           <MemberEmpty
             icon={Building2}
@@ -118,19 +181,7 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
                   </div>
                   <SponsorStatusPill status={s.status} />
                 </div>
-                <div className="mt-auto pt-5">
-                  {s.hasAgreement ? (
-                    <>
-                      <div className="mb-1.5 flex items-center justify-between text-[13px] leading-5">
-                        <span className="text-meta">Delivered</span>
-                        <span className="font-semibold tabular-nums text-navy">{s.pct}%</span>
-                      </div>
-                      <ProgressBar pct={s.pct} label={`${s.company_name}: ${s.pct}% delivered`} />
-                    </>
-                  ) : (
-                    <p className="text-[13px] leading-5 text-meta">No agreement yet</p>
-                  )}
-                </div>
+                <div className="mt-auto pt-5">{progress(s)}</div>
               </CardShell>
             </li>
           ))}
@@ -140,7 +191,7 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New sponsor</DialogTitle>
+            <DialogTitle>{band ? 'New sponsor' : 'Add a sponsor'}</DialogTitle>
             <DialogDescription>Add the company, then build its agreement from a tier template if you want one now.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -165,7 +216,7 @@ export function SponsorshipHub({ basePath, band = false }: { basePath: string; b
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="outline" className={BTN_OUTLINE} onClick={() => setOpen(false)}>Cancel</Button>
-              <Button className={cn(BTN, 'gap-1.5')} disabled={creating} onClick={create}>{creating && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} Create</Button>
+              <Button className={cn(BTN, 'gap-1.5')} disabled={creating} onClick={create}>{creating && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} {band ? 'Create' : 'Create the sponsor'}</Button>
             </div>
           </div>
         </DialogContent>

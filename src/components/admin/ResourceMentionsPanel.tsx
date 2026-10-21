@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, Check, ExternalLink, Loader2, Plus, Search, X } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { LogoBadge } from '@/components/ui/CoverImage';
 import { supabase } from '@/lib/supabase';
 import { confirmMention, fetchMentionCandidates, fetchSkips, removeMention, skipSuggestion, unskipSuggestion } from '@/lib/mentionActions';
@@ -11,6 +9,8 @@ import { toast } from '@/hooks/use-toast';
 import {
   countMentions, foldName, htmlToText, isMatchableName, mentionHref, suggestMentions, type MentionOrg,
 } from '@/lib/companyMentions';
+import { AdminPanel, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { Note } from './v2/MembersKit';
 
 /**
  * "Companies mentioned" in the article editor (Victor, 20 Oct 2026). The panel reads the title,
@@ -191,29 +191,20 @@ export function ResourceMentionsPanel({
   };
 
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-blue-500" /> Companies mentioned ({confirmed.length})
-          </CardTitle>
-          {suggestions.length > 1 && resourceId && (
-            <Button variant="outline" size="sm" onClick={addAll} disabled={!!busy} className="gap-1.5">
-              <Check className="h-3.5 w-3.5" /> Confirm all {suggestions.length}
-            </Button>
-          )}
-        </div>
-        <p className="text-xs text-gray-500">
-          The first time each confirmed company appears in the text, readers can click it to open its page, and the companies are listed under the article.
-          Saved at once (no need to press Save Changes); the article text itself is not changed.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+    <AdminPanel
+      title={<>Companies mentioned <span className="ml-1 rounded-pill bg-chip px-2 py-0.5 text-[12px] font-semibold tabular-nums text-navy">{confirmed.length}</span></>}
+      icon={Building2}
+      description="The first time each confirmed company appears in the text, readers can press it to open its page, and the companies are listed under the article. Saved at once (no need to press Save); the article text itself is not changed."
+      actions={suggestions.length > 1 && resourceId ? (
+        <Button variant="outline" onClick={addAll} disabled={!!busy} className={ADMIN_BTN + ' h-9 gap-1.5'}>
+          <Check className="h-4 w-4" aria-hidden="true" /> Confirm all {suggestions.length}
+        </Button>
+      ) : undefined}
+    >
+      <div className="space-y-6">
+        {loadError && <Note tone="warning">{loadError}</Note>}
         {!resourceId && (
-          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Create the resource first, then confirm the companies it mentions.
-          </p>
+          <Note tone="warning">Create the article first, then confirm the companies it mentions.</Note>
         )}
 
         {/* Confirmed */}
@@ -223,28 +214,38 @@ export function ResourceMentionsPanel({
               const n = countMentions(bodyText, c.name);
               const elsewhere = n === 0 && countMentions(text, c.name) > 0;
               return (
-                <li key={c.id} className="flex flex-wrap items-center gap-3 rounded-lg border bg-white p-2.5">
-                  <LogoBadge src={c.logo_url} name={c.name} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-800">{c.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {!c.listed
-                        ? 'Not shown to readers: this company is not verified, or it is archived or merged.'
-                        : n > 0
-                          ? `In the text ${n} time${n > 1 ? 's' : ''}: the first one links to its page (never inside a heading or an existing link)`
-                          : elsewhere
-                            ? 'In the title or summary only: listed under the article'
-                            : isMatchableName(c.name)
-                              ? 'Not found in the text: listed under the article only'
-                              : 'Name too short or too common to link in the text: listed under the article only'}
-                    </p>
+                <li key={c.id} className="flex flex-col gap-3 rounded-xl border border-rule bg-white p-3 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <LogoBadge src={c.logo_url} name={c.name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{c.name}</p>
+                      <p className="mt-0.5 text-[13px] leading-[18px] text-meta">
+                        {!c.listed
+                          ? 'Not shown to readers: this company is not verified, or it is archived or merged.'
+                          : n > 0
+                            ? `In the text ${n} time${n > 1 ? 's' : ''}: the first one links to its page (never inside a heading or an existing link)`
+                            : elsewhere
+                              ? 'In the title or summary only: listed under the article'
+                              : isMatchableName(c.name)
+                                ? 'Not found in the text: listed under the article only'
+                                : 'Name too short or too common to link in the text: listed under the article only'}
+                      </p>
+                    </div>
                   </div>
-                  <a href={mentionHref(c.slug)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 underline">
-                    Page <ExternalLink className="h-3 w-3" />
-                  </a>
-                  <Button variant="ghost" size="sm" onClick={() => remove(c)} disabled={busy === c.id} className="gap-1 text-red-600">
-                    {busy === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Remove
-                  </Button>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <a
+                      href={mentionHref(c.slug)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-navy/55 bg-white px-3.5 text-[14px] font-semibold text-navy transition-colors hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+                    >
+                      See its page <ExternalLink className="h-4 w-4" aria-hidden="true" /><span className="sr-only"> (new tab)</span>
+                    </a>
+                    <Button variant="outline" onClick={() => remove(c)} disabled={busy === c.id} className={ADMIN_BTN_DANGER + ' h-9 gap-1.5'}>
+                      {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <X className="h-4 w-4" aria-hidden="true" />} Remove
+                      <span className="sr-only"> {c.name}</span>
+                    </Button>
+                  </div>
                 </li>
               );
             })}
@@ -253,83 +254,97 @@ export function ResourceMentionsPanel({
 
         {/* Suggestions from the text */}
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-600">Found in the text</p>
+          <h3 className="text-meta-caps">Found in the text</h3>
           {candidates === null ? (
-            <p className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading the companies…</p>
+            <p className="flex items-center gap-2 text-[14px] text-meta" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading the companies…</p>
           ) : suggestions.length === 0 ? (
-            <p className="text-sm italic text-gray-400">No other verified company name found in the title, summary or text.</p>
+            <p className="text-[14px] text-meta">No other verified company name found in the title, summary or text.</p>
           ) : (
             <ul className="space-y-2">
               {suggestions.map(({ org, count }) => (
-                <li key={org.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-gray-50 p-2.5">
-                  <LogoBadge src={org.logo_url} name={org.name} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-800">{org.name}</p>
-                    <p className="text-xs text-gray-500">{count} time{count > 1 ? 's' : ''} in the text</p>
+                <li key={org.id} className="flex flex-col gap-3 rounded-xl border border-dashed border-navy/30 bg-chip/40 p-3 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <LogoBadge src={org.logo_url} name={org.name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">
+                        {org.name}
+                        <AdminStatusPill tone="info">Suggested</AdminStatusPill>
+                      </p>
+                      <p className="mt-0.5 text-[13px] leading-[18px] text-meta">{count} time{count > 1 ? 's' : ''} in the text</p>
+                    </div>
                   </div>
-                  <Badge variant="outline" className="text-xs">Suggested</Badge>
-                  <Button size="sm" onClick={() => add(org)} disabled={!resourceId || busy === org.id} className="gap-1">
-                    {busy === org.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Confirm
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => turnDown(org)} disabled={busy === org.id} className="text-gray-500">
-                    Not this one
-                  </Button>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Button variant="secondary" onClick={() => add(org)} disabled={!resourceId || busy === org.id} className={ADMIN_BTN_PRIMARY + ' h-9 gap-1.5'}>
+                      {busy === org.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />} Confirm
+                      <span className="sr-only"> {org.name}</span>
+                    </Button>
+                    <Button variant="outline" onClick={() => turnDown(org)} disabled={busy === org.id} className={ADMIN_BTN + ' h-9'}>
+                      Not this one
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
           {turnedDown.length > 0 && (
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-[13px] text-meta">
               <span>Not suggested again:</span>
               {turnedDown.map((o) => (
-                <span key={o.id} className="inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5">
+                <span key={o.id} className="inline-flex items-center gap-1.5 rounded-pill border border-rule bg-white py-0.5 pl-3 pr-1 text-ink">
                   {o.name}
-                  <button type="button" onClick={() => undoTurnDown(o.id)} className="text-blue-600 underline" aria-label={`Suggest ${o.name} again`}>
+                  <button
+                    type="button"
+                    onClick={() => undoTurnDown(o.id)}
+                    className="inline-flex h-8 items-center rounded-pill border border-navy/40 px-2.5 text-[13px] font-semibold text-navy hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+                    aria-label={`Suggest ${o.name} again`}
+                  >
                     Undo
                   </button>
                 </span>
               ))}
-            </p>
+            </div>
           )}
         </div>
 
         {/* Add one by name */}
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-600">Add another company</p>
+          <label htmlFor="mention-search" className="text-meta-caps block">Add another company</label>
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
             <Input
+              id="mention-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search a verified company by name…"
-              className="pl-9"
+              className="h-11 rounded-pill bg-white pl-10"
               disabled={!resourceId}
-              aria-label="Search a verified company by name"
             />
           </div>
           {results.length > 0 && (
-            <ul className="max-h-64 overflow-y-auto rounded border bg-white shadow-sm">
+            <ul className="max-h-64 divide-y divide-rule overflow-y-auto rounded-xl border border-rule bg-white">
               {results.map((o) => (
                 <li key={o.id}>
                   <button
                     type="button"
                     onClick={() => add(o)}
                     disabled={busy === o.id}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-gray-100"
+                    className="group flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-page focus:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_#0b2653]"
                   >
                     <LogoBadge src={o.logo_url} name={o.name} size="sm" />
-                    <span className="flex-1 font-medium">{o.name}</span>
-                    <Plus className="h-4 w-4 text-gray-400" />
+                    <span className="min-w-0 flex-1 text-[15px] font-semibold text-navy [overflow-wrap:anywhere]">{o.name}</span>
+                    <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-pill border border-navy/55 px-3 text-[13px] font-semibold text-navy group-hover:border-navy group-hover:bg-chip">
+                      <Plus className="h-4 w-4" aria-hidden="true" /> Tag it
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
           )}
           {query.trim().length >= 2 && results.length === 0 && candidates && (
-            <p className="text-xs text-gray-400">No verified company with that name (or it is already tagged).</p>
+            <p className="text-[13px] text-meta">No verified company with that name (or it is already tagged).</p>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </AdminPanel>
   );
 }

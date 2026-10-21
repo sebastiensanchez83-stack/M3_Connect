@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Plus, Search, ChevronRight, Image as ImageIcon } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Plus, Image as ImageIcon, Megaphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { ActionCue } from '@/components/home/dashboard/DashboardKit';
 import { supabase } from '@/lib/supabase';
 import { useAdminFilters } from './hooks/useAdminFilters';
-import { AdminContextBanner } from './AdminContextBanner';
-import { ADMIN_BTN_PRIMARY } from './AdminUI';
+import {
+  AdminEmpty, AdminFilterBar, AdminLoading, AdminPageHeader, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_PRIMARY, type AdminTone,
+} from './AdminUI';
 
 interface AdBanner {
   id: string;
@@ -35,6 +35,17 @@ const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events', 'announcem
 const pagesOf = (b: { placements?: string[]; placement: string }) =>
   b.placements?.length ? b.placements : [b.placement];
 
+/** What each place is called on screen (the data keys stay as they are). */
+const PLACE_LABEL: Record<string, string> = {
+  homepage: 'Homepage',
+  marketplace: 'Marketplace',
+  resources: 'Articles',
+  events: 'Events',
+  announcement_top: 'Top strip (announcement)',
+  announcement_popup: 'Popup (announcement)',
+};
+const placeLabel = (p: string) => PLACE_LABEL[p] ?? p.replace(/_/g, ' ');
+
 function getBannerStatus(banner: AdBanner): { label: string; variant: string } {
   if (!banner.is_active) return { label: 'Inactive', variant: 'secondary' };
   const now = new Date();
@@ -43,7 +54,20 @@ function getBannerStatus(banner: AdBanner): { label: string; variant: string } {
   return { label: 'Active', variant: 'success' };
 }
 
+/** The status pill: the same four states as before, in the admin tones. */
+const STATUS_TONE: Record<string, AdminTone> = { Active: 'success', Scheduled: 'info', Expired: 'warning', Inactive: 'neutral' };
+const STATUS_HINT: Record<string, string> = {
+  Active: 'Shown on the site now',
+  Scheduled: 'Starts on its start date',
+  Expired: 'Its end date has passed: no longer shown',
+  Inactive: 'Switched off: not shown on the site',
+};
+
+const fmtShort = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+const fmtLong = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
 export function AdminBanners() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { getFilter, setFilters, hasFilters, clearFilters } = useAdminFilters();
   const [banners, setBanners] = useState<AdBanner[]>([]);
@@ -77,131 +101,127 @@ export function AdminBanners() {
 
   const bannerLabel = hasFilters
     ? [
-        placementFilter !== 'all' ? placementFilter : '',
+        placementFilter !== 'all' ? placeLabel(placementFilter) : '',
         statusFilter !== 'all' ? statusFilter : '',
       ].filter(Boolean).join(', ') || 'Filtered banners'
     : '';
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Ad Banners ({filtered.length})</h1>
-        <Button variant="secondary" size="sm" onClick={() => navigate('/admin/banners/new')} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
-          <Plus className="h-4 w-4" /> Create Banner
-        </Button>
-      </div>
+    <div>
+      <AdminPageHeader
+        title={t('adminContent.banners.title', 'Banners and announcements')}
+        count={filtered.length}
+        description={t('adminContent.banners.desc', 'The sponsors’ adverts and the site announcements (top strip, popup). Press a banner to change it.')}
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/admin/banners/new')} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+            <Plus className="h-4 w-4" aria-hidden="true" /> {t('adminContent.banners.create', 'Create a banner')}
+          </Button>
+        }
+      />
 
-      {/* Context banner */}
-      {hasFilters && (
-        <AdminContextBanner label={bannerLabel} count={filtered.length} onClear={clearFilters} color="pink" />
-      )}
-
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search banners..." className="pl-9 h-9" />
-        </div>
+      <AdminFilterBar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('adminContent.banners.search', 'Search a banner by its title…')}
+        trailing={hasFilters ? (
+          <>
+            <span className="hidden text-[13px] text-meta sm:inline">{t('adminContent.banners.showing', 'Showing: {{what}}', { what: bannerLabel })}</span>
+            <Button type="button" variant="outline" className={ADMIN_BTN} onClick={clearFilters}>
+              {t('adminContent.banners.clear', 'Show all banners')}
+            </Button>
+          </>
+        ) : undefined}
+      >
         <Select value={placementFilter} onValueChange={v => setFilters({ placement: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All placements" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-56" aria-label={t('adminContent.banners.where', 'Where it shows')}><SelectValue placeholder="Every place" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Placements</SelectItem>
+            <SelectItem value="all">{t('adminContent.banners.allPlaces', 'Every place on the site')}</SelectItem>
             {PLACEMENTS.map(p => (
-              <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+              <SelectItem key={p} value={p}>{placeLabel(p)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={v => setFilters({ status: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All statuses" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-44" aria-label={t('adminContent.banners.status', 'Status')}><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="all">{t('adminContent.banners.allStatuses', 'All statuses')}</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
             <SelectItem value="scheduled">Scheduled</SelectItem>
             <SelectItem value="expired">Expired</SelectItem>
           </SelectContent>
         </Select>
-      </div>
+      </AdminFilterBar>
 
-      {/* Banner cards */}
-      <div className="space-y-2">
-        {filtered.length === 0 ? (
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-12 text-center text-gray-400">No banners match your filters</CardContent>
-          </Card>
-        ) : (
-          filtered.map(b => {
+      {filtered.length === 0 ? (
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty
+            icon={Megaphone}
+            title={banners.length === 0 ? t('adminContent.banners.none', 'No banner yet') : t('adminContent.banners.noMatch', 'No banner matches these filters')}
+            body={banners.length === 0 ? t('adminContent.banners.noneBody', 'Press “Create a banner” to add a sponsor’s advert or a site announcement.') : undefined}
+          />
+        </div>
+      ) : (
+        <ul className="space-y-3" aria-label={t('adminContent.banners.title', 'Banners and announcements')}>
+          {filtered.map(b => {
             const status = getBannerStatus(b);
             const ctr = b.impression_count > 0
               ? ((b.click_count / b.impression_count) * 100).toFixed(1) + '%'
               : '—';
             return (
-              <Card
-                key={b.id}
-                className={`border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group ${!b.is_active ? 'opacity-70' : ''}`}
-                onClick={() => navigate(`/admin/banners/${b.id}`)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
+              <li key={b.id}>
+                <Link
+                  to={`/admin/banners/${b.id}`}
+                  className="group flex flex-col gap-3 rounded-card border border-rule bg-white p-4 transition-[box-shadow,border-color] duration-200 hover:border-navy/30 hover:shadow-hover focus:outline-none focus-visible:shadow-focus motion-reduce:transition-none sm:flex-row sm:items-center sm:gap-4"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center sm:gap-4">
                     {/* Thumbnail */}
-                    <div className="h-14 w-20 rounded-lg overflow-hidden bg-gray-100 shrink-0">
+                    <div className="h-14 w-20 shrink-0 overflow-hidden rounded-xl border border-rule bg-chip sm:h-16 sm:w-28">
                       {b.image_url ? (
-                        <img src={b.image_url} alt={b.title} className="w-full h-full object-cover" />
+                        <img src={b.image_url} alt="" className="h-full w-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ImageIcon className="h-5 w-5 text-gray-300" />
+                        <div className="flex h-full w-full items-center justify-center">
+                          <ImageIcon className="h-5 w-5 text-meta/60" aria-hidden="true" />
                         </div>
                       )}
                     </div>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">
-                          {b.title}
-                        </span>
-                        <Badge variant={status.variant as any} className="shrink-0 text-[10px]">
-                          {status.label}
-                        </Badge>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
+                        <span className="card-ul">{b.title}</span>
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <AdminStatusPill tone={STATUS_TONE[status.label] ?? 'neutral'} title={STATUS_HINT[status.label]}>{status.label}</AdminStatusPill>
                         {pagesOf(b).map(p => (
-                          <Badge key={p} variant="outline" className="shrink-0 text-[10px]">
-                            {p.replace(/_/g, ' ')}
-                          </Badge>
+                          <AdminStatusPill key={p} tone="info">{placeLabel(p)}</AdminStatusPill>
                         ))}
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>{b.impression_count.toLocaleString()} impressions</span>
+                      <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] leading-5 text-meta">
+                        <span>{b.impression_count.toLocaleString()} views</span>
                         <span>{b.click_count.toLocaleString()} clicks</span>
-                        <span className="font-medium text-violet-600">CTR: {ctr}</span>
+                        <span className="font-semibold text-navy">Click rate: {ctr}</span>
                         {/* Show the end date even with no start date — otherwise a
                             campaign with only an expiry shows no dates at all. */}
                         {(b.start_date || b.end_date) && (
                           <span>
-                            {b.start_date
-                              ? new Date(b.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-                              : 'Until'}
-                            {b.end_date && `${b.start_date ? ' — ' : ' '}${new Date(b.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                            {b.start_date ? fmtShort(b.start_date) : 'Until'}
+                            {b.end_date && `${b.start_date ? ' — ' : ' '}${fmtLong(b.end_date)}`}
                           </span>
                         )}
-                      </div>
+                      </p>
                     </div>
-
-                    {/* Arrow */}
-                    <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary transition-colors shrink-0" />
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex justify-end">
+                    <ActionCue size="sm">{t('adminContent.banners.open', 'Open the banner')}</ActionCue>
+                  </div>
+                </Link>
+              </li>
             );
-          })
-        )}
-      </div>
+          })}
+        </ul>
+      )}
     </div>
   );
 }

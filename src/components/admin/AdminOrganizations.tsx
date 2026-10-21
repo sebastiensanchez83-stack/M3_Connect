@@ -138,7 +138,7 @@ export function AdminOrganizations() {
 
   const bannerLabel = hasFilters
     ? [
-        statusFilter !== 'all' ? statusFilter : '',
+        statusFilter !== 'all' ? ({ verified: 'Verified', pending: 'Pending', rejected: 'Rejected', suspended: 'Suspended' } as Record<string, string>)[statusFilter] || statusFilter : '',
         typeFilter !== 'all' ? TYPE_LABELS[typeFilter] || typeFilter : '',
         tierFilter !== 'all' ? TIER_LABELS[tierFilter as OrgTier] || tierFilter : '',
       ].filter(Boolean).join(', ')
@@ -164,11 +164,11 @@ export function AdminOrganizations() {
       </div>
 
       {hasFilters && (
-        <AdminContextBanner label={bannerLabel} count={filtered.length} onClear={clearFilters} color="blue" />
+        <AdminContextBanner lead={t('adm2.banner.lead', 'Showing only:')} label={bannerLabel} count={filtered.length} onClear={clearFilters} color="blue" />
       )}
 
       {/* Filters */}
-      <AdminFilterBar search={search} onSearchChange={setSearch} searchPlaceholder={t('adm2.orgs.search', 'Search a name, a website, the person in charge…')}>
+      <AdminFilterBar search={search} onSearchChange={setSearch} searchPlaceholder={t('adm2.orgs.search', 'Search a name, an e-mail domain, the person in charge…')}>
         <Select value={statusFilter} onValueChange={v => setFilters({ status: v === 'all' ? '' : v } as any)}>
           <SelectTrigger className="w-full sm:w-44" aria-label={t('adm2.orgs.status', 'Access')}><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
@@ -203,8 +203,8 @@ export function AdminOrganizations() {
         </div>
       ) : (
         <>
-          {/* Phone: one card per company */}
-          <ul className="space-y-3 md:hidden" aria-label={t('adm2.orgs.title', 'All companies (settings view)')}>
+          {/* Phone and tablet (below 1280 px, where the table would scroll sideways): one card per company */}
+          <ul className="grid gap-3 lg:grid-cols-2 xl:hidden" aria-label={t('adm2.orgs.title', 'All companies (settings view)')}>
             {filtered.map(o => (
               <li key={o.id}>
                 <Link to={`/admin/organizations/${o.id}`} className="group block rounded-card border border-rule bg-white p-4 focus:outline-none focus-visible:shadow-focus">
@@ -233,8 +233,8 @@ export function AdminOrganizations() {
             ))}
           </ul>
 
-          {/* Desktop: the table */}
-          <AdminTableCard className="hidden md:block" footer={t('adm2.orgs.footer', '{{shown}} of {{total}} companies shown', { shown: filtered.length, total: orgs.length })}>
+          {/* Wide screens (1280 px and up): the table */}
+          <AdminTableCard className="hidden xl:block" footer={t('adm2.orgs.footer', '{{shown}} of {{total}} companies shown', { shown: filtered.length, total: orgs.length })}>
             <table className="w-full">
               <thead>
                 <tr>

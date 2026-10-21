@@ -36,7 +36,7 @@ function slugify(input: string): string {
   return input
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' ')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -270,8 +270,8 @@ export function AdminSectors() {
         </div>
       ) : (
         <>
-          {/* Phone: one card per sector */}
-          <ul className="space-y-3 md:hidden" aria-label={t('adm2.sectors.title', 'Sectors')}>
+          {/* Phone and small tablet (below 1024 px, where the table would scroll sideways next to the menu): one card per sector */}
+          <ul className="space-y-3 lg:hidden" aria-label={t('adm2.sectors.title', 'Sectors')}>
             {filtered.map(s => (
               <li key={s.id} className="rounded-card border border-rule bg-white p-4">
                 <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">{s.label}</p>
@@ -284,8 +284,8 @@ export function AdminSectors() {
             ))}
           </ul>
 
-          {/* Desktop: the table */}
-          <AdminTableCard className="hidden md:block" footer={t('adm2.sectors.footer', '{{shown}} of {{total}} sectors shown', { shown: filtered.length, total: sectors.length })}>
+          {/* 1024 px and up: the table */}
+          <AdminTableCard className="hidden lg:block" footer={t('adm2.sectors.footer', '{{shown}} of {{total}} sectors shown', { shown: filtered.length, total: sectors.length })}>
             <table className="w-full">
               <thead>
                 <tr>

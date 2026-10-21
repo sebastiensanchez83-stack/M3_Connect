@@ -596,8 +596,8 @@ export function AdminOrganizationDetail() {
             <AdminPanel icon={Anchor} title={t('adm2.org.marina', 'Marina details')}>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <Field label={t('adm2.org.marinaType', 'Type')}>{marina.marina_type}</Field>
-                <Field label={t('adm2.org.berths', 'Berths')}>{marina.berths_count ?? null}</Field>
-                <Field label={t('adm2.org.superyacht', 'Superyacht berths')}>{marina.superyacht_berths ?? null}</Field>
+                <Field label={t('adm2.org.berths', 'Berths')}>{marina.berths_count != null ? String(marina.berths_count) : null}</Field>
+                <Field label={t('adm2.org.superyacht', 'Superyacht berths')}>{marina.superyacht_berths != null ? String(marina.superyacht_berths) : null}</Field>
                 {marina.longest_berth_meters ? <Field label={t('adm2.org.longest', 'Longest berth')}>{`${marina.longest_berth_meters} m`}</Field> : null}
               </dl>
               {(marina.has_yacht_club || marina.has_sailing_school || marina.has_boat_yard || marina.has_restaurants || marina.has_concierge) && (

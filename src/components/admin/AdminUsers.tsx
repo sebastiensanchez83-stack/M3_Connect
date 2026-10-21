@@ -56,6 +56,10 @@ export function AdminUsers() {
   const hasUrlFilters = !!urlStatus || !!urlPersona || !!urlOnboarding || urlInactive || !!urlOrg;
 
   const [users, setUsers] = useState<AdminProfile[]>([]);
+  // Every company each person belongs to (a person can be in several), built from the
+  // memberships already loaded below: the ?org= filter must not miss anyone.
+  const [orgsByUser, setOrgsByUser] = useState<Record<string, string[]>>({});
+  const [orgNameById, setOrgNameById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState(urlPersona || 'all');
@@ -93,9 +97,14 @@ export function AdminUsers() {
       if (error) { if (import.meta.env.DEV) console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
       // Build a map from user_id → org info (including tier, type, status for merged Partners view)
       const orgMap = new Map<string, { org_id: string; org_name: string; org_tier: string; org_type: string | null; org_access_status: string; org_max_seats: number; org_website: string | null; org_country: string | null; org_city: string | null; org_description: string | null; org_logo_url: string | null }>();
+      const allOrgsByUser: Record<string, string[]> = {};
+      const namesById: Record<string, string> = {};
       (membershipsData || []).forEach((m: Record<string, unknown>) => {
         const org = m.organizations as Record<string, unknown> | null;
         if (org) {
+          const uid = m.user_id as string;
+          allOrgsByUser[uid] = [...(allOrgsByUser[uid] || []), org.id as string];
+          namesById[org.id as string] = org.name as string;
           orgMap.set(m.user_id as string, {
             org_id: org.id as string,
             org_name: org.name as string,
@@ -130,6 +139,8 @@ export function AdminUsers() {
         };
       });
       setUsers(merged as unknown as AdminProfile[]);
+      setOrgsByUser(allOrgsByUser);
+      setOrgNameById(namesById);
       // Build email confirmation status map
       const statusMap: Record<string, boolean> = {};
       (emailData || []).forEach((row: { user_id: string; email_confirmed: boolean }) => { statusMap[row.user_id] = row.email_confirmed; });
@@ -239,6 +250,9 @@ export function AdminUsers() {
   const dormantBefore = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const isDormant = (u: AdminProfile) => !!u.updated_at && new Date(u.updated_at).getTime() <= dormantBefore;
 
+  // ?org=: everyone who belongs to that company, even when it is not the company shown on their row.
+  const inUrlOrg = (u: AdminProfile) => u.org_id === urlOrg || (orgsByUser[u.user_id] || []).includes(urlOrg);
+
   const filteredUsers = users.filter(user => {
     const name = getUserName(user).toLowerCase();
     const org = getOrgName(user).toLowerCase();
@@ -251,7 +265,7 @@ export function AdminUsers() {
       || (onboardingFilter === 'in_progress' && ['draft', 'submitted', 'under_review'].includes(user.onboarding_status))
       || user.onboarding_status === onboardingFilter;
     const matchesActivity = !inactiveOnly || isDormant(user);
-    const matchesOrg = !urlOrg || user.org_id === urlOrg;
+    const matchesOrg = !urlOrg || inUrlOrg(user);
     return matchesSearch && matchesPersona && matchesStatus && matchesOnboarding && matchesActivity && matchesOrg;
   });
 
@@ -343,7 +357,7 @@ export function AdminUsers() {
       </SelectContent>
     </Select>
   );
-  const orgFilterName = urlOrg ? (users.find(u => u.org_id === urlOrg)?.org_name || t('adm2.users.oneCompany', 'one company')) : '';
+  const orgFilterName = urlOrg ? (orgNameById[urlOrg] || t('adm2.users.oneCompany', 'one company')) : '';
   const openLabel = t('adm2.users.open', 'Open');
 
   return (
@@ -368,7 +382,7 @@ export function AdminUsers() {
             <AlertTriangle className="mr-2 h-4 w-4" aria-hidden="true" />
             {showUnconfirmed
               ? t('adm2.users.hideUnconfirmed', 'Hide the unconfirmed e-mails')
-              : t('adm2.users.showUnconfirmed', 'See the {{count}} unconfirmed e-mails', { count: unconfirmedUsers.length })}
+              : t('adm2.users.showUnconfirmed', { count: unconfirmedUsers.length, defaultValue_one: 'See the unconfirmed e-mail', defaultValue_other: 'See the {{count}} unconfirmed e-mails' })}
           </Button>
         )}
         <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={exportCSV}>
@@ -385,6 +399,7 @@ export function AdminUsers() {
       {/* URL-based filter context banner */}
       {hasUrlFilters && (
         <AdminContextBanner
+          lead={t('adm2.banner.lead', 'Showing only:')}
           label={[
             urlStatus ? `Status: ${urlStatus.replace('_', ' ')}` : '',
             urlPersona ? `Type: ${personaLabel(urlPersona)}` : '',
@@ -397,7 +412,7 @@ export function AdminUsers() {
             const matchPersona = !urlPersona || u.persona === urlPersona;
             const matchOnboarding = !urlOnboarding || u.onboarding_status === urlOnboarding;
             const matchActivity = !urlInactive || isDormant(u);
-            const matchOrg = !urlOrg || u.org_id === urlOrg;
+            const matchOrg = !urlOrg || inUrlOrg(u);
             return matchStatus && matchPersona && matchOnboarding && matchActivity && matchOrg;
           }).length}
           onClear={() => {
@@ -512,8 +527,8 @@ export function AdminUsers() {
         </div>
       ) : (
         <>
-          {/* Phone: one card per person. The card is the link; the account type sits under it. */}
-          <ul className="space-y-3 md:hidden" aria-label={t('adm2.users.title', 'Accounts and export')}>
+          {/* Phone and tablet (below 1280 px, where the table would scroll sideways): one card per person. The card is the link; the account type sits under it. */}
+          <ul className="grid gap-3 lg:grid-cols-2 xl:hidden" aria-label={t('adm2.users.title', 'Accounts and export')}>
             {filteredUsers.map(user => (
               <li key={user.user_id} className="rounded-card border border-rule bg-white">
                 <Link to={`/admin/users/${user.user_id}`} className="group block rounded-t-card p-4 focus:outline-none focus-visible:shadow-focus">
@@ -542,8 +557,8 @@ export function AdminUsers() {
             ))}
           </ul>
 
-          {/* Desktop: the table */}
-          <AdminTableCard className="hidden md:block" footer={t('adm2.users.footer', '{{shown}} of {{total}} accounts shown', { shown: filteredUsers.length, total: users.length })}>
+          {/* Wide screens (1280 px and up): the table */}
+          <AdminTableCard className="hidden xl:block" footer={t('adm2.users.footer', '{{shown}} of {{total}} accounts shown', { shown: filteredUsers.length, total: users.length })}>
             <table className="w-full">
               <thead>
                 <tr>

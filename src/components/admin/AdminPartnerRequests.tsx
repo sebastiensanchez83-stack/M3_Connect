@@ -91,6 +91,7 @@ export function AdminPartnerRequests() {
     <div>
       {urlStatus && (
         <AdminContextBanner
+          lead={t('adm2.banner.lead', 'Showing only:')}
           label={t('adm2.b2b.banner', 'requests with the status "{{status}}"', { status: REQUEST_STATUS_LABEL[urlStatus] ?? urlStatus })}
           count={filteredRequests.length}
           onClear={clearFilter}

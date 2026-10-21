@@ -205,7 +205,12 @@ export function AdminPartnerRequestDetail() {
         back={{ to: '/admin/partner-requests', label: t('adm2.b2bReq.back', 'Back to connection requests') }}
         title={`${request.partner_name} → ${request.marina_name}`}
         badges={<AdminStatus status={request.status} label={statusText} />}
-        subtitle={t('adm2.b2bReq.subtitle', 'Connection request sent {{date}} ({{count}} days ago)', { date: sentOn, count: daysSince })}
+        subtitle={t('adm2.b2bReq.subtitle', 'Connection request sent {{date}} ({{ago}})', {
+          date: sentOn,
+          ago: daysSince <= 0
+            ? t('adm2.b2bReq.today', 'today')
+            : t('adm2.b2bReq.daysAgo', { count: daysSince, defaultValue_one: '{{count}} day ago', defaultValue_other: '{{count}} days ago' }),
+        })}
       />
 
       {/* Decision first, when there is one to take */}

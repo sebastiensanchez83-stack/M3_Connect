@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { Copy, ExternalLink, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EditDialog } from '@/components/home/dashboard/EditKit';
 import { supabase } from '@/lib/supabase';
 import { useRegistrationFlags } from '@/lib/flags';
@@ -12,8 +11,12 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { eventPath } from '@/lib/seoMeta';
 import {
-  AdminDetailHeader, AdminLoading, AdminSegmented, AdminStatusPill,
+  AdminDetailHeader, AdminLoading, AdminStatusPill,
 } from '../AdminUI';
+import { EVENT_TABS, EventTabs, TAB_LABEL, type EventTab } from '../v2/events/EventPageKit';
+import { CoreEventView, CoreMailsSent, useCoreFacts, type CoreView } from '../v2/events/CoreEventViews';
+import { notifyEventsChanged } from '../v2/events/eventMenu';
+import { Note as PlainNote } from '../v2/MembersKit';
 import { BasicsTab } from './BasicsTab';
 import { RegistrationTab } from './RegistrationTab';
 import { TicketsTab } from './TicketsTab';
@@ -38,6 +41,9 @@ import {
  */
 const HEADER_TOP = 'top-28 md:top-16';
 
+/** What the page shows: one of the editor's parts, or one of the event page's read-only tabs. */
+type View = EditorTab | CoreView;
+
 /**
  * The event editor of the registration core (spec §8.2): /admin/events/new and
  * /admin/events/:id for events that register through gl_* (engine core_v2).
@@ -53,6 +59,13 @@ const HEADER_TOP = 'top-28 md:top-16';
  *
  * One Save button sends ONE admin_save_event call with the tabs that changed. Sectors
  * stay in event_sectors (written after the call, as in the old editor).
+ *
+ * Since the admin wave 2 (21 Oct 2026) a SAVED event opens as the event page, with the tabs
+ * every event has (src/components/admin/v2/events/EventPageKit.tsx): Overview, Registrations
+ * (People registered, unchanged), Check-in, Invitations, E-mails (the e-mails part, unchanged,
+ * under what was sent so far), Payments (on-site), Modules, Statistics and Settings (Basics, How
+ * to register, Participation types, Questions, unchanged). ?tab= keeps the old part names
+ * (basics, registration, tickets, questions, emails, registrations, modules).
  */
 export function EventEditor({ routeId, initialKind, forced = false }: { routeId: string; initialKind: EventKind; forced?: boolean }) {
   const { t } = useTranslation();
@@ -90,22 +103,39 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
   // What the deployed registration function can do (invitations, test e-mails, intros).
   const caps = useRegistrationCaps(onsiteEditor);
   const fullEditor = kind === 'webinar' || onsiteEditor;
-  const tabParam = params.get('tab') as EditorTab | null;
-  const tabs = useMemo<EditorTab[]>(() => {
+  // The event PAGE (wave 2, Victor 21 Oct 2026): a saved event shows the tabs every event has
+  // (Overview, Registrations, Check-in, Invitations, E-mails, Payments, Modules, Statistics,
+  // Settings). The editor's own parts live under Settings (Basics, How to register,
+  // Participation types, Questions) and E-mails; nothing of the editor is lost. A NEW event
+  // keeps the editor's parts only, and a canary its registrations only.
+  const pageMode = !isNew && !isCanary;
+  const settingsParts = useMemo<EditorTab[]>(
+    () => (kind === 'webinar' ? ['basics', 'registration', 'questions'] : onsiteEditor ? ['basics', 'registration', 'tickets', 'questions'] : ['basics']),
+    [kind, onsiteEditor],
+  );
+  const rawTab = params.get('tab');
+  const tabParam = (rawTab === 'settings' ? settingsParts[0] : rawTab) as View | null;
+  const tabs = useMemo<View[]>(() => {
     if (isCanary) return ['registrations'];
-    const list: EditorTab[] = kind === 'webinar'
+    if (pageMode) {
+      const list: View[] = ['overview', 'registrations', 'checkin', 'invitations', 'emails'];
+      if (kind === 'onsite') list.push('payments');
+      list.push('modules', 'statistics', ...settingsParts);
+      return list;
+    }
+    const list: View[] = kind === 'webinar'
       ? ['basics', 'registration', 'questions', 'emails']
       : onsiteEditor ? ['basics', 'registration', 'tickets', 'questions', 'emails'] : ['basics'];
-    if (!isNew) list.push('registrations');
     if (onsiteEditor) list.push('modules');
     return list;
-  }, [kind, isNew, isCanary, onsiteEditor]);
-  const tab: EditorTab = tabParam && tabs.includes(tabParam) ? tabParam : tabs[0];
-  const setTab = (next: EditorTab) => {
+  }, [kind, isCanary, pageMode, onsiteEditor, settingsParts]);
+  const tab: View = tabParam && tabs.includes(tabParam) ? tabParam : tabs[0];
+  const setTab = (next: View) => {
     const p = new URLSearchParams(params);
     if (next === tabs[0]) p.delete('tab'); else p.set('tab', next);
     setParams(p, { replace: true });
   };
+  const inSettings = settingsParts.includes(tab as EditorTab);
 
   const applyLoaded = useCallback((l: LoadedEvent) => {
     const f = formFromLoaded(l);
@@ -260,6 +290,8 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
 
   const glId = loaded?.gl.id ?? null;
   const eventId = loaded?.gl.legacy_event_id ?? null;
+  // The figures of the read-only tabs (read again when the number of registrations changes).
+  const coreFacts = useCoreFacts(pageMode ? glId : null, regCount);
   const wasPublished = initial.basics.visibility === 'published';
   const canPublish = kindOn(kind) || wasPublished;
   /** ?editor=new to keep on the next page (on-site editor opened that way while onsite_v2 is off). */
@@ -326,10 +358,13 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
         title: t('adminEvents.created', 'Event created'),
         description: form.basics.visibility === 'published' ? undefined : t('adminEvents.createdDraft', 'It stays invisible to the public until you publish it.'),
       });
-      // An on-site event made with ?editor=new (switch off) stays in the on-site editor.
-      navigate(`/admin/events/${res.event_id}${kind === 'webinar' ? '?tab=registration' : keepOnsiteEditor}`, { replace: true });
+      notifyEventsChanged();
+      // Next step of the set-up: Settings, How to register. An on-site event made with
+      // ?editor=new (switch off) stays in the on-site editor.
+      navigate(`/admin/events/${res.event_id}?tab=registration${keepOnsiteEditor ? '&editor=new' : ''}`, { replace: true });
       return;
     }
+    notifyEventsChanged();
     // Saved. Re-read what the database now holds (it normalises some values).
     try {
       const gl = await findGlEvent(res.event_id);
@@ -412,7 +447,9 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     } else {
       toast({ title: t('adminEvents.dup.done', 'Copy created as a draft'), description: t('adminEvents.dup.doneBody', 'Check the dates and the online link before publishing it.') });
     }
-    navigate(`/admin/events/${res.event_id}${keepOnsiteEditor}`);
+    notifyEventsChanged();
+    // The copy opens on Settings, Basics: its dates are the first thing to check.
+    navigate(`/admin/events/${res.event_id}?tab=basics${keepOnsiteEditor ? '&editor=new' : ''}`);
   };
 
   /* ---------------------------------------------------------- render */
@@ -468,7 +505,15 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     : b.visibility === 'hidden'
       ? <AdminStatusPill>{t('adminEvents.basics.hidden', 'Hidden test')}</AdminStatusPill>
       : <AdminStatusPill tone="warning">{t('adminEvents.basics.draft', 'Draft')}</AdminStatusPill>;
-  const showSave = !isCanary && tab !== 'registrations' && tab !== 'modules';
+  // Save sits on the parts that edit the event (Settings, E-mails) and, while changes wait to
+  // be saved, on every tab (switching tabs keeps them: the form lives on this page).
+  const formView = isNew ? tab !== 'modules' : inSettings || (tab === 'emails' && fullEditor);
+  const showSave = !isCanary && (formView || (!isNew && dirty.length > 0));
+  // "Invite people" exists in People registered (the same rule as EventRegistrationsPanel).
+  const canInvite = kind === 'onsite' && onsiteLive && caps.invite && !!loaded && (
+    (loaded.gl.registration_mode ?? 'review') === 'invitation' || loaded.tickets.some((x) => x.active && x.invite_only)
+  );
+  const coreViews: View[] = ['overview', 'checkin', 'invitations', 'payments', 'statistics'];
   // gl_event.settings.attendance_recorded as stored: true, false, or absent (see editorModel).
   const attendanceSetting = (loaded?.gl.settings || {}).attendance_recorded;
   const savedQuestionKeys = loaded ? loaded.questions.map((q) => q.key) : [];
@@ -502,7 +547,7 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
     <div className="mx-auto max-w-5xl">
       <AdminDetailHeader
         className={HEADER_TOP}
-        back={{ to: `/admin/events?type=${kind === 'webinar' ? 'webinar' : 'on_site'}`, label: t('adminEvents.back', 'Events') }}
+        back={{ to: '/admin/events', label: t('adminEventsV2.back', 'All events') }}
         title={isNew
           ? (kind === 'webinar' ? t('adminEvents.newWebinar', 'New webinar') : t('adminEvents.newOnsite', 'New on-site event'))
           : (
@@ -535,43 +580,47 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
         )}
         {saveError && <Note tone="danger"><span role="alert">{saveError}</span></Note>}
 
-        {/* Phones: one plain list of the parts. Wider screens: the segmented bar. */}
-        {tabs.length > 1 && (
-          <div className="sm:hidden">
-            <Select value={tab} onValueChange={(x) => setTab(x as EditorTab)}>
-              <SelectTrigger className={INPUT} aria-label={t('adminEvents.tabs', 'Parts of the event')}><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {tabs.map((x) => (
-                  <SelectItem key={x} value={x}>
-                    {tabWords[x]}{tabHasIssue(x) ? ` (${t('adminEvents.tabIssue', 'needs a look')})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* The event's tabs (the same for every event), as pills that wrap on a phone. */}
+        {pageMode && (
+          <EventTabs<EventTab>
+            label={t('adminEvents.tabs', 'Parts of the event')}
+            value={inSettings ? 'settings' : (tab as EventTab)}
+            onChange={(k) => setTab(k === 'settings' ? (inSettings ? tab : settingsParts[0]) : (k as View))}
+            tabs={EVENT_TABS.filter((k) => k === 'settings' || tabs.includes(k as View)).map((k) => {
+              const parts: EditorTab[] = k === 'settings' ? settingsParts : k === 'emails' ? ['emails'] : [];
+              const issue = parts.some(tabHasIssue);
+              const changed = parts.some((p) => dirtyTabList.includes(p));
+              return {
+                key: k,
+                label: t(`adminEventsV2.tab.${k}`, TAB_LABEL[k]),
+                count: k === 'registrations' ? regCount : null,
+                dot: issue ? 'issue' as const : changed ? 'changed' as const : null,
+              };
+            })}
+          />
         )}
-        {tabs.length > 1 && (
-          <div className="-mx-1 hidden overflow-x-auto px-1 pb-1 sm:block">
-            <AdminSegmented<EditorTab>
-              label={t('adminEvents.tabs', 'Parts of the event')}
-              value={tab}
-              onChange={setTab}
-              options={tabs.map((x) => ({
-                value: x,
-                label: (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                    {tabWords[x]}
-                    {(tabHasIssue(x) || (dirtyTabList.includes(x) && !isNew)) && (
-                      <span
-                        className={cn('h-1.5 w-1.5 rounded-full', tabHasIssue(x) ? 'bg-red-600' : 'bg-gold')}
-                        aria-label={tabHasIssue(x) ? t('adminEvents.tabIssue', 'needs a look') : t('adminEvents.tabDirty', 'changed')}
-                      />
-                    )}
-                  </span>
-                ),
-              }))}
-            />
-          </div>
+        {/* Settings: the editor's parts. */}
+        {pageMode && inSettings && settingsParts.length > 1 && (
+          <EventTabs<EditorTab>
+            size="sm"
+            label={t('adminEventsV2.settingsParts', 'Parts of the settings')}
+            value={tab as EditorTab}
+            onChange={setTab}
+            tabs={settingsParts.map((x) => ({
+              key: x,
+              label: tabWords[x],
+              dot: tabHasIssue(x) ? 'issue' as const : dirtyTabList.includes(x) ? 'changed' as const : null,
+            }))}
+          />
+        )}
+        {/* A new event: the editor's parts only. */}
+        {!pageMode && tabs.length > 1 && (
+          <EventTabs<EditorTab>
+            label={t('adminEvents.tabs', 'Parts of the event')}
+            value={tab as EditorTab}
+            onChange={setTab}
+            tabs={(tabs as EditorTab[]).map((x) => ({ key: x, label: tabWords[x], dot: tabHasIssue(x) ? 'issue' as const : null }))}
+          />
         )}
 
         {isCanary && (
@@ -652,7 +701,25 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             parts={kind === 'onsite' ? form.tickets.parts : []}
           />
         )}
-        {tab === 'emails' && (
+        {pageMode && loaded && coreViews.includes(tab) && (
+          <CoreEventView
+            view={tab as CoreView}
+            loaded={loaded}
+            saved={initial}
+            facts={coreFacts}
+            onGo={setTab}
+            publicHref={canView && eventId ? eventPath({ id: eventId, slug: pageSlug }) : null}
+            onsiteLive={onsiteLive}
+            canInvite={canInvite}
+          />
+        )}
+        {pageMode && tab === 'emails' && <CoreMailsSent facts={coreFacts} />}
+        {pageMode && tab === 'emails' && !fullEditor && (
+          <PlainNote>
+            {t('adminEventsV2.core.mailsLater', 'The e-mails of an on-site event (confirmation, reminders, practical information) are set in the on-site editor, which opens when on-site registration is live on the site.')}
+          </PlainNote>
+        )}
+        {tab === 'emails' && fullEditor && (
           <EmailsTab
             value={form.emails}
             onChange={(v) => setSection('emails', v)}
@@ -675,8 +742,13 @@ export function EventEditor({ routeId, initialKind, forced = false }: { routeId:
             } : undefined}
           />
         )}
-        {tab === 'modules' && (
+        {tab === 'modules' && kind === 'onsite' && (
           <ModulesTab slug={isNew ? null : loaded?.gl.slug ?? null} hasConfirmed={confirmedCount > 0} />
+        )}
+        {tab === 'modules' && kind === 'webinar' && (
+          <PlainNote>
+            {t('adminEventsV2.core.modulesWebinar', 'Webinars have no extra modules. Their registration questions, reminders and the replay are set in Settings and E-mails. The programme tools of Smart Marina (badges, agenda, networking, jury, awards, feedback) are for on-site events.')}
+          </PlainNote>
         )}
         {tab === 'registrations' && glId && loaded && (
           <EventRegistrationsPanel

@@ -32,10 +32,15 @@ const AdminOrganizations = lazyWithRetry(() => import('@/components/admin/AdminO
 const AdminOrganizationDetail = lazyWithRetry(() => import('@/components/admin/AdminOrganizationDetail').then(m => ({ default: m.AdminOrganizationDetail })));
 const AdminResources = lazyWithRetry(() => import('@/components/admin/AdminResources').then(m => ({ default: m.AdminResources })));
 const AdminResourceDetail = lazyWithRetry(() => import('@/components/admin/AdminResourceDetail').then(m => ({ default: m.AdminResourceDetail })));
-const AdminEvents = lazyWithRetry(() => import('@/components/admin/AdminEvents').then(m => ({ default: m.AdminEvents })));
-// /admin/events/new and /admin/events/:id: the registration-core editor (EventEditor) for
-// core_v2 events, the old AdminEventDetail for every other event (see EventEditorRoute).
-const EventEditorRoute = lazyWithRetry(() => import('@/components/admin/events/EventEditorRoute').then(m => ({ default: m.EventEditorRoute })));
+// Events (wave 2, 21 Oct 2026): ONE list of every event of the three systems, and ONE page per
+// event with the same tabs: /admin/events/:id (new editor or old system), /admin/events/guest-list/:slug,
+// /admin/events/fair/:slug; the old editor at /admin/events/:id/edit. /admin/events/new (the :id 'new'):
+// EventPageRoute hands it to EventEditorRoute, the choice of editor for a new event, unchanged.
+const AllEventsPage = lazyWithRetry(() => import('@/components/admin/v2/events/AllEventsPage').then(m => ({ default: m.AllEventsPage })));
+const EventPageRoute = lazyWithRetry(() => import('@/components/admin/v2/events/EventPageRoute').then(m => ({ default: m.EventPageRoute })));
+const LegacyEditorRoute = lazyWithRetry(() => import('@/components/admin/v2/events/EventPageRoute').then(m => ({ default: m.LegacyEditorRoute })));
+const GuestListEventPage = lazyWithRetry(() => import('@/components/admin/v2/events/GuestListEventPage').then(m => ({ default: m.GuestListEventPage })));
+const FairEventPage = lazyWithRetry(() => import('@/components/admin/v2/events/FairEventPage').then(m => ({ default: m.FairEventPage })));
 // Sponsorship panel repurposed into the fulfilment tracker (shared with the
 // top-level /sponsorship route so Yacht Club de Monaco reaches the same hub).
 const SponsorshipHub = lazyWithRetry(() => import('@/components/sponsorship/SponsorshipHub').then(m => ({ default: m.SponsorshipHub })));
@@ -195,8 +200,11 @@ export function AdminPage() {
             <Route path="/organizations/:id" element={<AdminOnlyGuard><AdminOrganizationDetail /></AdminOnlyGuard>} />
             <Route path="/resources" element={<AdminResources />} />
             <Route path="/resources/:id" element={<AdminResourceDetail />} />
-            <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
-            <Route path="/events/:id" element={<AdminOnlyGuard><EventEditorRoute /></AdminOnlyGuard>} />
+            <Route path="/events" element={<AdminOnlyGuard><AllEventsPage /></AdminOnlyGuard>} />
+            <Route path="/events/guest-list/:slug" element={<AdminOnlyGuard><GuestListEventPage /></AdminOnlyGuard>} />
+            <Route path="/events/fair/:slug" element={<AdminOnlyGuard><FairEventPage /></AdminOnlyGuard>} />
+            <Route path="/events/:id" element={<AdminOnlyGuard><EventPageRoute /></AdminOnlyGuard>} />
+            <Route path="/events/:id/edit" element={<AdminOnlyGuard><LegacyEditorRoute /></AdminOnlyGuard>} />
             <Route path="/sm26" element={<AdminOnlyGuard><AdminSM26 /></AdminOnlyGuard>} />
             <Route path="/sm26/evaluation" element={<AdminOnlyGuard><AdminSM26Evaluation /></AdminOnlyGuard>} />
             {/* Jury and Awards are tabs of Evaluation; their old stand-alone pages had no link left. */}

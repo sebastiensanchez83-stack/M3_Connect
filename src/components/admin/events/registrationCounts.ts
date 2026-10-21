@@ -57,6 +57,25 @@ const SM_WAITING = ['submitted', 'under_review'];
 interface GlLink { id: string; slug: string; engine: string | null; capacity: number | null; legacy_event_id: string }
 interface SmLink { id: string; slug: string; legacy_event_id: string }
 
+/** One guest list (gl_event, either engine): people in, waiting for a decision, invited without an answer. */
+export async function countGuestList(glEventId: string): Promise<{ registered: number | null; waiting: number | null; invited: number | null }> {
+  const [registered, waiting, invited] = await Promise.all([
+    head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', glEventId).in('status', GL_IN)),
+    head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', glEventId).in('status', GL_WAITING)),
+    head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', glEventId).eq('status', 'invited')),
+  ]);
+  return { registered, waiting, invited };
+}
+
+/** One fair (sm_event): confirmed registrations and the ones waiting for a decision. */
+export async function countFair(smEventId: string): Promise<{ registered: number | null; waiting: number | null }> {
+  const [registered, waiting] = await Promise.all([
+    head(supabase.from('sm_registration').select('id', { count: 'exact', head: true }).eq('event_id', smEventId).eq('status', 'confirmed')),
+    head(supabase.from('sm_registration').select('id', { count: 'exact', head: true }).eq('event_id', smEventId).in('status', SM_WAITING)),
+  ]);
+  return { registered, waiting };
+}
+
 export async function loadEventRegistrationCounts(events: EventCountInput[]): Promise<Record<string, EventRegistrationCount>> {
   if (events.length === 0) return {};
   const ids = events.map(e => e.id);
@@ -82,23 +101,16 @@ export async function loadEventRegistrationCounts(events: EventCountInput[]): Pr
     const systems: RegSystem[] = erAll ? ['event_registrations'] : [];
 
     for (const g of glFor) {
-      const [gin, gwait, ginv] = await Promise.all([
-        head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', g.id).in('status', GL_IN)),
-        head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', g.id).in('status', GL_WAITING)),
-        head(supabase.from('gl_guest').select('id', { count: 'exact', head: true }).eq('event_id', g.id).eq('status', 'invited')),
-      ]);
-      registered = add(registered, gin);
-      waiting = add(waiting, gwait);
-      invited = add(invited, ginv);
+      const c = await countGuestList(g.id);
+      registered = add(registered, c.registered);
+      waiting = add(waiting, c.waiting);
+      invited = add(invited, c.invited);
       systems.push(g.engine === 'core_v2' ? 'core_v2' : 'guest_list_v1');
     }
     for (const s of smFor) {
-      const [sin, swait] = await Promise.all([
-        head(supabase.from('sm_registration').select('id', { count: 'exact', head: true }).eq('event_id', s.id).eq('status', 'confirmed')),
-        head(supabase.from('sm_registration').select('id', { count: 'exact', head: true }).eq('event_id', s.id).in('status', SM_WAITING)),
-      ]);
-      registered = add(registered, sin);
-      waiting = add(waiting, swait);
+      const c = await countFair(s.id);
+      registered = add(registered, c.registered);
+      waiting = add(waiting, c.waiting);
       systems.push('sm26');
     }
     if (systems.length === 0) systems.push('event_registrations');

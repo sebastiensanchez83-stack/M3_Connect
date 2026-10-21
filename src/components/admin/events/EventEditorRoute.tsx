@@ -9,13 +9,17 @@ import { ADMIN_BTN, AdminDetailHeader, AdminLoading } from '../AdminUI';
 import { EventEditor } from './EventEditor';
 import { Note } from './editorUi';
 import { findGlEvent } from './eventAdmin';
+import { CreateEventChooser } from '../v2/events/CreateEventChooser';
 
 const AdminEventDetail = lazyWithRetry(() => import('../AdminEventDetail').then((m) => ({ default: m.AdminEventDetail })));
 
 type Target = 'core' | 'legacy' | 'error';
 
 /**
- * Which editor opens on /admin/events/new and /admin/events/:id.
+ * Which editor opens on /admin/events/new (and, before the event pages of wave 2, on
+ * /admin/events/:id: that address is now v2/events/EventPageRoute, which keeps the same
+ * core_v2 rule; this component still handles an existing id the same way if mounted on one).
+ * /admin/events/new without ?type= shows the choice between an on-site event and a webinar.
  *
  *   - An event that registers through the new core (gl_event, engine core_v2) ALWAYS
  *     opens the new editor: the old one would write the join link into the public
@@ -63,6 +67,8 @@ export function EventEditorRoute() {
   );
 
   if (isNew) {
+    // "Create an event" (the one menu entry) arrives without a type: ask which kind first.
+    if (!type) return <CreateEventChooser />;
     if (!forced && !ready) return <AdminLoading />;
     // The switches could not be read (src/lib/flags.ts gives up after a few seconds):
     // "off" would be a guess, and a webinar made in the old editor stays there for good.

@@ -38,6 +38,7 @@ export function HelpTip({
   more,
   newTab = false,
   tone = 'light',
+  label,
   className,
 }: {
   /** The card's title, and the button's name ("Help: About the review"). */
@@ -50,6 +51,12 @@ export function HelpTip({
   newTab?: boolean;
   /** 'dark' on navy: a light hover. */
   tone?: 'light' | 'dark';
+  /**
+   * A visible word next to the "i" ("What is this?"), where an icon alone would
+   * not say it can be pressed (the member dashboard). The button is then a small
+   * pill, named by that word and the title.
+   */
+  label?: string;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -159,20 +166,30 @@ export function HelpTip({
       <button
         ref={btnRef}
         type="button"
-        aria-label={t('help.tip.open', { topic: title, defaultValue: 'Help: {{topic}}' })}
+        // With a visible word, the name starts with it (what is seen is what is said).
+        aria-label={label ? undefined : t('help.tip.open', { topic: title, defaultValue: 'Help: {{topic}}' })}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls={open ? popId : undefined}
         onClick={() => (open ? close(false) : setOpen(true))}
         className={cn(
-          // 24 px to look at, 44 px to touch.
-          "relative z-[1] inline-grid h-6 w-6 shrink-0 place-items-center rounded-full align-middle text-current transition-colors before:absolute before:-inset-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none",
+          label
+            // A small pill with the word: 32 px to look at, 44 px to touch.
+            ? (dark ? 'border-white/40 ' : 'border-navy/25 ') + "relative z-[1] inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 align-middle text-[14px] font-semibold normal-case tracking-normal text-current transition-colors before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none"
+            // 24 px to look at, 44 px to touch.
+            : "relative z-[1] inline-grid h-6 w-6 shrink-0 place-items-center rounded-full align-middle text-current transition-colors before:absolute before:-inset-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none",
           dark ? 'hover:bg-white/15' : 'hover:bg-navy/10',
           open && (dark ? 'bg-white/15' : 'bg-navy/10'),
           className,
         )}
       >
         <Info className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden="true" />
+        {label && (
+          <>
+            <span>{label}</span>
+            <span className="sr-only"> {t('help.tip.openLabelSr', { topic: title, defaultValue: '(help: {{topic}})' })}</span>
+          </>
+        )}
       </button>
       {open &&
         createPortal(

@@ -8,13 +8,14 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { CoverImage } from '@/components/ui/CoverImage';
-import { FOCUS, StatusPill } from '@/components/member/MemberUI';
+import { FOCUS } from '@/components/member/MemberUI';
 import { WYS26_PATH } from '@/components/events/WysInvitationCard';
-import { useHomeAgenda } from '@/components/home/useHomeAgenda';
+import type { AgendaEntry } from '@/components/home/useHomeAgenda';
 import { eventCover } from '@/lib/siteMedia';
 import { cn, type CalendarEventInput } from '@/lib/utils';
 import { eventPath } from '@/lib/seoMeta';
 import { DEFAULT_DURATION_MS, type DashEvent } from './useDashboardData';
+import { ActionCue } from './DashboardKit';
 
 /** Small date tile: day and month, in the signage face. */
 function DateTile({ start, lang }: { start: Date; lang: string }) {
@@ -180,17 +181,25 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
 }
 
 /**
- * What is coming up, from the same source as the public home page's agenda
- * (useHomeAgenda): the next published events and the World Yachting Summit
- * (Dubai, 27 Nov 2026, by invitation) while it is ahead — it runs on the guest
- * list, not in the events table, so a list read from that table alone said
- * "no upcoming event" under a home page announcing it.
+ * The agenda entries still ahead: the agenda closes on the Rendezvous' finished
+ * edition, and a fake or stale row may predate today (the query asks for future
+ * dates only, the filter makes sure).
  */
-export function ComingUpList({ registeredIds }: { registeredIds: Set<string> }) {
+export function agendaAhead(entries: AgendaEntry[], now = Date.now()): AgendaEntry[] {
+  return entries.filter((e) => e.id !== 'rendezvous-6' && !(Date.parse(e.at) < now - DEFAULT_DURATION_MS));
+}
+
+/**
+ * What is coming up, from the same source as the public home page's agenda
+ * (useHomeAgenda, read once by the dashboard and handed here): the next
+ * published events and the World Yachting Summit (Dubai, 27 Nov 2026, by
+ * invitation) while it is ahead — it runs on the guest list, not in the events
+ * table, so a list read from that table alone said "no upcoming event" under a
+ * home page announcing it.
+ */
+export function ComingUpList({ registeredIds, entries, loading }: { registeredIds: Set<string>; entries: AgendaEntry[]; loading: boolean }) {
   const { t } = useTranslation();
-  const { entries, loading } = useHomeAgenda(8);
-  // The agenda closes on the Rendezvous' finished edition: not "coming up".
-  const ahead = entries.filter((e) => e.id !== 'rendezvous-6');
+  const ahead = agendaAhead(entries);
   // The next three, and the World Yachting Summit always among them while it is ahead.
   const wysEntry = ahead.find((e) => e.href === WYS26_PATH);
   let upcoming = ahead.slice(0, 3);
@@ -213,24 +222,30 @@ export function ComingUpList({ registeredIds }: { registeredIds: Set<string> }) 
         const registered = e.id.startsWith('event-') && registeredIds.has(e.id.slice('event-'.length));
         return (
           <li key={e.id} className="flex flex-col gap-2 rounded-field py-1.5 sm:flex-row sm:items-center">
-            <Link to={e.href} className="group flex min-w-0 flex-1 items-center gap-3 rounded-field focus:outline-none focus-visible:shadow-focus">
+            <Link to={e.href} className="group -mx-2 flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-field px-2 py-1 transition-colors hover:bg-page active:bg-chip focus:outline-none focus-visible:shadow-focus">
               <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-field bg-chip text-center" aria-hidden="true">
                 <span className="font-signage text-[19px] font-semibold leading-none tabular-nums text-navy">{e.day}</span>
                 <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-meta">{e.month}</span>
               </span>
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="sr-only">{e.spoken}: </span>
                 <span className="block text-[14px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]"><span className="card-ul">{e.title}</span></span>
                 <span className="block text-[12px] leading-4 text-meta">{e.sub}</span>
+                {/* Registered: a plain line with a tick, never a pill (it cannot be pressed apart from the row). */}
+                {registered && (
+                  <span className="mt-0.5 flex items-center gap-1 text-[12px] font-semibold leading-4 text-emerald-800">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {t('dashboard.registered')}
+                  </span>
+                )}
               </span>
+              <ActionCue size="sm">{t('dash.cue.view', 'View')}</ActionCue>
             </Link>
-            {wys ? (
+            {wys && (
               <Button asChild variant="ctaNavy" size="sm" arrow={false} className="shrink-0 self-start sm:self-center">
                 <Link to={WYS26_PATH}>{t('homePage.events.wysRequest', 'Request an invitation')}</Link>
               </Button>
-            ) : registered ? (
-              <StatusPill tone="success" icon={CheckCircle2} className="self-start sm:self-center">{t('dashboard.registered')}</StatusPill>
-            ) : null}
+            )}
           </li>
         );
       })}

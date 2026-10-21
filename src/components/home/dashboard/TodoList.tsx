@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, Check, CheckCircle2 } from 'lucide-react';
+import { Check, CheckCircle2 } from 'lucide-react';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { HelpTip } from '@/components/help/HelpTip';
 import { RowSkeleton, ROW_FOCUS } from '@/components/member/MemberUI';
@@ -12,6 +12,7 @@ import {
   imageProblem, saveOrgFields, uploadOrgBrandImage, COVER_ACCEPT, LOGO_ACCEPT,
 } from '@/components/organization/orgActions';
 import { cn } from '@/lib/utils';
+import { ActionCue } from './DashboardKit';
 import { FieldsDialog, PictureDialog, SectorsDialog } from './fieldDialogs';
 import { JoinRequestsDialog } from './teamDialogs';
 
@@ -36,6 +37,8 @@ export interface TodoItem {
   icon: LucideIcon;
   /** Someone waits for an answer. */
   urgent: boolean;
+  /** What pressing the line does, in a few words (default "Do it now"). */
+  action?: string;
   /** Opens this page instead of a small window (the answer is given there). */
   to?: string;
   /**
@@ -56,7 +59,7 @@ export function TodoList({
   compact = false,
 }: {
   items: TodoItem[];
-  /** In a narrow column (next to my next event): no "Do it now" words on large screens, the arrow only. */
+  /** In a narrow column (next to my next event): on large screens the action pill goes under the words. */
   compact?: boolean;
   loading: boolean;
   /** Something was saved: the dashboard reads its summaries again. */
@@ -119,13 +122,14 @@ export function TodoList({
   }
 
   const orgName = organization?.name ?? '';
+  const action = (item: TodoItem) => item.action ?? t('dash.doItNow', 'Do it now');
   return (
     <section aria-labelledby="todo-title" className="card-shell relative flex h-full flex-col overflow-hidden rounded-card border border-rule bg-white text-ink">
       <header className="flex items-center justify-between gap-4 border-b border-rule px-5 py-4">
         <Eyebrow as="h3" className="min-w-0">
           <span id="todo-title" ref={headingRef} tabIndex={-1} className="focus:outline-none">{t('dash.todoTitle', 'To do')}</span>
         </Eyebrow>
-        <HelpTip title={t('help.tips.todoTitle', 'What is in To do?')} more="account-dashboard" className="text-meta">
+        <HelpTip title={t('help.tips.todoTitle', 'What is in To do?')} label={t('dash.todoHelpLabel', 'What is this?')} more="account-dashboard" className="text-meta">
           {t('help.tips.todoWaits', 'First the messages and requests waiting for your answer, then what is missing on your company page and your profile. Press a line to deal with it.')}
         </HelpTip>
       </header>
@@ -159,12 +163,13 @@ export function TodoList({
                     setOpen(item.key);
                   }}
                   aria-disabled={!!p}
-                  className={cn('group flex min-h-[72px] w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page', ROW_FOCUS)}
+                  className={cn('group flex min-h-[72px] w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page active:bg-chip', ROW_FOCUS)}
                 >
                   <span
                     className={cn(
                       'grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors duration-300',
-                      p ? 'bg-teal text-white' : item.urgent ? 'bg-gold/25 text-navy' : 'bg-chip text-navy',
+                      // A light accent tint; stronger when someone waits for the answer.
+                      p ? 'bg-teal text-white' : item.urgent ? 'bg-gold/45 text-navy' : 'bg-gold/15 text-gold-text',
                     )}
                   >
                     {p ? (
@@ -180,24 +185,17 @@ export function TodoList({
                     <span className="mt-0.5 block text-[14px] leading-5 text-meta">
                       {p ? t('dash.todoTicked', 'Done, thank you!') : item.hint}
                     </span>
+                    {/* Phones (and the narrow column on large screens): the action pill under the words. */}
+                    {!p && (
+                      <span className={cn('mt-2.5 flex sm:hidden', compact && 'lg:flex')}>
+                        <ActionCue size="sm">{action(item)}</ActionCue>
+                      </span>
+                    )}
                   </span>
-                  {/* Phones: always a sign that the row opens something. The display
-                      utilities sit on a wrapper: .card-arrow sets its own display and
-                      comes later in the cascade, so it would beat them on the icon. */}
+                  {/* Wider screens: the same pill on the right. Only one of the two shows; the other is display:none. */}
                   {!p && (
-                    <span aria-hidden="true" className="flex shrink-0 sm:hidden">
-                      <ArrowRight className="card-arrow !ml-0" strokeWidth={2.25} />
-                    </span>
-                  )}
-                  {!p && compact && (
-                    <span aria-hidden="true" className="hidden shrink-0 lg:flex">
-                      <ArrowRight className="card-arrow !ml-0" strokeWidth={2.25} />
-                    </span>
-                  )}
-                  {!p && (
-                    <span className={cn('hidden shrink-0 items-center gap-1 text-[15px] font-semibold text-navy sm:inline-flex', compact && 'lg:hidden')}>
-                      {t('dash.doItNow', 'Do it now')}
-                      <ArrowRight className="card-arrow !ml-0" strokeWidth={2.25} aria-hidden="true" />
+                    <span className={cn('hidden shrink-0 sm:flex', compact && 'lg:hidden')}>
+                      <ActionCue size="sm">{action(item)}</ActionCue>
                     </span>
                   )}
                 </button>

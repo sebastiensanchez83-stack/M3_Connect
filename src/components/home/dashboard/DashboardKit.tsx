@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, CheckCircle2, ChevronDown, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, CheckCircle2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BTN_OUTLINE, ROW_FOCUS } from '@/components/member/MemberUI';
 import { useMotion } from '@/components/motion/MotionProvider';
@@ -15,6 +15,16 @@ import { cn } from '@/lib/utils';
  * one plain line saying where things stand; the panel a tile opens in place,
  * right under its row; the compact rows and links used inside.
  *
+ * "This is clickable" has ONE look on the whole dashboard (Victor, 21 Oct 2026:
+ * many members are not at ease with technology, they must see what can be
+ * pressed and where it leads): a pill with a few plain words and an icon, the
+ * ActionCue below. An arrow → goes somewhere (another page, a small window, a
+ * panel further down); a chevron ⌄ opens the details right here, and the pill
+ * turns into "Close" ⌃ while they are open. It shows at rest, never only on
+ * hover (phones have no hover); the whole card or row around it is the button,
+ * so the target is large. Statuses that cannot be pressed are plain words with
+ * an icon, never a pill.
+ *
  * No entrance animation anywhere: the dashboard is the reason a member comes
  * back, it shows at once and fully opaque. Only a panel that opens expands
  * (.5 s, the grid-rows trick); its region clips while it grows and stops
@@ -26,76 +36,140 @@ export function panelDomId(key: string) {
   return `home-panel-${key}`;
 }
 
+/** Where an ActionCue leads: somewhere (arrow), further down the page, or details opening / closing here (chevron). */
+export type CueIcon = 'arrow' | 'down' | 'expand' | 'collapse';
+
+/**
+ * The dashboard's one sign that something can be pressed: a pill with a few
+ * words and an icon. A plain span inside the card or row that is the actual
+ * button or link (its words are part of that control's name, as seen), it
+ * reacts to that parent's hover and press (`group`). On white: navy outline, like the panels' "Change" buttons. On
+ * navy (`dark`): the accent with navy words (7.8:1).
+ */
+export function ActionCue({
+  children,
+  icon = 'arrow',
+  tone = 'light',
+  size = 'md',
+  className,
+}: {
+  children: ReactNode;
+  icon?: CueIcon;
+  tone?: 'light' | 'dark';
+  size?: 'md' | 'sm';
+  className?: string;
+}) {
+  const Icon = icon === 'expand' ? ChevronDown : icon === 'collapse' ? ChevronUp : icon === 'down' ? ArrowDown : ArrowRight;
+  return (
+    <span
+      className={cn(
+        'inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-pill font-semibold transition-colors duration-200 motion-reduce:transition-none',
+        size === 'md' ? 'min-h-10 px-4 py-1.5 text-[15px] leading-5' : 'min-h-8 px-3 py-1 text-[14px] leading-5',
+        tone === 'dark'
+          ? 'bg-gold text-navy group-hover:bg-white group-active:bg-white/85'
+          : 'border border-navy/30 bg-white text-navy group-hover:border-navy group-hover:bg-chip group-active:bg-chip',
+        className,
+      )}
+    >
+      <span className="min-w-0">{children}</span>
+      <Icon
+        aria-hidden="true"
+        className={cn(
+          'shrink-0 transition-transform duration-200 motion-reduce:transition-none',
+          size === 'md' ? 'h-[18px] w-[18px]' : 'h-4 w-4',
+          icon === 'arrow' && 'group-hover:translate-x-0.5',
+          icon === 'down' && 'group-hover:translate-y-0.5',
+        )}
+        strokeWidth={2.25}
+      />
+    </span>
+  );
+}
+
+/**
+ * A tile's icon square, by meaning (never at random): navy with the accent for
+ * who you are (profile, company, team), teal with white for what you take part
+ * in (events, saved companies, references, press), the accent with navy for
+ * conversations and business (messages, requests, deal flow, sponsorship).
+ */
+export type IconTone = 'navy' | 'teal' | 'accent';
+const ICON_SQUARE: Record<IconTone, string> = {
+  navy: 'bg-navy text-gold',
+  teal: 'bg-teal text-white',
+  accent: 'bg-gold text-navy',
+};
+
 /** How a tile's line reads: something waits for an answer, something is missing, all is well, or plain. */
 export type TileTone = 'action' | 'missing' | 'done' | 'plain';
 
 /**
  * One tile: a big button (or a link, for a tile that leads to its own page)
- * with an icon, a title, an optional count and one line of status. It says
- * whether its panel is open (aria-expanded) and, while it is, which region it
- * controls (the region only exists then).
+ * with its icon square, a title, an optional count, one line of status and, at
+ * the bottom, what pressing it does ("Edit my profile ⌄", "Close ⌃", "See the
+ * projects →"). It says whether its panel is open (aria-expanded) and, while
+ * it is, which region it controls (the region only exists then).
  */
 export const Tile = forwardRef<HTMLButtonElement, {
   panelKey: string;
   icon: LucideIcon;
+  iconTone?: IconTone;
   title: string;
   /** A number after the title ("My team 4"), read out with its meaning. */
   count?: { value: number; label: string } | null;
   status: ReactNode;
   tone?: TileTone;
+  /** What pressing it does, in a few plain words ("Edit my profile"). */
+  action: string;
   open?: boolean;
   /** A tile that leads to another page instead of opening a panel. */
   to?: string;
   onClick?: () => void;
-}>(function Tile({ panelKey, icon: Icon, title, count, status, tone = 'plain', open = false, to, onClick }, ref) {
+}>(function Tile({ panelKey, icon: Icon, iconTone = 'navy', title, count, status, tone = 'plain', action, open = false, to, onClick }, ref) {
+  const { t } = useTranslation();
   const inner = (
     <>
-      <span
-        aria-hidden="true"
-        className={cn(
-          'grid h-12 w-12 shrink-0 place-items-center rounded-field transition-colors duration-300',
-          open ? 'bg-navy text-white' : tone === 'action' ? 'bg-gold/25 text-navy' : 'bg-chip text-navy',
-        )}
-      >
-        <Icon className="h-6 w-6" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="text-[18px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
-            <span className="card-ul">{title}</span>
-          </span>
-          {count && count.value > 0 && (
-            <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-pill bg-navy px-2 text-[13px] font-semibold leading-none tabular-nums text-white">
-              <span aria-hidden="true">{count.value}</span>
-              <span className="sr-only">{count.label}</span>
+      <span className="flex w-full items-start gap-4">
+        <span aria-hidden="true" className={cn('grid h-12 w-12 shrink-0 place-items-center rounded-[14px]', ICON_SQUARE[iconTone])}>
+          <Icon className="h-6 w-6" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="text-[18px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
+              <span className="card-ul">{title}</span>
             </span>
-          )}
-        </span>
-        <span
-          className={cn(
-            'mt-1 flex items-start gap-1.5 text-[15px] leading-[22px]',
-            tone === 'action' ? 'font-semibold text-navy' : tone === 'missing' ? 'text-amber-900' : 'text-meta',
-          )}
-        >
-          {tone === 'done' && <CheckCircle2 className="mt-[3px] h-4 w-4 shrink-0 text-teal" aria-hidden="true" />}
-          {tone === 'missing' && <span aria-hidden="true" className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-amber-500" />}
-          {tone === 'action' && <span aria-hidden="true" className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-gold" />}
-          <span className="min-w-0">{status}</span>
+            {count && count.value > 0 && (
+              <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-pill bg-navy px-2 text-[13px] font-semibold leading-none tabular-nums text-white">
+                <span aria-hidden="true">{count.value}</span>
+                <span className="sr-only">{count.label}</span>
+              </span>
+            )}
+          </span>
+          <span
+            className={cn(
+              'mt-1 flex items-start gap-1.5 text-[15px] leading-[22px]',
+              tone === 'action' ? 'font-semibold text-navy' : tone === 'missing' ? 'text-amber-900' : 'text-meta',
+            )}
+          >
+            {tone === 'done' && <CheckCircle2 className="mt-[3px] h-4 w-4 shrink-0 text-teal" aria-hidden="true" />}
+            {tone === 'missing' && <span aria-hidden="true" className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-amber-500" />}
+            {tone === 'action' && <span aria-hidden="true" className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-gold-text" />}
+            <span className="min-w-0">{status}</span>
+          </span>
         </span>
       </span>
-      {to ? (
-        <ArrowRight className="card-arrow !ml-0 mt-1 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-      ) : (
-        <ChevronDown
-          aria-hidden="true"
-          className={cn('mt-1 h-5 w-5 shrink-0 text-meta transition-transform duration-300 motion-reduce:transition-none', open && 'rotate-180 text-navy')}
-        />
-      )}
+      {/* What pressing it does: always shown, the same pill as everywhere on the dashboard. */}
+      <span className="mt-auto flex w-full pt-4">
+        <ActionCue icon={to ? 'arrow' : open ? 'collapse' : 'expand'}>
+          {open ? t('memberHome.close', 'Close') : action}
+          {!to && <span className="sr-only"> {open ? t('dash.cue.closesSr', '(hides the details)') : t('dash.cue.opensSr', '(shows the details below)')}</span>}
+        </ActionCue>
+      </span>
     </>
   );
   const cls = cn(
-    'group flex min-h-[112px] w-full items-start gap-4 rounded-card border bg-white p-5 text-left transition-[box-shadow,border-color] duration-300',
-    'hover:border-navy/40 hover:shadow-hover focus:outline-none focus-visible:shadow-focus',
+    'group flex h-full min-h-[148px] w-full cursor-pointer flex-col items-start rounded-card border bg-white p-5 text-left shadow-[0_1px_2px_rgba(11,38,83,0.06)]',
+    'transition-[box-shadow,border-color,background-color] duration-300 motion-reduce:transition-none',
+    'hover:border-navy/40 hover:shadow-hover active:bg-page focus:outline-none focus-visible:shadow-focus',
     open ? 'border-navy shadow-[inset_0_0_0_1px_rgb(11_38_83)]' : 'border-rule',
   );
   if (to) return <Link to={to} className={cls}>{inner}</Link>;
@@ -130,6 +204,7 @@ export function MiniRow({
   title,
   meta,
   aside,
+  cue,
   to,
   onClick,
 }: {
@@ -137,6 +212,8 @@ export function MiniRow({
   title: ReactNode;
   meta?: ReactNode;
   aside?: ReactNode;
+  /** What pressing the row does ("View"): the small pill at its end, for a row that is a link or a button. */
+  cue?: string;
   to?: string;
   onClick?: () => void;
 }) {
@@ -152,6 +229,7 @@ export function MiniRow({
         {meta && <span className="block truncate text-[12px] leading-4 text-meta">{meta}</span>}
       </span>
       {aside}
+      {cue && (to || onClick) && <ActionCue size="sm">{cue}</ActionCue>}
     </>
   );
   const cls = cn('group -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-3 rounded-field px-2 py-1.5 text-left transition-colors hover:bg-page', ROW_FOCUS);
@@ -160,13 +238,20 @@ export function MiniRow({
   return <li className="-mx-2 flex min-h-11 items-center gap-3 px-2 py-1.5">{inner}</li>;
 }
 
-/** A link at the bottom of a block (gold line on hover, small arrow), 44 px tall to tap. */
+/**
+ * A link at the top or bottom of a block ("All events", "View my company
+ * page"): the dashboard's pill with its arrow (ActionCue's look, as a real
+ * link), 44 px tall to tap.
+ */
 export function CardLink({ to, children, external = false }: { to: string; children: ReactNode; external?: boolean }) {
-  const cls = 'uline min-h-11 !text-[15px] !leading-5';
+  const cls = cn(
+    'group inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill border border-navy/30 bg-white px-4 text-[15px] font-semibold leading-5 text-navy',
+    'transition-colors duration-200 hover:border-navy hover:bg-chip active:bg-chip motion-reduce:transition-none focus:outline-none focus-visible:shadow-focus',
+  );
   const inner = (
     <>
-      <span className="uline-t">{children}</span>
-      <ArrowRight className="uline-a" strokeWidth={2.25} aria-hidden="true" />
+      <span>{children}</span>
+      <ArrowRight className="h-[18px] w-[18px] shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none" strokeWidth={2.25} aria-hidden="true" />
     </>
   );
   return external

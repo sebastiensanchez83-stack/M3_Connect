@@ -31,6 +31,8 @@ export interface AgendaEntry {
   /** One line under the title: place · format · status. */
   sub: string;
   href: string;
+  /** When it starts (ISO): the dashboard's countdown to the next event. */
+  at: string;
 }
 
 interface EventRow {
@@ -84,7 +86,7 @@ export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boole
     const published = events.filter((e) => e.published !== false);
     const now = Date.now();
 
-    type Row = AgendaEntry & { at: string };
+    type Row = AgendaEntry;
     const upcoming: Row[] = published.map((e) => {
       const wys = isWys26Event(e.title);
       const webinar = (e.event_type ?? '').toLowerCase() === 'webinar';
@@ -135,7 +137,7 @@ export function useHomeAgenda(max = 3): { entries: AgendaEntry[]; loading: boole
       href: RENDEZVOUS_2026_PATH,
     };
 
-    return [...upcoming.slice(0, max), rendezvous].map(({ at: _at, ...row }) => row);
+    return [...upcoming.slice(0, max), rendezvous];
   }, [events, i18n.language, t, max]);
 
   return { entries, loading: events === null };

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LifeBuoy } from 'lucide-react';
 import { CardShell } from '@/components/brand/CardShell';
-import { CardLink } from '@/components/home/dashboard/DashboardKit';
+import { ActionCue, CardLink } from '@/components/home/dashboard/DashboardKit';
 import { ROW_FOCUS } from '@/components/member/MemberUI';
 import { cn } from '@/lib/utils';
 import { buildHelpSections, helpHref, PERSONA_SECTION, type HelpItem, type HelpSection } from './helpContent';
@@ -68,7 +68,7 @@ export function NeedHelpCard({ hasOrganization, persona, orgType }: { hasOrganiz
             </p>
           </div>
         </div>
-        <div className="mt-3 hidden flex-col items-start gap-1 lg:flex">
+        <div className="mt-4 hidden flex-col items-start gap-2 lg:flex">
           <CardLink to="/help">{t('dash.help.open', 'Open the help centre')}</CardLink>
           <CardLink to="/contact">{t('dash.help.write', 'Write to the team')}</CardLink>
         </div>
@@ -83,7 +83,7 @@ export function NeedHelpCard({ hasOrganization, persona, orgType }: { hasOrganiz
               <li key={item.id}>
                 <Link
                   to={helpHref(item.id)}
-                  className={cn('group -mx-2 flex min-h-[52px] items-center gap-3 rounded-field px-2 py-2.5 text-left transition-colors hover:bg-page', ROW_FOCUS)}
+                  className={cn('group -mx-2 flex min-h-[52px] cursor-pointer items-center gap-3 rounded-field px-2 py-2.5 text-left transition-colors hover:bg-page active:bg-chip', ROW_FOCUS)}
                 >
                   <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-field bg-chip text-navy">
                     <Icon className="h-4 w-4" />
@@ -91,12 +91,14 @@ export function NeedHelpCard({ hasOrganization, persona, orgType }: { hasOrganiz
                   <span className="min-w-0 flex-1 text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">
                     <span className="card-ul">{item.q}</span>
                   </span>
+                  {/* The dashboard's one "press here" sign, with where it leads. */}
+                  <ActionCue size="sm">{t('dash.help.readAnswer', 'Read')}</ActionCue>
                 </Link>
               </li>
             );
           })}
         </ul>
-        <div className="mt-3 flex flex-wrap items-center gap-x-6 lg:hidden">
+        <div className="mt-4 flex flex-wrap items-center gap-2 lg:hidden">
           <CardLink to="/help">{t('dash.help.open', 'Open the help centre')}</CardLink>
           <CardLink to="/contact">{t('dash.help.write', 'Write to the team')}</CardLink>
         </div>

@@ -322,6 +322,7 @@ function HealthSection() {
   const { t } = useTranslation();
   const [data, setData] = useState<Awaited<ReturnType<typeof fetchHealthAlerts>> | undefined>(undefined);
   useEffect(() => { void fetchHealthAlerts().then(setData); }, []);
+  const link = <CardLink to={INBOX_PATHS.siteHealth}>{t('adminInbox.health.open', 'Open Site health')}</CardLink>;
   return (
     <AdminPanel
       icon={Activity}
@@ -332,7 +333,7 @@ function HealthSection() {
       {data === undefined ? (
         <AdminLoading className="h-40" />
       ) : data === null ? (
-        <AdminEmpty icon={Activity} title={t('adminInbox.health.unreadable', 'The alerts cannot be read here')} body={t('adminInbox.health.unreadableBody', 'Try again in a few minutes.')} />
+        <AdminEmpty icon={Activity} title={t('adminInbox.health.unreadable', 'The alerts cannot be read here')} body={t('adminInbox.health.unreadableBody', 'See them on the Site health page.')} action={link} />
       ) : (
         <>
           {data.alerts.length === 0 ? (
@@ -344,6 +345,7 @@ function HealthSection() {
           )}
           <Footer>
             <span>{data.lastRun ? `${t('adminInbox.health.lastRun', 'Last check')} ${formatAgo(data.lastRun)}` : t('adminInbox.health.noRun', 'No check recorded yet')}</span>
+            {link}
           </Footer>
         </>
       )}

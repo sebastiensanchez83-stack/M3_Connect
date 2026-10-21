@@ -26,7 +26,7 @@ import { readSetting, saveSetting } from './settingsStore';
  * "off (stored as text)".
  */
 
-type Group = 'events' | 'wys' | 'accounts' | 'tools' | 'rights';
+type Group = 'events' | 'wys' | 'accounts' | 'tools' | 'content' | 'rights';
 
 interface FlagInfo {
   key: string;
@@ -143,6 +143,22 @@ function flagInfos(t: TFunction): FlagInfo[] {
       warning: t('adminSettings.flag.outbox.warn', 'Turn on at go-live, with the new notification service.'),
     },
     {
+      key: 'article_comments', group: 'content',
+      title: t('adminSettings.flag.comments.title', 'Comments under articles'),
+      what: t('adminSettings.flag.comments.what', 'Validated members comment under the articles of the Resources library and tag a person or a company with "@". The people tagged are told on their dashboard (and by e-mail once the switch below is on). Published at once; M3 hides a comment at any time (Admin > Resources > Reported comments, or the article page here). Only the redesign shows comments.'),
+      on: t('adminSettings.flag.comments.on', 'Each article shows its comments to validated members, and the number of comments to everyone else.'),
+      off: t('adminSettings.flag.comments.off', 'Nothing about comments shows; comments already written are kept, unseen.'),
+      warning: t('adminSettings.flag.comments.warn', 'The database update must be applied first. Comments written now are tests: delete them before go-live (docs/operations/article-comments.md).'),
+    },
+    {
+      key: 'article_comment_emails', group: 'content', serverOnly: true,
+      title: t('adminSettings.flag.commentEmails.title', 'E-mails for comment tags and reports'),
+      what: t('adminSettings.flag.commentEmails.what', 'A person tagged in a comment (or the owners of a company tagged) gets an e-mail at once, and each report e-mails the M3 team. Needs "Comments under articles" on too.'),
+      on: t('adminSettings.flag.commentEmails.on', 'Tags and reports are also sent by e-mail, at once.'),
+      off: t('adminSettings.flag.commentEmails.off', 'Tags and reports show on the site only. No e-mail is queued, so nothing is sent later either.'),
+      warning: t('adminSettings.flag.commentEmails.warn', 'Go-live only, after deleting the test comments and deploying the new notification service (docs/operations/article-comments.md).'),
+    },
+    {
       key: 'capabilities_enforced', group: 'rights',
       title: t('adminSettings.flag.rights.title', 'Rights per company type (go-live switch)'),
       what: t('adminSettings.flag.rights.what', 'The site shows each feature (publish a need, see opportunities, request connections, Deal flow…) according to the type of the person\'s validated company.'),
@@ -160,11 +176,12 @@ function groupTitle(g: Group, t: TFunction): string {
     case 'wys': return t('adminSettings.group.wys', 'World Yachting Summit');
     case 'accounts': return t('adminSettings.group.accounts', 'Accounts and sign-in');
     case 'tools': return t('adminSettings.group.tools', 'M3 tools and e-mails');
+    case 'content': return t('adminSettings.group.content', 'Articles and comments');
     case 'rights': return t('adminSettings.group.rights', 'Rights');
   }
 }
 
-const GROUPS: Group[] = ['tools', 'events', 'wys', 'accounts', 'rights'];
+const GROUPS: Group[] = ['tools', 'events', 'wys', 'accounts', 'content', 'rights'];
 
 type Pending = { info: FlagInfo; next: boolean; acks: Record<string, boolean> };
 

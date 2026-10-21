@@ -29,6 +29,9 @@ import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
 import { LogoTile } from '@/components/brand/OrgCard';
 import { linkFirstMentions, mentionHref, type MentionOrg } from '@/lib/companyMentions';
+import { ArticleComments } from '@/components/resources/ArticleComments';
+import { useRegistrationFlags } from '@/lib/flags';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import '@/styles/refonte-content.css';
 
 /**
@@ -54,6 +57,14 @@ import '@/styles/refonte-content.css';
  * (resource_organization_mention) are listed under the text, logo and name, each linking to its
  * page; the first time each name appears in the text it links there too. The links are added at
  * render time, after DOMPurify (src/lib/companyMentions.ts): the stored article never changes.
+ *
+ * Comments (Victor, 21 Oct 2026; switch registration_flags.article_comments): with a readable
+ * article, ArticleComments shows the discussion to validated members (write, tag "@", report)
+ * and only the number of comments to visitors and accounts not validated yet. On large screens
+ * it is a panel in the right column, under the Authors card, that stays on screen while the
+ * article scrolls (the Authors card then scrolls away above it; the columns become 7 + 5); on
+ * phones and tablets it sits under the article. Mounted in one place only (useMediaQuery), so it
+ * loads once.
  *
  * Address (20 Oct 2026): /resources/<slug>. The page also opens /resources/<id> and any address
  * the article had before (resource_slug_lookup), then puts the current one in the address bar
@@ -127,6 +138,9 @@ export function ResourceDetailPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The comments switch, and whether the page has two columns (lg, 1024 px): where the comments go.
+  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
+  const wide = useMediaQuery('(min-width: 1024px)');
   const copiedTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
@@ -322,6 +336,11 @@ export function ResourceDetailPage() {
   if (!resource) return null;
 
   const hasAccess = canAccess(resource.access_level);
+  // Comments only with an article the reader may read; beside it on large screens, under it otherwise.
+  const commentsOn = regFlagsReady && regFlags.article_comments && hasAccess;
+  const commentsBeside = commentsOn && wide;
+  const openSignIn = () => setLoginOpen(true);
+  const openSignUp = () => setSignupOpen(true);
   const readTime = estimateReadTime(resource.content);
   const displayDate = resource.published_at || resource.created_at;
   // Title, description, canonical URL, share card and Article JSON-LD: the same builder as
@@ -438,8 +457,8 @@ export function ResourceDetailPage() {
 
       {/* The reading column and, beside it, the speakers */}
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14">
-        <div className="grid gap-8 lg:grid-cols-12 lg:gap-14">
-          <div className="min-w-0 lg:col-span-8">
+        <div className={cn('grid gap-8 lg:grid-cols-12', commentsOn ? 'lg:gap-10 xl:gap-12' : 'lg:gap-14')}>
+          <div className={cn('min-w-0', commentsOn ? 'lg:col-span-7' : 'lg:col-span-8')}>
             {/* The article's own picture, at the card's 16:10 */}
             {resource.thumbnail_url && (
               <figure className="mb-8 max-w-[68ch] overflow-hidden rounded-card bg-chip md:mb-10">
@@ -565,11 +584,24 @@ export function ResourceDetailPage() {
                 </ul>
               </div>
             )}
+
+            {/* Comments (switch article_comments) under the article: phones and tablets. */}
+            {commentsOn && !wide && (
+              <ArticleComments resourceId={resource.id} onSignIn={openSignIn} onSignUp={openSignUp} />
+            )}
           </div>
 
-          {/* Speakers beside the article from lg */}
-          {speakersCard && (
-            <aside className="hidden lg:col-span-4 lg:block">
+          {/* From lg: the Authors card, then the comments panel, which stays on screen while the
+              article scrolls (sticky inside this column, as tall as the article). */}
+          {commentsBeside ? (
+            <aside className="hidden min-w-0 lg:col-span-5 lg:block" aria-label={t('comments.asideLabel', 'Authors and comments')}>
+              {speakersCard && <div className="mb-6">{speakersCard}</div>}
+              <div className="sticky top-20">
+                <ArticleComments variant="panel" resourceId={resource.id} onSignIn={openSignIn} onSignUp={openSignUp} />
+              </div>
+            </aside>
+          ) : speakersCard && (
+            <aside className={cn('hidden lg:block', commentsOn ? 'lg:col-span-5' : 'lg:col-span-4')}>
               <div className="lg:sticky lg:top-20">{speakersCard}</div>
             </aside>
           )}

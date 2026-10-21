@@ -26,6 +26,7 @@ import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } fro
 import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
 import { ResourceM3EditionEditor } from './ResourceM3EditionEditor';
 import { ResourceMentionsPanel } from './ResourceMentionsPanel';
+import { AdminArticleComments } from './AdminArticleComments';
 import { SlugAddressPanel } from './SlugAddressPanel';
 
 interface Sector {
@@ -841,6 +842,9 @@ export function AdminResourceDetail() {
 
       {/* Companies the article mentions: linked in the text and listed under it (saved at once). */}
       <ResourceMentionsPanel resourceId={resourceId} title={form.title} summary={form.summary} content={form.content} />
+
+      {/* Members' comments under the article (switch article_comments): hide, show again, close reports. */}
+      {!isNew && !isDraft && <AdminArticleComments resourceId={resourceId} />}
 
       {isAdmin && resourceId && <ResourceM3EditionEditor key={resourceId} resourceId={resourceId} />}
 

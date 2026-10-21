@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { LogoBadge } from '@/components/ui/CoverImage';
-import { CATEGORIES } from '@/components/notifications/NotificationPreferencesTab';
+import { useVisibleCategories } from '@/components/notifications/NotificationPreferencesTab';
 import { saveNotificationPrefs, sendPasswordLink } from '@/components/account/profileActions';
 import {
   addOrgGalleryImages, deleteOrgDocument, fetchOrgDocuments, orgSectorTable, removeOrgGalleryImage, saveOrgSectors,
@@ -729,6 +729,7 @@ export function DocumentsDialog({
 /** The kinds of e-mail, in plain words (the full list with examples is NotificationPreferencesTab). */
 const EMAIL_KIND_LABEL: Record<string, { label: string; hint: string }> = {
   b2b: { label: 'Messages from companies', hint: 'The Friday summary of new messages and requests, and the e-mail when a company accepts yours.' },
+  comments: { label: 'Tagged in a comment', hint: 'When someone tags you or your company in a comment under an article.' },
   submissions: { label: 'Your requests and proposals', hint: 'When the M3 team approves or answers what you published.' },
   recommendations: { label: 'References', hint: 'When a marina confirms or declines a reference you asked for.' },
   events: { label: 'Events', hint: 'Your registrations and reminders before a webinar.' },
@@ -767,9 +768,10 @@ export function EmailPrefsDialog({
   }, [open, stored]);
 
   const on = (key: string) => draft[key] !== false;
+  const categories = useVisibleCategories();
 
   const save = async () => {
-    const changed = CATEGORIES.some((c) => (stored[c.key] !== false) !== on(c.key));
+    const changed = categories.some((c) => (stored[c.key] !== false) !== on(c.key));
     if (!changed) { onOpenChange(false); return; }
     const fresh = await requireFreshSession();
     if (!fresh) return;
@@ -779,7 +781,7 @@ export function EmailPrefsDialog({
       // The same map the full preferences screen writes: what is stored, plus
       // each switch that was flipped (as if each had been toggled there).
       const next = { ...(prefs ?? {}) } as Record<string, boolean>;
-      for (const c of CATEGORIES) if ((stored[c.key] !== false) !== on(c.key)) next[c.key] = on(c.key);
+      for (const c of categories) if ((stored[c.key] !== false) !== on(c.key)) next[c.key] = on(c.key);
       await saveNotificationPrefs(uid, next);
       toast({ title: t('dash.savedToast', 'Saved'), description: t('dash.emailsSaved', 'Your e-mail choices are saved.') });
       setSaving(false);
@@ -803,7 +805,7 @@ export function EmailPrefsDialog({
       wide
     >
       <ul className="divide-y divide-rule rounded-field border border-rule">
-        {CATEGORIES.map((c) => {
+        {categories.map((c) => {
           const copy = EMAIL_KIND_LABEL[c.key] ?? { label: c.title, hint: c.description };
           const id = `email-kind-${c.key}`;
           return (

@@ -79,7 +79,10 @@ type NotificationType =
   // authorizeResolvedSend.
   | "team_join_request"
   | "team_join_approved"
-  | "account_under_review";
+  | "account_under_review"
+  // Article comments (21 Oct 2026): every word from the database, see sendCommentEmails.
+  | "comment_mention"
+  | "comment_report";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -97,6 +100,7 @@ interface NotificationRequest {
 
 type NotificationCategory =
   | "b2b"
+  | "comments"
   | "submissions"
   | "recommendations"
   | "events"
@@ -171,6 +175,10 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
 
   // Admin-internal
   admin_new_submission: "admin",
+
+  // Article comments (21 Oct 2026): a tag is switched off with "comments"; a report goes to M3 staff.
+  comment_mention: "comments",
+  comment_report: "admin",
 };
 
 /** Sent whatever the recipient's preferences say (payment-ipn's receipts, see the opt-out check). */
@@ -628,6 +636,39 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonUrl: `${SITE_URL}/account?tab=organization`,
         footer: "Welcome aboard! If you have any questions, reply to this e-mail.",
       };
+
+    // ── Article comments (21 Oct 2026). Every field is set by sendCommentEmails from the
+    // database (resource_comment_email), never by the caller. ──
+    case "comment_mention": {
+      const who = d.author_name || "A member";
+      const whoFull = d.author_org ? `${who} (${d.author_org})` : who;
+      // A path on the site only ("/resources/<slug>#comment-<id>", built by commentEmailData).
+      const path = /^\/(?![/\\])/.test(d.comment_path || "") ? d.comment_path : "/resources";
+      return {
+        subject: d.via_org
+          ? `${who} tagged ${d.via_org} in a comment on Smart Marina Connect`
+          : `${who} tagged you in a comment on Smart Marina Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: d.via_org ? "Your company was tagged in a comment" : "You were tagged in a comment",
+        body: `${whoFull} tagged ${d.via_org ? `your company, ${d.via_org},` : "you"} in a comment under the article "${d.article_title || "an article"}".${d.excerpt ? `\n\nMessage: ${d.excerpt}` : ""}\n\nOpen the article to read the whole discussion and answer.`,
+        buttonText: "Read the comment",
+        buttonUrl: `${SITE_URL}${path}`,
+        footer: "You receive this e-mail because someone tagged you, or your company, in a comment on Smart Marina Connect. You can turn these e-mails off in your e-mail preferences.",
+      };
+    }
+
+    case "comment_report": {
+      const open = Number(d.open_reports || "0");
+      return {
+        subject: "A comment was reported on Smart Marina Connect",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "A comment was reported",
+        body: `${d.reporter_name || "A member"} reported a comment by ${d.author_name || "a member"}${d.author_org ? ` (${d.author_org})` : ""} under the article "${d.article_title || "an article"}".${d.reason ? `\n\nReason: ${d.reason}` : "\n\nNo reason was given."}${d.excerpt ? `\n\nMessage: ${d.excerpt}` : ""}\n\n${open > 1 ? `This comment now has ${open} open reports. ` : ""}It stays on the page until someone of the M3 team hides it: open the reported comments to hide it, or to keep it and close the report.`,
+        buttonText: "Review the report",
+        buttonUrl: `${SITE_URL}/admin/resources?tab=comments`,
+        footer: "You receive this e-mail because you are on the M3 team of Smart Marina Connect.",
+      };
+    }
 
     case "account_under_review": {
       const sla = d.sla || "within 2 working days";
@@ -1904,6 +1945,249 @@ async function logUnverifiedOrgEmail(db: Db, actorId: string, orgId: string): Pr
   if (error) console.error("send-notification: could not log unverified-org e-mail:", error.message || String(error));
 }
 
+// ──────────────────────────────────────────────
+// Article comments (21 Oct 2026; supabase/migrations/20261021130000_article_comments.sql)
+// ──────────────────────────────────────────────
+//
+// comment_mention  someone tagged the recipient (or a company they own) in a comment
+// comment_report   a member reported a comment: to each verified admin and moderator
+// The database queues one notification_outbox row per recipient (resource_comment_post, _edit,
+// _report; dedupe_key "<kind>:<comment or report id>:<user id>") and gives every word of the
+// e-mail (resource_comment_email(outbox id), service role only): the caller only says which
+// rows to send.
+//   member / staff (the page, right after posting, editing or reporting): data.comment_id
+//     (comment_mention) or data.report_id (comment_report): the unsent rows of that comment or
+//     report the CALLER queued (actor_id) in the last 15 minutes, while
+//     registration_flags.article_comments AND article_comment_emails are on (the database
+//     queues nothing while the e-mails switch is off, and resource_comment_email answers "out
+//     of date" while either is off, for the cron too); within the caller's hourly cap of e-mails
+//     (MEMBER_HOURLY_CAP, the "send-notification:%" rows of email_rate_log, as every member
+//     send). What is left waits for registration-cron (outbox job), which leaves rows younger
+//     than 2 minutes to the page.
+//   service (registration-cron): outbox_id, that row only. {type} alone answers 400 "Could not
+//     resolve the row this notification is about" (the cron's check that this version knows
+//     the kind).
+// Each row: out of date (comment deleted or hidden, tag removed, report handled, recipient no
+// longer validated or staff) -> settled unsent ("not sent: ..."; 409 {stale} to the cron, which
+// settles it); recipient opted out of the category ("comments", "admin") -> settled as sent;
+// sent -> notification_outbox_done. A concurrent send of the same row within 10 minutes is
+// skipped (the resolved:<dedupe key> log of the other resolved types).
+const COMMENT_TYPES = new Set<string>(["comment_mention", "comment_report"]);
+/** Most rows one page call sends (5 tags, up to 3 owners per company: 15 at most). */
+const COMMENT_ROWS_PER_CALL = 25;
+const COMMENT_OUTBOX_COLS = "id, kind, user_id, actor_id, dedupe_key, sent_at, created_at";
+
+type CommentOutboxRow = { id: number; kind: string; user_id: string; actor_id: string | null; dedupe_key: string; sent_at: string | null; created_at: string };
+
+/** Settled without sending: the news is out of date (as registration-cron's settleOutbox). */
+async function settleOutboxUnsent(db: Db, id: number, why: string): Promise<void> {
+  try {
+    const { error } = await db.from("notification_outbox")
+      .update({ sent_at: new Date().toISOString(), last_error: `not sent: ${why}`.slice(0, 500) })
+      .eq("id", id).is("sent_at", null);
+    if (error) throw error;
+  } catch (e) {
+    console.error("send-notification: could not settle a queued comment e-mail:", id, (e as { message?: string })?.message || String(e));
+  }
+}
+
+/** The caller's member sends in the last hour (memberThrottle's count). Fails open (0). */
+async function memberSendsLastHour(db: Db, actorId: string): Promise<number> {
+  try {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count, error } = await db.from("email_rate_log").select("id", { count: "exact", head: true })
+      .eq("actor_id", actorId).like("kind", "send-notification:%").gte("created_at", hourAgo);
+    if (error) throw error;
+    return count || 0;
+  } catch (e) {
+    console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
+    return 0;
+  }
+}
+
+/**
+ * A member's words inside an e-mail from the platform: web addresses become "[link]". Mail
+ * programs turn an address in plain text into a link, which would make the platform's own
+ * e-mail carry a link chosen by a member (phishing). The comment itself, on the site, keeps them.
+ */
+function withoutLinks(s: string): string {
+  return s
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link]")
+    .replace(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\/\S*/gi, "[link]");
+}
+
+/** The template's fields from resource_comment_email's answer (database text, cleaned). */
+function commentEmailData(type: string, p: Record<string, unknown>): Record<string, string> {
+  const str = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
+  const slug = cleanName(str(p.resource_slug), 300);
+  const commentId = str(p.comment_id);
+  const out: Record<string, string> = {
+    author_name: cleanName(str(p.author_name), PERSON_NAME_CHARS) || "A member",
+    author_org: cleanName(str(p.author_org_name), ORG_NAME_CHARS),
+    article_title: cleanName(str(p.resource_title), 200),
+    excerpt: withoutLinks(cleanName(str(p.excerpt), 320)),
+    comment_path: slug && UUID_RE.test(commentId) ? `/resources/${encodeURIComponent(slug)}#comment-${commentId}` : "/resources",
+  };
+  if (type === "comment_mention") out.via_org = cleanName(str(p.via_org_name), ORG_NAME_CHARS);
+  if (type === "comment_report") {
+    out.reporter_name = cleanName(str(p.reporter_name), PERSON_NAME_CHARS) || "A member";
+    out.reason = withoutLinks(cleanName(str(p.reason), 500));
+    out.open_reports = String(Number(p.open_reports || 0) || 0);
+  }
+  return out;
+}
+
+/** The personal unsubscribe link and headers of one recipient and category (as the main path). */
+async function unsubscribeFor(recipientUserId: string, category: string): Promise<{ url: string; headers: Record<string, string> }> {
+  const plain = {
+    url: `${SITE_URL}/unsubscribe`,
+    headers: { "List-Unsubscribe": `<${SITE_URL}/unsubscribe>, <mailto:unsubscribe@smartmarinaconnect.com>` } as Record<string, string>,
+  };
+  if (!SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_URL) return plain;
+  try {
+    const token = await signUnsubToken(SUPABASE_SERVICE_ROLE_KEY, recipientUserId, category);
+    return {
+      url: `${SITE_URL}/unsubscribe?t=${token}`,
+      headers: {
+        "List-Unsubscribe": `<${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/unsubscribe?t=${token}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    };
+  } catch (e) {
+    console.error("send-notification: unsubscribe token failed:", (e as { message?: string })?.message || String(e));
+    return plain;
+  }
+}
+
+async function sendCommentEmails(
+  db: Db,
+  callerKind: "service" | "staff" | "member",
+  callerId: string,
+  type: NotificationType,
+  body: Record<string, unknown>,
+  notifData: Record<string, string>,
+  reply: (body: unknown, status: number) => Response,
+): Promise<Response> {
+  const unresolved = () => reply({ error: "Could not resolve the row this notification is about" }, 400);
+  const service = callerKind === "service";
+  let rows: CommentOutboxRow[] = [];
+  if (service) {
+    const id = Number(body.outbox_id);
+    if (!Number.isSafeInteger(id) || id <= 0) return unresolved();
+    const { data, error } = await db.from("notification_outbox").select(COMMENT_OUTBOX_COLS).eq("id", id).maybeSingle();
+    if (error) return reply({ error: "Internal error" }, 500);
+    const row = data as CommentOutboxRow | null;
+    if (!row || row.kind !== type) return unresolved();
+    if (row.sent_at) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+    rows = [row];
+  } else {
+    const flags = callerId ? await registrationFlags(db) : {};
+    if (!callerId || flags.article_comments !== true || flags.article_comment_emails !== true) {
+      return reply({ error: "This notification is not allowed for this recipient" }, 403);
+    }
+    const subject = type === "comment_mention" ? notifData.comment_id : notifData.report_id;
+    if (!subject || !UUID_RE.test(subject)) return unresolved();
+    const since = new Date(Date.now() - MEMBER_WINDOW_MS).toISOString();
+    const { data, error } = await db.from("notification_outbox").select(COMMENT_OUTBOX_COLS)
+      .eq("kind", type).eq("subject_id", subject).eq("actor_id", callerId).is("sent_at", null)
+      .gte("created_at", since).order("id", { ascending: true }).limit(COMMENT_ROWS_PER_CALL);
+    if (error) return reply({ error: "Internal error" }, 500);
+    rows = (data as CommentOutboxRow[] | null) || [];
+    if (!rows.length) return reply({ success: true, skipped: true, reason: "nothing queued" }, 200);
+  }
+  // A member's page sends within their hourly cap; the queue keeps the rest for the cron.
+  let budget = Number.POSITIVE_INFINITY;
+  if (!service) {
+    budget = MEMBER_HOURLY_CAP - (await memberSendsLastHour(db, callerId));
+    if (budget <= 0) return reply({ error: "Too many notifications, try again later" }, 429);
+  }
+  const category = TYPE_TO_CATEGORY[type];
+  let sent = 0;
+  let optedOut = 0;
+  let stale = 0;
+  let failed = 0;
+  let duplicate = 0;
+  let staleWhy = "";
+  for (const row of rows) {
+    if (sent >= budget) break;
+    const { data: payload, error } = await db.rpc("resource_comment_email", { p_outbox_id: row.id });
+    if (error || !isRecord(payload)) {
+      console.error("send-notification: resource_comment_email failed:", row.id, error?.message || "no answer");
+      failed++;
+      continue;
+    }
+    if (payload.sent === true) { duplicate++; continue; }
+    if (payload.ok !== true) {
+      if (payload.stale === true) {
+        stale++;
+        staleWhy = cleanName(String(payload.why || ""), 200) || "out of date";
+        if (!service) await settleOutboxUnsent(db, row.id, staleWhy);
+        continue;
+      }
+      failed++;
+      continue;
+    }
+    const recipientId = String(payload.user_id || "");
+    if (!UUID_RE.test(recipientId) || recipientId !== row.user_id) { failed++; continue; }
+    // The same row sent less than 10 minutes ago by a concurrent call (the page and the cron).
+    if (await resolvedSentRecently(db, recipientId, row.dedupe_key)) { duplicate++; continue; }
+    const r = await recipientForUser(db, recipientId);
+    if (!r || !isEmail(r.recipientEmail)) {
+      stale++;
+      staleWhy = "the recipient has no e-mail address";
+      if (!service) await settleOutboxUnsent(db, row.id, staleWhy);
+      continue;
+    }
+    if (r.prefs && r.prefs[category] === false) {
+      console.log(`Notification [${type}] (${category}) skipped: user ${recipientId} opted out`);
+      optedOut++;
+      await markOutboxSent(db, row.id);
+      continue;
+    }
+    await logResolvedSend(db, recipientId, row.dedupe_key);
+    const unsub = await unsubscribeFor(recipientId, category);
+    const rawData = { ...commentEmailData(type, payload), first_name: r.firstName };
+    const { subject, html, text } = renderNotification(type, rawData, "", unsub.url);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: SENDER_EMAIL,
+        to: [r.recipientEmail],
+        reply_to: EM.contact,
+        subject,
+        html,
+        text,
+        headers: { ...unsub.headers, "X-Entity-Ref-ID": `${type}-${Date.now()}` },
+      }),
+    });
+    const resBody = await res.text();
+    if (!res.ok) {
+      console.error("Resend API error:", res.status, resBody);
+      failed++;
+      continue;
+    }
+    sent++;
+    await markOutboxSent(db, row.id);
+    console.log(`Notification [${type}] sent by ${callerKind} to ${recipientId}`);
+    // Counts towards the caller's hourly cap, as every member send.
+    if (!service) {
+      const { error: logErr } = await db.from("email_rate_log").insert({ actor_id: callerId, kind: `send-notification:${row.dedupe_key}`.slice(0, 300) });
+      if (logErr) console.error("send-notification: could not log a comment e-mail:", logErr.message || String(logErr));
+    }
+  }
+  if (service) {
+    if (sent > 0) return reply({ success: true, type }, 200);
+    if (optedOut > 0) return reply({ success: true, skipped: true, reason: "user_opted_out", category }, 200);
+    if (stale > 0) return reply({ stale: true, detail: staleWhy }, 409);
+    if (duplicate > 0) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+    return reply({ error: "Email provider error" }, 502);
+  }
+  if (sent === 0 && failed > 0) return reply({ error: "Email provider error" }, 502);
+  const settled = optedOut + stale + duplicate;
+  return reply({ success: true, type, sent, skipped: settled, waiting: Math.max(rows.length - sent - settled - failed, 0) }, 200);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders(req) });
@@ -1925,10 +2209,13 @@ Deno.serve(async (req: Request) => {
 
     let callerKind: "service" | "staff" | "member" = "service";
     let member: Member | null = null;
+    // The signed-in caller's account (empty for the service role).
+    let callerId = "";
     if (!sameSecret(bearer, SUPABASE_SERVICE_ROLE_KEY)) {
       const { data: caller } = await supabase.auth.getUser(bearer);
       const u = caller?.user;
       if (!u?.id) return reply({ error: "Unauthorized" }, 401);
+      callerId = u.id;
       const { data: cp } = await supabase
         .from("profiles")
         .select("persona, access_status")
@@ -1970,6 +2257,11 @@ Deno.serve(async (req: Request) => {
     let invitationCanExtend = false;
     // The notification_outbox row this e-mail settles (account_under_review, team_join_request).
     let outboxId: number | null = null;
+
+    // Article comments: their own path, every word from the database (see sendCommentEmails).
+    if (COMMENT_TYPES.has(type)) {
+      return await sendCommentEmails(supabase, callerKind, callerId, ntype, body, notifData, reply);
+    }
 
     if (RESOLVED_TYPES.has(type)) {
       // Registration Phase 2 types: resolved from the database for every caller. Members
@@ -2661,6 +2953,7 @@ function emText(o: {
 // Small capitals above the title, from the notification category unless overridden.
 const CATEGORY_EYEBROW: Record<NotificationCategory, string> = {
   b2b: "B2B network",
+  comments: "Comments",
   submissions: "Your submission",
   recommendations: "Recommendations",
   events: "Events",
@@ -2674,6 +2967,7 @@ const CATEGORY_EYEBROW: Record<NotificationCategory, string> = {
 const TYPE_EYEBROW: Partial<Record<NotificationType, string>> = {
   partner_request_accepted: "Introduction",
   partner_onboarding_welcome: "Welcome",
+  comment_report: "Moderation",
   org_claim_code: "Your organization",
   profile_reminder_signup_stalled: "Your profile",
   profile_reminder_onboarding_incomplete: "Your profile",

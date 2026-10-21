@@ -6,8 +6,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { saveNotificationPrefs } from '@/components/account/profileActions';
 import { toast } from '@/hooks/use-toast';
 import {
-  Bell, Link2, ClipboardList, Award, Calendar, CreditCard, Users, ShieldCheck, Mail, Info,
+  AtSign, Bell, Link2, ClipboardList, Award, Calendar, CreditCard, Users, ShieldCheck, Mail, Info,
 } from 'lucide-react';
+import { useRegistrationFlags, type RegistrationFlag } from '@/lib/flags';
 import type { NotificationCategory } from '@/types/database';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +19,8 @@ interface CategoryDef {
   description: string;
   examples: string;
   critical?: boolean;
+  /** Shown only while these registration switches are all on (a kind of e-mail that does not exist before). */
+  flags?: RegistrationFlag[];
 }
 
 export const CATEGORIES: CategoryDef[] = [
@@ -27,6 +30,15 @@ export const CATEGORIES: CategoryDef[] = [
     title: 'Messages from companies',
     description: 'The Friday summary of new messages and requests from other companies, and the e-mail when a company accepts yours.',
     examples: 'Examples: "This week you received 3 messages", the introduction when a company accepts your message.',
+  },
+  {
+    key: 'comments',
+    icon: <AtSign className="h-5 w-5 text-sky-600" />,
+    title: 'Comments',
+    description: 'When someone tags you or your company in a comment under an article.',
+    examples: 'Example: "Alex Morel tagged you in a comment".',
+    // The e-mails exist once both are on (the comments, then their e-mails at go-live).
+    flags: ['article_comments', 'article_comment_emails'],
   },
   {
     key: 'submissions',
@@ -80,7 +92,14 @@ export const CATEGORIES: CategoryDef[] = [
   },
 ];
 
+/** The categories to show: those of a switch that is off are left out. */
+export function useVisibleCategories(): CategoryDef[] {
+  const { flags } = useRegistrationFlags();
+  return CATEGORIES.filter((c) => !c.flags || c.flags.every((k) => flags[k]));
+}
+
 export function NotificationPreferencesTab() {
+  const categories = useVisibleCategories();
   const { user, profile, refreshProfile } = useAuth();
   const [prefs, setPrefs] = useState<Record<string, boolean>>(profile?.notification_prefs || {});
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -140,7 +159,7 @@ export function NotificationPreferencesTab() {
 
       {/* Toggles */}
       <div className="space-y-3">
-        {CATEGORIES.map((cat) => {
+        {categories.map((cat) => {
           const enabled = isEnabled(cat.key);
           return (
             <Card key={cat.key} className={cn('rounded-card shadow-none', !enabled && 'opacity-70')}>

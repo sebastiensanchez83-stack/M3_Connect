@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import type { Resource, ResourceDraft } from './types';
 import { AdminMentionReview } from './AdminMentionReview';
+import { AdminCommentReports } from './AdminArticleComments';
+import { useRegistrationFlags } from '@/lib/flags';
 import {
   AdminPageHeader, AdminTableCard, AdminStatusPill, AdminSegmented, AdminEmpty, AdminLoading, ADMIN_BTN_PRIMARY,
 } from './AdminUI';
@@ -23,7 +25,10 @@ export function AdminResources() {
   const { profile: authProfile } = useAuth();
   const isAdmin = authProfile?.persona === 'admin';
 
-  const [tab, setTab] = useState<'published' | 'drafts' | 'tags'>((searchParams.get('tab') || 'published') as any);
+  const [tab, setTab] = useState<'published' | 'drafts' | 'tags' | 'comments'>((searchParams.get('tab') || 'published') as any);
+  // Reported comments: only while the article comments are on (registration_flags.article_comments).
+  const { flags: regFlags, ready: regFlagsReady } = useRegistrationFlags();
+  const commentsOn = regFlagsReady && regFlags.article_comments;
   const [resources, setResources] = useState<Resource[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +36,7 @@ export function AdminResources() {
   // Sync tab from URL when navigating via sidebar
   useEffect(() => {
     const urlTab = searchParams.get('tab');
-    if (urlTab === 'drafts' || urlTab === 'published' || urlTab === 'tags') setTab(urlTab);
+    if (urlTab === 'drafts' || urlTab === 'published' || urlTab === 'tags' || urlTab === 'comments') setTab(urlTab);
   }, [searchParams]);
 
   useEffect(() => { loadAll(); }, []);
@@ -108,6 +113,7 @@ export function AdminResources() {
             { value: 'published', label: `Published (${resources.length})` },
             { value: 'drafts', label: 'Pending Drafts', badge: pendingDraftsCount },
             { value: 'tags', label: 'Company tags' },
+            ...(commentsOn ? [{ value: 'comments' as const, label: 'Reported comments' }] : []),
           ]}
         />
         <div className="ml-auto">
@@ -216,6 +222,7 @@ export function AdminResources() {
 
       {/* =============== COMPANY TAGS: suggestions across every published article =============== */}
       {tab === 'tags' && <AdminMentionReview resources={resources} />}
+      {tab === 'comments' && commentsOn && <AdminCommentReports />}
     </div>
   );
 }

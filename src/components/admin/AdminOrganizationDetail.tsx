@@ -552,7 +552,7 @@ export function AdminOrganizationDetail() {
 
               {savedClaimCode && orgOwned && (
                 <div className="border-t border-rule pt-4">
-                  <Note>{t('admin.orgClaimCode.owned', 'This company already has an owner on Smart Marina Connect, so its code cannot add anyone. To bring someone in, ask the owner to invite them to the team, or use "Invite a colleague" in the Members box.')}</Note>
+                  <Note>{t('admin.orgClaimCode.owned', 'This company already has an owner on Smart Marina Connect, so its code cannot add anyone. To bring someone in, ask the owner to invite them to the team, or use "Invite a colleague" in the People box of this page.')}</Note>
                 </div>
               )}
               {savedClaimCode && !orgOwned && (

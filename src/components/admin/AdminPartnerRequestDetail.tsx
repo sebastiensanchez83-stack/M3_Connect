@@ -2,16 +2,24 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, Loader2, CheckCircle, XCircle, MessageSquare, User, Building2,
+  Loader2, CheckCircle, XCircle, MessageSquare, User, Anchor,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
+import { CardLink } from '@/components/home/dashboard/DashboardKit';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import type { PartnerRequest } from './types';
+import { AdminDetailHeader, AdminLoading, AdminPanel, AdminStatus, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { ActionLine } from './AdminStyleKit';
+import { Field } from './v2/MembersKit';
+
+/**
+ * One connection request (/admin/partner-requests/:id): a service provider asks to be introduced
+ * to a marina. Refonte admin style (Oct 2026): who asked, who it is for, the message, and the two
+ * decisions, each saying what it sends and asking first. Same reads and writes as before, except
+ * the sector: sectors has no `name` column (it is `label`), so the sector never showed.
+ */
 
 type EnrichedRequest = PartnerRequest & {
   partner_name?: string;
@@ -21,6 +29,14 @@ type EnrichedRequest = PartnerRequest & {
   partner_org_name?: string;
   marina_org_name?: string;
   sector_name?: string;
+};
+
+/** partner_requests.status, in plain words. */
+const REQUEST_STATUS_LABEL: Record<string, string> = {
+  pending: 'Waiting',
+  accepted: 'Accepted',
+  rejected: 'Refused',
+  withdrawn: 'Withdrawn',
 };
 
 export function AdminPartnerRequestDetail() {
@@ -46,7 +62,7 @@ export function AdminPartnerRequestDetail() {
       .single();
 
     if (error || !data) {
-      toast({ title: 'Partner request not found', variant: 'destructive' });
+      toast({ title: 'Request not found', variant: 'destructive' });
       navigate('/admin/partner-requests');
       return;
     }
@@ -79,15 +95,15 @@ export function AdminPartnerRequestDetail() {
       (orgs || []).forEach((o: any) => { orgMap[o.id] = o.name; });
     }
 
-    // Fetch sector name
+    // Fetch sector name (the column is `label`; `name` does not exist and made this read fail)
     let sectorName = '';
     if (row.sector_id) {
       const { data: sector } = await supabase
         .from('sectors')
-        .select('name')
+        .select('label')
         .eq('id', row.sector_id)
         .single();
-      sectorName = sector?.name || '';
+      sectorName = sector?.label || '';
     }
 
     setRequest({
@@ -133,7 +149,7 @@ export function AdminPartnerRequestDetail() {
       },
     });
 
-    toast({ title: 'Request accepted', description: `Connection between ${request.partner_name} and ${request.marina_name} established.` });
+    toast({ title: 'Request accepted', description: `${request.partner_name} and ${request.marina_name} are introduced by e-mail.` });
     setSaving(false);
     loadRequest(id);
   };
@@ -159,163 +175,104 @@ export function AdminPartnerRequestDetail() {
       data: { marina_name: request.marina_name || 'A marina' },
     });
 
-    toast({ title: 'Request rejected' });
+    toast({ title: 'Request refused' });
     setSaving(false);
     loadRequest(id);
   };
 
-  const statusBadge = (s: string) => {
-    const colors: Record<string, string> = {
-      pending: 'bg-amber-100 text-amber-800 border-amber-200',
-      accepted: 'bg-green-100 text-green-800 border-green-200',
-      rejected: 'bg-red-100 text-red-800 border-red-200',
-      withdrawn: 'bg-gray-100 text-gray-600 border-gray-200',
-    };
-    return <Badge className={`${colors[s] || colors.withdrawn} border`}>{s}</Badge>;
-  };
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   if (!request) return null;
 
   const daysSince = Math.floor((Date.now() - new Date(request.created_at).getTime()) / 86400000);
+  const sentOn = new Date(request.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const statusText = REQUEST_STATUS_LABEL[request.status] ?? undefined;
+
+  // Both decisions send an e-mail at once: ask first (presentation; the handlers are unchanged).
+  const confirmAccept = () => {
+    if (!window.confirm(t('adm2.b2bReq.acceptConfirm', 'Accept this request?\n\n{{partner}} and {{marina}} receive one e-mail that introduces them to each other.', { partner: request.partner_name, marina: request.marina_name }))) return;
+    handleAccept();
+  };
+  const confirmReject = () => {
+    if (!window.confirm(t('adm2.b2bReq.rejectConfirm', 'Refuse this request?\n\n{{partner}} receives an e-mail saying that {{marina}} declined.', { partner: request.partner_name, marina: request.marina_name }))) return;
+    handleReject();
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/partner-requests')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> B2B Requests
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">
-            {request.partner_name} → {request.marina_name}
-          </h1>
-          {statusBadge(request.status)}
-        </div>
-      </div>
+      <AdminDetailHeader
+        back={{ to: '/admin/partner-requests', label: t('adm2.b2bReq.back', 'Back to connection requests') }}
+        title={`${request.partner_name} → ${request.marina_name}`}
+        badges={<AdminStatus status={request.status} label={statusText} />}
+        subtitle={t('adm2.b2bReq.subtitle', 'Connection request sent {{date}} ({{count}} days ago)', { date: sentOn, count: daysSince })}
+      />
 
-      {/* Partner Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <User className="h-4 w-4 text-blue-500" /> Requester (Partner)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <span className="text-gray-500 block text-xs">Name</span>
-              <span className="font-medium">{request.partner_name}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 block text-xs">Email</span>
-              <span className="font-medium">{request.partner_email || '---'}</span>
-            </div>
-            {request.partner_org_name && (
-              <div>
-                <span className="text-gray-500 block text-xs">Organization</span>
-                <span className="font-medium flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-gray-400" />
-                  {request.partner_org_name}
-                </span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Decision first, when there is one to take */}
+      {request.status === 'pending' && (
+        <AdminPanel
+          icon={CheckCircle}
+          title={t('adm2.b2bReq.decide', 'Your decision')}
+          description={t('adm2.b2bReq.decideDesc', 'Each button sends an e-mail at once; it asks you first.')}
+          className="border-gold"
+        >
+          <div className="space-y-4">
+            <ActionLine text={t('adm2.b2bReq.acceptText', 'Accept: both receive one e-mail that introduces them to each other.')}>
+              <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={confirmAccept} disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle className="mr-2 h-4 w-4" aria-hidden="true" />}
+                {t('adm2.b2bReq.acceptBtn', 'Accept and introduce them')}
+              </Button>
+            </ActionLine>
+            <ActionLine divided text={t('adm2.b2bReq.rejectText', 'Refuse: the service provider receives an e-mail saying the marina declined.')}>
+              <Button variant="outline" size="sm" className={ADMIN_BTN_DANGER} onClick={confirmReject} disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <XCircle className="mr-2 h-4 w-4" aria-hidden="true" />}
+                {t('adm2.b2bReq.rejectBtn', 'Refuse the request')}
+              </Button>
+            </ActionLine>
+          </div>
+        </AdminPanel>
+      )}
 
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-emerald-500" /> Target (Marina)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <span className="text-gray-500 block text-xs">Name</span>
-              <span className="font-medium">{request.marina_name}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 block text-xs">Email</span>
-              <span className="font-medium">{request.marina_email || '---'}</span>
-            </div>
-            {request.marina_org_name && (
-              <div>
-                <span className="text-gray-500 block text-xs">Organization</span>
-                <span className="font-medium flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-gray-400" />
-                  {request.marina_org_name}
-                </span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <AdminPanel icon={User} title={t('adm2.b2bReq.from', 'Who asked (service provider)')}>
+          <dl className="grid gap-4">
+            <Field label={t('adm2.b2bReq.name', 'Name')}>{request.partner_name}</Field>
+            <Field label={t('adm2.b2bReq.email', 'E-mail')}>{request.partner_email}</Field>
+            {request.partner_org_name && <Field label={t('adm2.b2bReq.company', 'Company')}>{request.partner_org_name}</Field>}
+          </dl>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <CardLink to={`/admin/people/${request.partner_user_id}`}>{t('adm2.b2bReq.openPerson', 'Open their page')}</CardLink>
+            {request.partner_organization_id && <CardLink to={`/admin/companies/${request.partner_organization_id}`}>{t('adm2.b2bReq.openCompany', 'Open the company')}</CardLink>}
+          </div>
+        </AdminPanel>
+
+        <AdminPanel icon={Anchor} title={t('adm2.b2bReq.to', 'Who it is for (marina)')}>
+          <dl className="grid gap-4">
+            <Field label={t('adm2.b2bReq.name', 'Name')}>{request.marina_name}</Field>
+            <Field label={t('adm2.b2bReq.email', 'E-mail')}>{request.marina_email}</Field>
+            {request.marina_org_name && <Field label={t('adm2.b2bReq.company', 'Company')}>{request.marina_org_name}</Field>}
+          </dl>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <CardLink to={`/admin/people/${request.marina_user_id}`}>{t('adm2.b2bReq.openPerson', 'Open their page')}</CardLink>
+            {request.marina_organization_id && <CardLink to={`/admin/companies/${request.marina_organization_id}`}>{t('adm2.b2bReq.openCompany', 'Open the company')}</CardLink>}
+          </div>
+        </AdminPanel>
       </div>
 
       {/* Request Details */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-violet-500" /> Request Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500 block text-xs">Status</span>
-              <div className="mt-1">{statusBadge(request.status)}</div>
-            </div>
-            <div>
-              <span className="text-gray-500 block text-xs">Submitted</span>
-              <span className="font-medium">
-                {new Date(request.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                <span className="text-gray-400 ml-1">({daysSince}d ago)</span>
-              </span>
-            </div>
-            {request.sector_name && (
-              <div>
-                <span className="text-gray-500 block text-xs">Sector</span>
-                <Badge variant="outline" className="text-xs mt-1">{request.sector_name}</Badge>
-              </div>
-            )}
+      <AdminPanel icon={MessageSquare} title={t('adm2.b2bReq.request', 'The request')}>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Field label={t('adm2.b2bReq.status', 'Status')}><AdminStatus status={request.status} label={statusText} /></Field>
+          <Field label={t('adm2.b2bReq.sentOn', 'Sent')}>{sentOn}</Field>
+          {request.sector_name && <Field label={t('adm2.b2bReq.sector', 'Sector')}><AdminStatusPill>{request.sector_name}</AdminStatusPill></Field>}
+        </dl>
+        {request.message && (
+          <div className="mt-5">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-meta">{t('adm2.b2bReq.message', 'Their message')}</p>
+            <p className="mt-1.5 whitespace-pre-wrap rounded-xl bg-page p-4 text-[15px] leading-6 text-ink [overflow-wrap:anywhere]">{request.message}</p>
           </div>
-
-          {request.message && (
-            <div>
-              <span className="text-gray-500 block text-xs mb-1">Message</span>
-              <p className="text-sm bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{request.message}</p>
-            </div>
-          )}
-
-          {/* Actions */}
-          {request.status === 'pending' && (
-            <div className="flex gap-3 pt-4 border-t">
-              <Button
-                className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
-                onClick={handleAccept}
-                disabled={saving}
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                Accept Connection
-              </Button>
-              <Button
-                variant="outline"
-                className="text-red-700 border-red-200 hover:bg-red-50 gap-1.5"
-                onClick={handleReject}
-                disabled={saving}
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                Reject
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </AdminPanel>
     </div>
   );
 }

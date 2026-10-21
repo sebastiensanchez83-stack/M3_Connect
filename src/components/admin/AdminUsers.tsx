@@ -352,34 +352,35 @@ export function AdminUsers() {
         title={t('adm2.users.title', 'Accounts and export')}
         count={users.length}
         description={t('adm2.users.desc', 'Every account on the platform. Press a row to open the account; validation itself happens in To validate.')}
-        actions={
-          <>
-            {unconfirmedUsers.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                aria-expanded={showUnconfirmed}
-                className={showUnconfirmed ? 'h-10 rounded-pill border-amber-300 bg-amber-50 px-4 text-amber-900 hover:bg-amber-100 hover:text-amber-900' : ADMIN_BTN}
-                onClick={() => setShowUnconfirmed(!showUnconfirmed)}
-              >
-                <AlertTriangle className="mr-2 h-4 w-4" aria-hidden="true" />
-                {showUnconfirmed
-                  ? t('adm2.users.hideUnconfirmed', 'Hide the unconfirmed e-mails')
-                  : t('adm2.users.showUnconfirmed', 'See the {{count}} unconfirmed e-mails', { count: unconfirmedUsers.length })}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={exportCSV}>
-              <Download className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.export', 'Download the list (CSV)')}
-            </Button>
-            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setInvitePartnerOpen(true)}>
-              <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.invite', 'Invite a service provider')}
-            </Button>
-            <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => setCreateAdminOpen(true)}>
-              <ShieldPlus className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.createAdmin', 'Create an M3 admin account')}
-            </Button>
-          </>
-        }
+        className="mb-4"
       />
+
+      {/* The screen's buttons on their own line: four of them would squeeze the title beside them. */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        {unconfirmedUsers.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-expanded={showUnconfirmed}
+            className={showUnconfirmed ? 'h-10 rounded-pill border-amber-300 bg-amber-50 px-4 text-amber-900 hover:bg-amber-100 hover:text-amber-900' : ADMIN_BTN}
+            onClick={() => setShowUnconfirmed(!showUnconfirmed)}
+          >
+            <AlertTriangle className="mr-2 h-4 w-4" aria-hidden="true" />
+            {showUnconfirmed
+              ? t('adm2.users.hideUnconfirmed', 'Hide the unconfirmed e-mails')
+              : t('adm2.users.showUnconfirmed', 'See the {{count}} unconfirmed e-mails', { count: unconfirmedUsers.length })}
+          </Button>
+        )}
+        <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={exportCSV}>
+          <Download className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.export', 'Download the list (CSV)')}
+        </Button>
+        <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setInvitePartnerOpen(true)}>
+          <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.invite', 'Invite a service provider')}
+        </Button>
+        <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => setCreateAdminOpen(true)}>
+          <ShieldPlus className="mr-2 h-4 w-4" aria-hidden="true" />{t('adm2.users.createAdmin', 'Create an M3 admin account')}
+        </Button>
+      </div>
 
       {/* URL-based filter context banner */}
       {hasUrlFilters && (
@@ -550,17 +551,17 @@ export function AdminUsers() {
                   <th className="text-left">{t('adm2.users.colOrg', 'Company')}</th>
                   <th className="text-left">{t('adm2.users.persona', 'Account type')}</th>
                   <th className="text-left">{t('adm2.users.onboarding', 'Registration')}</th>
-                  <th className="hidden text-left lg:table-cell">{t('adm2.users.colTier', 'Sponsor plan')}</th>
-                  <th className="hidden text-left xl:table-cell">{t('adm2.users.colRefs', 'Recommendations')}</th>
+                  <th className="hidden text-left 2xl:table-cell">{t('adm2.users.colTier', 'Sponsor plan')}</th>
+                  <th className="hidden text-left 2xl:table-cell">{t('adm2.users.colRefs', 'Recommendations')}</th>
                   <th className="text-left">{t('adm2.users.status', 'Status')}</th>
-                  <th className="hidden text-left xl:table-cell">{t('adm2.users.colCreated', 'Created')}</th>
+                  <th className="hidden text-left 2xl:table-cell">{t('adm2.users.colCreated', 'Created')}</th>
                   <th className="text-left"><span className="sr-only">{openLabel}</span></th>
                 </tr>
               </thead>
               <tbody>
                 {filteredUsers.map(user => (
                   <tr key={user.user_id} className="group cursor-pointer" onClick={() => navigate(`/admin/users/${user.user_id}`)}>
-                    <td>
+                    <td className="min-w-[200px]">
                       <Link
                         to={`/admin/users/${user.user_id}`}
                         onClick={(e) => e.stopPropagation()}
@@ -568,7 +569,7 @@ export function AdminUsers() {
                       >
                         <span className="card-ul">{getUserName(user)}</span>
                       </Link>
-                      <div className="flex items-center gap-1 text-xs text-meta [overflow-wrap:anywhere]">
+                      <div className="flex items-center gap-1 text-xs text-meta break-all">
                         {user.email || ''}
                         {emailStatusMap[user.user_id] === false && (
                           <span className="inline-flex items-center gap-0.5 text-amber-600" title="E-mail not confirmed">
@@ -582,15 +583,15 @@ export function AdminUsers() {
                       {personaSelect(user, 'h-9 w-44 rounded-pill bg-white text-[13px]')}
                     </td>
                     <td>{getOnboardingBadge(user)}</td>
-                    <td className="hidden lg:table-cell">{getTierBadge(user.org_tier)}</td>
-                    <td className="hidden xl:table-cell">
+                    <td className="hidden 2xl:table-cell">{getTierBadge(user.org_tier)}</td>
+                    <td className="hidden 2xl:table-cell">
                       {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-xs text-meta/60">—</span>}
                     </td>
                     <td>
                       {/* Read-only: a status changes in To validate or on the person's page, never in one click here. */}
                       <AdminStatus status={user.access_status} label={user.access_status === 'verified' ? 'Validated' : undefined} />
                     </td>
-                    <td className="hidden xl:table-cell">
+                    <td className="hidden 2xl:table-cell">
                       <span className="whitespace-nowrap text-sm text-meta">{fmtDay(user.created_at)}</span>
                     </td>
                     <td className="text-right"><ActionCue size="sm">{openLabel}</ActionCue></td>

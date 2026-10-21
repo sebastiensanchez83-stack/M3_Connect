@@ -160,7 +160,7 @@ export function AdminOrganizations() {
       />
 
       <div className="mb-4">
-        <Note>{t('adm2.orgs.note', 'The everyday list is Members > Companies. This view adds the seats and the date each company was created.')}</Note>
+        <Note>{t('adm2.orgs.note', 'The everyday list is Members > Companies. This view adds the seats used, and each row opens the company settings: sponsor plan, seats, claim code.')}</Note>
       </div>
 
       {hasFilters && (
@@ -244,8 +244,8 @@ export function AdminOrganizations() {
                   <th className="text-left">Access</th>
                   <th className="text-left">Seats</th>
                   <th className="hidden text-left lg:table-cell">Place</th>
-                  <th className="hidden text-left xl:table-cell">Person in charge</th>
-                  <th className="hidden text-left xl:table-cell">Created</th>
+                  <th className="hidden text-left 2xl:table-cell">Person in charge</th>
+                  <th className="hidden text-left 2xl:table-cell">Created</th>
                   <th className="text-left"><span className="sr-only">{openLabel}</span></th>
                 </tr>
               </thead>
@@ -263,10 +263,10 @@ export function AdminOrganizations() {
                           >
                             <span className="card-ul">{o.name}</span>
                           </Link>
-                          {o.primary_domain && (
+                          {(o.primary_domain || o.website) && (
                             <div className="flex items-center gap-1 text-xs text-meta">
                               <Globe className="h-3 w-3 shrink-0" aria-hidden="true" />
-                              <span className="truncate">{o.primary_domain}</span>
+                              <span className="truncate">{o.primary_domain || o.website}</span>
                               {o.website && (
                                 <a
                                   href={externalUrl(o.website) ?? undefined}
@@ -292,8 +292,8 @@ export function AdminOrganizations() {
                     <td><AdminStatus status={o.access_status} /></td>
                     <td className="whitespace-nowrap text-sm tabular-nums text-ink">{o.member_count}/{o.max_seats}</td>
                     <td className="hidden text-sm text-ink lg:table-cell">{place(o) || <span className="text-meta/60">—</span>}</td>
-                    <td className="hidden text-sm text-ink xl:table-cell">{o.owner_name || <span className="text-meta/60">—</span>}</td>
-                    <td className="hidden whitespace-nowrap text-sm text-meta xl:table-cell">{fmtDay(o.created_at)}</td>
+                    <td className="hidden text-sm text-ink 2xl:table-cell">{o.owner_name || <span className="text-meta/60">—</span>}</td>
+                    <td className="hidden whitespace-nowrap text-sm text-meta 2xl:table-cell">{fmtDay(o.created_at)}</td>
                     <td className="text-right"><ActionCue size="sm">{openLabel}</ActionCue></td>
                   </tr>
                 ))}

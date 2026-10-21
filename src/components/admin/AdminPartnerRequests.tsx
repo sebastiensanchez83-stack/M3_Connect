@@ -1,14 +1,21 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { AdminContextBanner } from './AdminContextBanner';
-import { RefreshCw, MessageSquare } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { ArrowRight, MessageSquare } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { PartnerRequest } from './types';
-import { CardLink } from '@/components/home/dashboard/DashboardKit';
+import { ActionCue, CardLink } from '@/components/home/dashboard/DashboardKit';
 import { INBOX_PATHS } from './v2/inboxApi';
+import { AdminEmpty, AdminLoading, AdminPageHeader, AdminStatus } from './AdminUI';
+import { cn } from '@/lib/utils';
+
+/**
+ * Members > Connection requests (/admin/partner-requests): a service provider asks to be
+ * introduced to a marina (table partner_requests). Refonte admin style (Oct 2026): one card per
+ * request, phone and computer alike; the whole card opens the request and its pill says so.
+ * Accepting or refusing happens on the request's page. Same reads as before.
+ */
 
 type EnrichedRequest = PartnerRequest & {
   partner_name?: string;
@@ -17,9 +24,16 @@ type EnrichedRequest = PartnerRequest & {
   marina_email?: string;
 };
 
+/** partner_requests.status, in plain words. */
+const REQUEST_STATUS_LABEL: Record<string, string> = {
+  pending: 'Waiting',
+  accepted: 'Accepted',
+  rejected: 'Refused',
+  withdrawn: 'Withdrawn',
+};
+
 export function AdminPartnerRequests() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status');
   const [requests, setRequests] = useState<EnrichedRequest[]>([]);
@@ -60,91 +74,105 @@ export function AdminPartnerRequests() {
     setLoading(false);
   };
 
-  const statusBadge = (s: string) => {
-    const colors: Record<string, string> = {
-      pending: 'bg-amber-100 text-amber-800 border-amber-200',
-      accepted: 'bg-green-100 text-green-800 border-green-200',
-      rejected: 'bg-red-100 text-red-800 border-red-200',
-      withdrawn: 'bg-gray-100 text-gray-600 border-gray-200',
-    };
-    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${colors[s] || colors.withdrawn}`}>{s}</span>;
-  };
+  if (loading) return <AdminLoading />;
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  const filters = [
+    { key: 'all', label: t('adm2.b2b.all', 'All'), count: requests.length },
+    { key: 'pending', label: REQUEST_STATUS_LABEL.pending, count: requests.filter(r => r.status === 'pending').length },
+    { key: 'accepted', label: REQUEST_STATUS_LABEL.accepted, count: requests.filter(r => r.status === 'accepted').length },
+    { key: 'rejected', label: REQUEST_STATUS_LABEL.rejected, count: requests.filter(r => r.status === 'rejected').length },
+  ];
+  const ago = (iso: string) => {
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    return days <= 0 ? t('adm2.b2b.today', 'today') : t('adm2.b2b.daysAgo', { count: days, defaultValue_one: '{{count}} day ago', defaultValue_other: '{{count}} days ago' });
+  };
 
   return (
     <div>
-      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filteredRequests.length} onClear={clearFilter} color={bannerColor} />}
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">B2B Requests ({filteredRequests.length})</h1>
-      </div>
+      {urlStatus && (
+        <AdminContextBanner
+          label={t('adm2.b2b.banner', 'requests with the status "{{status}}"', { status: REQUEST_STATUS_LABEL[urlStatus] ?? urlStatus })}
+          count={filteredRequests.length}
+          onClear={clearFilter}
+          color={bannerColor}
+        />
+      )}
+
+      <AdminPageHeader
+        title={t('adm2.b2b.title', 'Connection requests')}
+        count={requests.length}
+        description={t('adm2.b2b.desc', 'A service provider asks to be introduced to a marina. Press a request to read it, then accept or refuse it.')}
+      />
 
       {/* "Report to M3" from Messages: read and closed in the Inbox since the admin refonte (one place to act). */}
-      <p className="mb-4 flex flex-wrap items-center gap-3 text-[14px] text-meta">
-        {t('adminReports.movedToInbox', 'Conversations reported by members are now in the Inbox.')}
-        <CardLink to={INBOX_PATHS.inbox + '#reported-conversations'}>{t('adminReports.openInbox', 'Open the Inbox')}</CardLink>
-      </p>
-
-      {/* Status filter bar */}
-      <div className="flex items-center gap-2 mb-4">
-        {[
-          { key: 'all', label: 'All', count: requests.length },
-          { key: 'pending', label: 'Pending', count: requests.filter(r => r.status === 'pending').length },
-          { key: 'accepted', label: 'Accepted', count: requests.filter(r => r.status === 'accepted').length },
-          { key: 'rejected', label: 'Rejected', count: requests.filter(r => r.status === 'rejected').length },
-        ].map(s => (
-          <Button key={s.key} variant={statusFilter === s.key ? 'default' : 'outline'} size="sm"
-            className="text-xs gap-1.5" onClick={() => setStatusFilter(s.key)}>
-            {s.label}
-            {s.count > 0 && <span className="bg-white/20 rounded-full px-1.5 text-[10px] font-bold">{s.count}</span>}
-          </Button>
-        ))}
+      <div className="mb-5 flex flex-col gap-2 rounded-xl border border-rule bg-foam px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <p className="text-[14px] leading-5 text-navy">{t('adminReports.movedToInbox', 'Conversations reported by members are now in the Inbox.')}</p>
+        <CardLink to={INBOX_PATHS.inbox + '#reported-conversations'} className="self-start sm:self-auto">{t('adminReports.openInbox', 'Open the Inbox')}</CardLink>
       </div>
 
-      {/* Request cards — clickable, no inline actions */}
-      <div className="space-y-2">
-        {filteredRequests.length === 0 ? (
-          <Card><CardContent className="py-12 text-center text-gray-400">No B2B requests match this filter</CardContent></Card>
-        ) : filteredRequests.map(r => {
-          const daysSince = Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000);
+      {/* Status filter: pills that wrap on a phone (never a sideways scroll) */}
+      <div role="group" aria-label={t('adm2.b2b.filter', 'Show the requests')} className="mb-4 flex flex-wrap gap-2">
+        {filters.map(s => {
+          const active = statusFilter === s.key;
           return (
-            <Card
-              key={r.id}
-              className="border-0 shadow-sm cursor-pointer hover:bg-muted/50 transition-colors group"
-              onClick={() => navigate(`/admin/partner-requests/${r.id}`)}
+            <button
+              key={s.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setStatusFilter(s.key)}
+              className={cn(
+                'inline-flex h-10 items-center gap-1.5 rounded-pill border px-4 text-[14px] font-semibold transition-colors focus:outline-none focus-visible:shadow-focus',
+                active ? 'border-navy bg-navy text-white' : 'border-navy/30 bg-white text-navy hover:border-navy hover:bg-chip',
+              )}
             >
-              <CardContent className="p-4">
-                <div className="flex items-center gap-4">
-                  {/* Icon */}
-                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    r.status === 'pending' ? 'bg-amber-50 text-amber-600' :
-                    r.status === 'accepted' ? 'bg-green-50 text-green-600' :
-                    'bg-gray-50 text-gray-400'
-                  }`}>
-                    <MessageSquare className="h-5 w-5" />
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-sm font-semibold text-gray-900">{r.partner_name}</span>
-                      <span className="text-gray-400 text-xs">-&gt;</span>
-                      <span className="text-sm font-semibold text-gray-900">{r.marina_name}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      {r.message && <span className="truncate max-w-xs">{r.message}</span>}
-                      <span className="text-gray-300">{daysSince}d ago</span>
-                    </div>
-                  </div>
-                  {/* Status */}
-                  <div className="shrink-0">
-                    {statusBadge(r.status)}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {s.label}
+              <span className={cn('rounded-pill px-1.5 text-[12px] leading-5 tabular-nums', active ? 'bg-white/20 text-white' : 'bg-chip text-navy')}>{s.count}</span>
+            </button>
           );
         })}
       </div>
+
+      {/* Request cards: the whole card opens the request */}
+      {filteredRequests.length === 0 ? (
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty icon={MessageSquare} title={t('adm2.b2b.none', 'No request matches this filter')} />
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {filteredRequests.map(r => (
+            <li key={r.id}>
+              <Link
+                to={`/admin/partner-requests/${r.id}`}
+                className="group flex flex-col gap-3 rounded-card border border-rule bg-white p-4 transition-[box-shadow,border-color] hover:border-navy/25 hover:shadow-hover focus:outline-none focus-visible:shadow-focus sm:flex-row sm:items-center sm:gap-4"
+              >
+                <span className="flex min-w-0 flex-1 items-start gap-3">
+                  <span className={cn(
+                    'grid h-10 w-10 shrink-0 place-items-center rounded-xl',
+                    r.status === 'pending' ? 'bg-gold/25 text-navy' : r.status === 'accepted' ? 'bg-foam text-teal-text' : 'bg-chip text-meta',
+                  )}>
+                    <MessageSquare className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[15px] font-semibold leading-5 text-navy">
+                      <span className="[overflow-wrap:anywhere]">{r.partner_name}</span>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-meta" aria-label={t('adm2.b2b.to', 'to')} />
+                      <span className="[overflow-wrap:anywhere]">{r.marina_name}</span>
+                    </span>
+                    {r.message && <span className="mt-1 line-clamp-2 block text-[14px] leading-5 text-ink [overflow-wrap:anywhere]">{r.message}</span>}
+                    <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px] text-meta">
+                      <AdminStatus status={r.status} label={REQUEST_STATUS_LABEL[r.status] ?? undefined} />
+                      <span>{t('adm2.b2b.sent', 'Sent {{ago}}', { ago: ago(r.created_at) })}</span>
+                    </span>
+                  </span>
+                </span>
+                <ActionCue size="sm" className="self-start sm:self-center">
+                  {r.status === 'pending' ? t('adm2.b2b.openToDecide', 'Open to decide') : t('adm2.b2b.open', 'Open')}
+                </ActionCue>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

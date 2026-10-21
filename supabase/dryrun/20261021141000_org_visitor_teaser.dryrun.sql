@@ -368,8 +368,9 @@ begin
     from public.organizations o
     cross join lateral (select public.org_public_highlights(o.id) -> 'marina' as mk) x
    where o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null and o.organization_type = 'marina'
-     and jsonb_typeof(x.mk) = 'object'
-     and (x.mk - array['marina_type', 'berths_count', 'superyacht_berths', 'longest_berth_meters', 'certifications', 'certifications_other']) <> '{}'::jsonb;
+     and case when jsonb_typeof(x.mk) = 'object'
+              then (x.mk - array['marina_type', 'berths_count', 'superyacht_berths', 'longest_berth_meters', 'certifications', 'certifications_other']) <> '{}'::jsonb
+              else false end;
   select count(*) into v_n from public.organizations o
    where o.access_status = 'verified' and o.archived_at is null and o.duplicate_of is null and o.organization_type = 'marina'
      and jsonb_typeof(public.org_public_highlights(o.id) -> 'marina') = 'object';

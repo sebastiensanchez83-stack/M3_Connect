@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { withSlug } from '@/lib/slugRoutes';
+import { rowIsClaimed, withClaimed, type ClaimedColumn } from '@/lib/orgVisibility';
 import { SPONSOR_TIERS } from '@/types/database';
 import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 import { countryKey, countryParts, rawCountryOf } from '@/lib/networkStats';
@@ -63,7 +64,9 @@ export interface CompanyRow {
   logo_url: string | null;
   country: string | null;
   headquarters_country: string | null;
-  owner_user_id: string | null;
+  /** An owner on the platform (is_claimed; owner_user_id only before that column exists). */
+  is_claimed?: boolean | null;
+  owner_user_id?: string | null;
 }
 
 export interface ArticleRow {
@@ -241,7 +244,8 @@ let countriesPromise: Promise<CountryRow[]> | null = null;
 function loadCountries(): Promise<CountryRow[]> {
   if (!countriesPromise) {
     countriesPromise = Promise.resolve(
-      supabase.from('organizations').select('country, headquarters_country').eq('access_status', 'verified'),
+      supabase.from('organizations').select('country, headquarters_country')
+        .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null),
     ).then(({ data, error }) => {
       if (error || !Array.isArray(data) || data.length === 0) {
         countriesPromise = null;
@@ -348,11 +352,15 @@ async function askDatabase(
   const nothing = Promise.resolve({ data: [] as unknown[], error: null });
 
   // ── Companies: four small reads, merged by the caller (see the top of this file) ──
-  const companyBase = () => {
+  // Public columns only: is_claimed ranks members first (owner_user_id before that column
+  // exists: withClaimed, src/lib/orgVisibility.ts). Listed companies only (contract 11.6).
+  const companyBase = (col: ClaimedColumn) => {
     let query = supabase
       .from('organizations')
-      .select('id, slug, name, organization_type, logo_url, country, headquarters_country, owner_user_id')
-      .eq('access_status', 'verified');
+      .select(`id, slug, name, organization_type, logo_url, country, headquarters_country, ${col}`)
+      .eq('access_status', 'verified')
+      .is('archived_at', null)
+      .is('duplicate_of', null);
     if (scope === 'sponsors') {
       // A fixed filter (no user input inside or()): the paying tiers, or a tagged event media partner.
       query = query.or(`tier.in.(${SPONSOR_TIERS.join(',')}),and(organization_type.eq.media_partner,is_event_media_partner.eq.true)`);
@@ -362,10 +370,11 @@ async function askDatabase(
   };
   const companies: Promise<PromiseSettledResult<Reply>[]> = want('companies')
     ? Promise.allSettled([
-        withSignal(companyBase().ilike(nameColumn, startsWith(words[0])).order('name').limit(12)),
-        withSignal(companyBase().ilike(nameColumn, wordStartsWith(words[0])).order('name').limit(12)),
-        withSignal(companyBase().not('owner_user_id', 'is', null).order('name').limit(12)),
-        withSignal(companyBase().order('name').limit(24)),
+        withClaimed((col) => withSignal(companyBase(col).ilike(nameColumn, startsWith(words[0])).order('name').limit(12))),
+        withClaimed((col) => withSignal(companyBase(col).ilike(nameColumn, wordStartsWith(words[0])).order('name').limit(12))),
+        withClaimed((col) => withSignal((col === 'is_claimed' ? companyBase(col).eq('is_claimed', true) : companyBase(col).not('owner_user_id', 'is', null))
+          .order('name').limit(12))),
+        withClaimed((col) => withSignal(companyBase(col).order('name').limit(24))),
       ])
     : Promise.resolve([]);
 
@@ -454,7 +463,7 @@ export async function fetchSuggestions(
   const companiesRanked = (cr ?? [])
     .filter((o) => o.slug && o.name && matches(o.name))
     .map((o) => ({ o, r: matchRank(o.name, q) }))
-    .sort((x, y) => x.r - y.r || Number(!x.o.owner_user_id) - Number(!y.o.owner_user_id) || x.o.name.localeCompare(y.o.name))
+    .sort((x, y) => x.r - y.r || Number(!rowIsClaimed(x.o)) - Number(!rowIsClaimed(y.o)) || x.o.name.localeCompare(y.o.name))
     .map(({ o }) => o)
     .slice(0, PER_GROUP);
   const articlesRanked = (ar ?? [])

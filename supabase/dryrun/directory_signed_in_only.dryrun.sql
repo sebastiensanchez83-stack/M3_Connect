@@ -1,3 +1,9 @@
+-- SUPERSEDED on 21 Oct 2026 by supabase/migrations/held/directory_visitor_basic.sql (go-live runbook P4,
+-- Victor's answers of 21 Oct 2026), which contains both statements of this file and more.
+-- DO NOT APPLY OR RUN THIS FILE. Kept for the record only.
+-- The statement below stops any run of it at once (privacy review of 21 Oct 2026, finding 2).
+do $superseded$ begin raise exception 'directory_signed_in_only: SUPERSEDED by supabase/migrations/held/directory_visitor_basic.sql (21 Oct 2026); never run this file'; end $superseded$;
+--
 -- DRY RUN of supabase/migrations/held/directory_signed_in_only.sql (GO-LIVE ONLY) and of its down.
 -- NOT A MIGRATION. ONE query text, ONE execute_sql call, AFTER 20261016090000_review_and_validation_orgs
 -- is applied. A snapshot, the held file verbatim, then cases as anon and as signed-in accounts.

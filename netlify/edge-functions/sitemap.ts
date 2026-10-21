@@ -65,6 +65,20 @@ async function resourceRows(env: SupabaseEnv): Promise<Row[] | null> {
   return selectRows<Row>(env, 'resources', `select=id,${RESOURCE_QUERY}`, LOOKUP_TIMEOUT_MS);
 }
 
+const EVENT_QUERY = 'published=not.is.false&order=date_time.desc.nullslast&limit=5000';
+
+/**
+ * The published events, with their slug; without it while the column does not exist. Explicit
+ * columns, never select=*: visitors cannot read the webinar meeting link at go-live
+ * (held/directory_visitor_basic.sql), and select=* would then be refused. The events table has
+ * no updated_at: no lastmod, as before.
+ */
+async function eventRows(env: SupabaseEnv): Promise<Row[] | null> {
+  const first = await selectRowsOr<Row>(env, 'events', `select=id,slug&${EVENT_QUERY}`, LOOKUP_TIMEOUT_MS);
+  if (first.rows !== null || !first.missingSlugColumn) return first.rows;
+  return selectRows<Row>(env, 'events', `select=id&${EVENT_QUERY}`, LOOKUP_TIMEOUT_MS);
+}
+
 const slugOf = (row: Row) => (typeof row.slug === 'string' && row.slug ? row.slug : null);
 
 /** Every entry, and whether every query answered. */
@@ -74,11 +88,10 @@ export async function sitemapEntries(): Promise<{ entries: Entry[]; state: 'live
   if (!env) return { entries: fixed, state: 'fixed' };
 
   const [orgs, resources, events] = await Promise.all([
-    selectRows<Row>(env, 'organizations', 'select=slug,updated_at&access_status=eq.verified&slug=not.is.null&order=slug.asc&limit=5000', LOOKUP_TIMEOUT_MS),
+    // Listed companies only: validated, not archived, not merged into another (contract 11.6).
+    selectRows<Row>(env, 'organizations', 'select=slug,updated_at&access_status=eq.verified&archived_at=is.null&duplicate_of=is.null&slug=not.is.null&order=slug.asc&limit=5000', LOOKUP_TIMEOUT_MS),
     resourceRows(env),
-    // select=* as the events page does for any visitor: no assumption about which date columns
-    // exist; it brings the slug once the column is there.
-    selectRows<Row>(env, 'events', 'select=*&published=not.is.false&order=date_time.desc.nullslast&limit=5000', LOOKUP_TIMEOUT_MS),
+    eventRows(env),
   ]);
 
   const entries = [...fixed];

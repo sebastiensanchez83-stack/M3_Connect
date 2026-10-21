@@ -37,6 +37,7 @@ import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { SheetDrawer } from '@/components/directory/SheetDrawer';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { rowIsClaimed, withClaimed } from '@/lib/orgVisibility';
 import { useAwardWins, type AwardWinsByOrg } from '@/lib/awardWins';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
@@ -339,11 +340,16 @@ export function DirectoryPage() {
     setLoadFailed(false);
     (async () => {
       try {
+        // Public columns only (src/lib/orgVisibility.ts): is_claimed for the "Verified member" pill,
+        // owner_user_id only while that column does not exist yet. Listed companies only (contract
+        // 11.6: not archived, not merged into another).
         const [orgRes, secRes] = await Promise.all([
-          supabase
+          withClaimed((col) => supabase
             .from('organizations')
-            .select('id, slug, name, organization_type, tier, website, country, city, headquarters_country, description, audience_description, logo_url, banner_url, gallery, access_status, owner_user_id, created_at')
-            .eq('access_status', 'verified'),
+            .select(`id, slug, name, organization_type, tier, website, country, city, headquarters_country, description, audience_description, logo_url, banner_url, gallery, access_status, created_at, ${col}`)
+            .eq('access_status', 'verified')
+            .is('archived_at', null)
+            .is('duplicate_of', null)),
           supabase.from('sectors').select('id, slug, label').eq('is_active', true).order('label'),
         ]);
         if (orgRes.error) throw orgRes.error;
@@ -354,7 +360,7 @@ export function DirectoryPage() {
           id: string; slug: string; name: string; organization_type: string | null; tier: string | null;
           website: string | null; country: string | null; city: string | null; headquarters_country: string | null;
           description: string | null; audience_description: string | null; logo_url: string | null;
-          banner_url: string | null; gallery: unknown; owner_user_id: string | null; created_at: string | null;
+          banner_url: string | null; gallery: unknown; is_claimed?: boolean | null; owner_user_id?: string | null; created_at: string | null;
         };
         const orgRows = (orgRes.data ?? []) as OrgRow[];
         if (orgRows.length === 0) { setOrgs([]); return; }
@@ -417,7 +423,7 @@ export function DirectoryPage() {
             cover_url: o.banner_url || gallery[0] || null,
             sectors: primary.length > 0 ? primary : other,
             member_count: memberCount[o.id] || 0,
-            claimed: !!o.owner_user_id,
+            claimed: rowIsClaimed(o),
             created_at: o.created_at,
             countries: countryKeysOf(o).map(countrySlug),
           };

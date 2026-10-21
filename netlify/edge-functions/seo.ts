@@ -263,19 +263,42 @@ async function resolveResource(env: SupabaseEnv, key: string): Promise<Resolved>
   return { meta: resourceMeta(row, tr), source: 'resource' };
 }
 
-/** /organizations/<slug>. An id, or a slug typed in capitals, moves to the company's own address. */
+type OrgListing = { access_status?: string | null; duplicate_of?: string | null };
+
+/**
+ * /organizations/<slug>. An id, or a slug typed in capitals, moves to the company's own address.
+ * The head is the visitor version (Victor, 21 Oct 2026, Q5 and Q6: no cloaking): a company M3 has
+ * not validated is "not found" (noindex), as the page itself says to a visitor and as the database
+ * answers anon at go-live; a copy merged into another company moves to that company's address.
+ * Only public columns are read (ORG_SEO_COLUMNS, access_status, duplicate_of: granted to anon).
+ */
 async function resolveOrganization(env: SupabaseEnv, key: string): Promise<Resolved> {
-  const rows = await selectRows<OrgSeoInput>(env, 'organizations', `select=${ORG_SEO_COLUMNS}&slug=eq.${enc(key)}&limit=1`, LOOKUP_TIMEOUT_MS);
+  const rows = await selectRows<OrgSeoInput & OrgListing>(
+    env, 'organizations', `select=${ORG_SEO_COLUMNS},access_status,duplicate_of&slug=eq.${enc(key)}&limit=1`, LOOKUP_TIMEOUT_MS,
+  );
   if (rows === null) return noAnswer();
-  if (rows.length > 0 && rows[0].name && rows[0].slug) return { meta: organizationMeta(rows[0], tr), source: 'organization' };
+  const row = rows[0];
+  if (row?.duplicate_of) return movedToKept(env, row.duplicate_of, key);
+  if (row && row.name && row.slug) {
+    return row.access_status === 'verified' ? { meta: organizationMeta(row, tr), source: 'organization' } : notFound();
+  }
   if (isUuid(key) || key !== key.toLowerCase()) {
     const filter = isUuid(key) ? `id=eq.${enc(key)}` : `slug=eq.${enc(key.toLowerCase())}`;
-    const other = await selectRows<{ slug: string | null }>(env, 'organizations', `select=slug&${filter}&limit=1`, LOOKUP_TIMEOUT_MS);
+    const other = await selectRows<{ slug: string | null } & OrgListing>(env, 'organizations', `select=slug,access_status,duplicate_of&${filter}&limit=1`, LOOKUP_TIMEOUT_MS);
     if (other === null) return noAnswer();
+    if (other[0]?.duplicate_of) return movedToKept(env, other[0].duplicate_of, key);
     const own = other[0]?.slug;
-    if (own && own !== key) return movedTo(orgPath(own));
+    if (own && own !== key && other[0]?.access_status === 'verified') return movedTo(orgPath(own));
   }
   return notFound();
+}
+
+/** A merged copy's address: to the validated company it was merged into, else not found. */
+async function movedToKept(env: SupabaseEnv, keptId: string, key: string): Promise<Resolved> {
+  const kept = await selectRows<{ slug: string | null } & OrgListing>(env, 'organizations', `select=slug,access_status&id=eq.${enc(keptId)}&limit=1`, LOOKUP_TIMEOUT_MS);
+  if (kept === null) return noAnswer();
+  const slug = kept[0]?.slug;
+  return slug && slug !== key && kept[0]?.access_status === 'verified' ? movedTo(orgPath(slug)) : notFound();
 }
 
 export async function resolve(route: Route): Promise<Resolved> {

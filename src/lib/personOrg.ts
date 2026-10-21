@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { seesMore, useOrgViewer } from '@/lib/orgVisibility';
 
 /**
  * People have no page of their own (Victor, Oct 2026: "no personal page at all").
  * Wherever a person is shown (a speaker, an author, an attendee, a team member) the
  * link goes to their COMPANY's page. This resolves that company.
  *
- * organization_members and organizations are readable by visitors and members alike
- * (org_members_select_public / org_select_public), so this works signed out too.
+ * organization_members and organizations are readable by visitors and members alike until the
+ * go-live (org_members_select_public / org_select_public), so this works signed out too until
+ * then; from it (held/directory_visitor_basic.sql) visitors read no team, and get no link.
  * A person in several organisations speaks for one, picked the same way as the
  * database does for connection requests (partner_request_user_org): the one they
  * own, then the one where their role is owner, then the oldest membership.
+ *
+ * A company M3 has not validated (pending, suspended), archived or merged into another is not
+ * public (Q5, Victor 21 Oct 2026): for a reader who is not a validated member (listedOnly), such a
+ * company is never the link, nor its address (its slug carries its name). Validated members get
+ * every company, as before (the inbox and messages show the sender's company).
  */
 export interface PersonOrg {
   id: string;
@@ -19,22 +26,35 @@ export interface PersonOrg {
   logo_url: string | null;
 }
 
+interface OrgRow extends PersonOrg {
+  owner_user_id: string | null;
+  access_status: string | null;
+  archived_at: string | null;
+  duplicate_of: string | null;
+}
+
 interface MembershipRow {
   user_id: string;
   role: string | null;
   joined_at: string | null;
-  organization: (PersonOrg & { owner_user_id: string | null }) | (PersonOrg & { owner_user_id: string | null })[] | null;
+  organization: OrgRow | OrgRow[] | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** userId → the company they speak for. People without one are simply absent. */
-export async function fetchPeopleOrgs(userIds: (string | null | undefined)[]): Promise<Record<string, PersonOrg>> {
+/**
+ * userId → the company they speak for. People without one are simply absent. listedOnly: only
+ * validated, listed companies (the reader is not a validated member).
+ */
+export async function fetchPeopleOrgs(
+  userIds: (string | null | undefined)[],
+  opts: { listedOnly?: boolean } = {},
+): Promise<Record<string, PersonOrg>> {
   const ids = [...new Set(userIds.filter((id): id is string => !!id && UUID_RE.test(id)))];
   if (ids.length === 0) return {};
   const { data, error } = await supabase
     .from('organization_members')
-    .select('user_id, role, joined_at, organization:organizations(id, slug, name, logo_url, owner_user_id)')
+    .select('user_id, role, joined_at, organization:organizations(id, slug, name, logo_url, owner_user_id, access_status, archived_at, duplicate_of)')
     .in('user_id', ids);
   if (error || !data) return {};
 
@@ -42,6 +62,7 @@ export async function fetchPeopleOrgs(userIds: (string | null | undefined)[]): P
   for (const row of data as unknown as MembershipRow[]) {
     const org = Array.isArray(row.organization) ? row.organization[0] : row.organization;
     if (!org?.slug) continue;
+    if (opts.listedOnly && (org.access_status !== 'verified' || org.archived_at || org.duplicate_of)) continue;
     const joined = row.joined_at ? Date.parse(row.joined_at) : Number.MAX_SAFE_INTEGER;
     // Lower is better: owns it, then role owner, then the oldest membership.
     const rank: [number, number, number] = [
@@ -60,9 +81,19 @@ export async function fetchPeopleOrgs(userIds: (string | null | undefined)[]): P
   return out;
 }
 
-/** The company of each person in `userIds` (best effort: {} while loading or on failure). */
+/** Listed companies only, unless the reader is a validated member (Q2, Q5): one boolean, from the reader's one-word state. */
+export function usePeopleListedOnly(): boolean {
+  return !seesMore(useOrgViewer());
+}
+
+/**
+ * The company of each person in `userIds` (best effort: {} while loading or on failure). Listed
+ * companies only unless the reader is a validated member; keyed on that boolean, never on the auth
+ * objects (the refocus trap).
+ */
 export function usePeopleOrgs(userIds: (string | null | undefined)[]): Record<string, PersonOrg> {
   const key = [...new Set(userIds.filter((id): id is string => !!id))].sort().join(',');
+  const listedOnly = usePeopleListedOnly();
   const [orgs, setOrgs] = useState<Record<string, PersonOrg>>({});
   useEffect(() => {
     if (!key) {
@@ -70,11 +101,11 @@ export function usePeopleOrgs(userIds: (string | null | undefined)[]): Record<st
       return;
     }
     let alive = true;
-    fetchPeopleOrgs(key.split(','))
+    fetchPeopleOrgs(key.split(','), { listedOnly })
       .then((map) => { if (alive) setOrgs(map); })
       .catch(() => { if (alive) setOrgs({}); });
     return () => { alive = false; };
-  }, [key]);
+  }, [key, listedOnly]);
   return orgs;
 }
 

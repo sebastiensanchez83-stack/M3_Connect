@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { withSlug } from '@/lib/slugRoutes';
+import { withClaimed } from '@/lib/orgVisibility';
 import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 
 /**
@@ -114,13 +115,19 @@ async function fetchTicker(): Promise<TickerData | null> {
       .order('published_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(TICKER_PER_KIND)),
-    supabase
-      .from('organizations')
-      .select('id, slug, name, organization_type, country, headquarters_country')
-      .eq('access_status', 'verified')
-      .not('owner_user_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(TICKER_PER_KIND),
+    // Listed companies with an owner: is_claimed (owner_user_id before that column exists,
+    // src/lib/orgVisibility.ts), never archived or merged ones (contract 11.6).
+    withClaimed((col) => {
+      const q = supabase
+        .from('organizations')
+        .select('id, slug, name, organization_type, country, headquarters_country')
+        .eq('access_status', 'verified')
+        .is('archived_at', null)
+        .is('duplicate_of', null);
+      return (col === 'is_claimed' ? q.eq('is_claimed', true) : q.not('owner_user_id', 'is', null))
+        .order('created_at', { ascending: false })
+        .limit(TICKER_PER_KIND);
+    }),
     withSlug('events', (slug) => supabase
       .from('events')
       .select(`id, title, date_time, event_type, location${slug}`)

@@ -37,7 +37,6 @@ export interface ListEvent {
   published: boolean;
   speakers: { name: string; title: string }[] | null;
   replay_url: string | null;
-  meeting_url: string | null;
   image_url: string | null;
 }
 

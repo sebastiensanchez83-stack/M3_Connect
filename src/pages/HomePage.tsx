@@ -23,6 +23,7 @@ import { fetchSponsorLogos, type SponsorLogo } from '@/lib/sponsors';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { openSignup } from '@/lib/authModal';
 import { withSlug } from '@/lib/slugRoutes';
+import { withClaimed } from '@/lib/orgVisibility';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
@@ -116,8 +117,10 @@ export function HomePage() {
         // Admin-editable display stats: used as they are when the admin has
         // set `override: true`, otherwise only as a fallback for a failed live count.
         supabase.from('platform_settings').select('value').eq('key', 'display_stats').maybeSingle(),
-        // One light row per verified organization: counts by type and countries.
-        supabase.from('organizations').select('organization_type, country, headquarters_country').eq('access_status', 'verified'),
+        // One light row per listed organization (verified, not archived, not merged): counts by
+        // type and countries.
+        supabase.from('organizations').select('organization_type, country, headquarters_country')
+          .eq('access_status', 'verified').is('archived_at', null).is('duplicate_of', null),
         supabase.from('sectors').select('id, slug'),
         // Every published resource's sectors, for the theme counts and the total.
         supabase.from('resources').select('id, resource_sectors(sector_id)').eq('published', true),
@@ -132,21 +135,31 @@ export function HomePage() {
           .limit(6)),
         // How many of the listed marinas are members (an owner on the platform):
         // most of the listed ones were imported and nobody has claimed them yet.
-        supabase
-          .from('organizations')
-          .select('id', { count: 'exact', head: true })
-          .eq('access_status', 'verified')
-          .eq('organization_type', 'marina')
-          .not('owner_user_id', 'is', null),
+        // is_claimed (owner_user_id before that column exists: src/lib/orgVisibility.ts); a GET
+        // with one row rather than a HEAD, so a refusal carries the code withClaimed() reads.
+        withClaimed((col) => {
+          const q = supabase
+            .from('organizations')
+            .select('id', { count: 'exact' })
+            .eq('access_status', 'verified')
+            .eq('organization_type', 'marina')
+            .is('archived_at', null)
+            .is('duplicate_of', null);
+          return (col === 'is_claimed' ? q.eq('is_claimed', true) : q.not('owner_user_id', 'is', null)).limit(1);
+        }),
         // Real service-provider members for the row in the "need" panel.
-        supabase
-          .from('organizations')
-          .select('id, slug, name, organization_type, logo_url, city, country, description')
-          .eq('access_status', 'verified')
-          .eq('organization_type', 'partner')
-          .not('owner_user_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(30),
+        withClaimed((col) => {
+          const q = supabase
+            .from('organizations')
+            .select('id, slug, name, organization_type, logo_url, city, country, description')
+            .eq('access_status', 'verified')
+            .eq('organization_type', 'partner')
+            .is('archived_at', null)
+            .is('duplicate_of', null);
+          return (col === 'is_claimed' ? q.eq('is_claimed', true) : q.not('owner_user_id', 'is', null))
+            .order('created_at', { ascending: false })
+            .limit(30);
+        }),
         // Event sponsors: the one list of the Partners page (src/lib/sponsors.ts).
         fetchSponsorLogos(),
       ]);

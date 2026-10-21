@@ -42,6 +42,17 @@ const SECTIONS: { text: keyof MarinaSubmission; image?: keyof MarinaSubmission; 
 ];
 
 /**
+ * One text of the entry as its tile, by key (what org_public_highlights returns to a visitor: the
+ * first written text, without its image). Null for an unknown key or an empty text.
+ */
+export function marinaTextTile(key: string, text: string | null | undefined): TextTileItem | null {
+  const sec = SECTIONS.find((s) => s.text === key);
+  const body = (text || '').trim();
+  if (!sec || !body) return null;
+  return { key: sec.text, title: sec.label, text: body, icon: sec.icon, image: null, imageAlt: sec.label };
+}
+
+/**
  * The marina's Smart Marina 2026 texts, as tiles. `loaded` turns true once the read
  * is over (with or without texts); `items` is empty when there is nothing to show.
  * Pass null to skip the read (not a marina).

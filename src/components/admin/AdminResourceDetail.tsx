@@ -36,7 +36,18 @@ interface Sector {
 }
 
 const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
-const topics = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
+// The usual topics, offered first. resources.topic is free text: an editor can add a new one from
+// the dropdown ("Add a new topic…", Victor, 21 Oct 2026), and every topic already used on an
+// article is offered again after that.
+const BASE_TOPICS = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
+const NEW_TOPIC = '__new_topic__';
+
+/** Trimmed, single spaces, first letter in capitals; null when too short or too long. */
+function cleanTopic(raw: string): string | null {
+  const s = raw.replace(/\s+/g, ' ').trim();
+  if (s.length < 2 || s.length > 40) return null;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 interface DraftRow extends ResourceDraft {
   submitter_name: string;
@@ -83,11 +94,46 @@ export function AdminResourceDetail() {
   // Bumped on every (re)load: the web address panel reads the slug again (a draft's follows its title).
   const [slugVersion, setSlugVersion] = useState(0);
 
+  // Topics: the usual ones, then every topic already used on an article, then the one being added.
+  const [usedTopics, setUsedTopics] = useState<string[]>([]);
+  const [addingTopic, setAddingTopic] = useState(false);
+  const [newTopic, setNewTopic] = useState('');
+  const [newTopicError, setNewTopicError] = useState('');
+
   // Load all active sectors once
   useEffect(() => {
     supabase.from('sectors').select('*').eq('is_active', true).order('label')
       .then(({ data }) => { if (data) setAllSectors(data as Sector[]); });
+    supabase.from('resources').select('topic').not('topic', 'is', null)
+      .then(({ data }) => {
+        if (!data) return;
+        const seen = new Set<string>();
+        setUsedTopics((data as { topic: string | null }[])
+          .map((r) => (r.topic ?? '').trim())
+          .filter((tp) => tp && !seen.has(tp.toLowerCase()) && seen.add(tp.toLowerCase())));
+      });
   }, []);
+
+  const topicOptions = (() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const tp of [...BASE_TOPICS, ...usedTopics.slice().sort((a, b) => a.localeCompare(b)), form.topic]) {
+      const k = (tp ?? '').trim().toLowerCase();
+      if (k && !seen.has(k)) { seen.add(k); out.push(tp.trim()); }
+    }
+    return out;
+  })();
+
+  const addTopic = () => {
+    const cleaned = cleanTopic(newTopic);
+    if (!cleaned) { setNewTopicError(t('admin.resource.topicLength', 'Write between 2 and 40 characters.')); return; }
+    // An existing topic written differently is reused as it is.
+    const existing = topicOptions.find((tp) => tp.toLowerCase() === cleaned.toLowerCase());
+    const topic = existing ?? cleaned;
+    if (!existing) setUsedTopics((list) => [...list, topic]);
+    setForm((f) => ({ ...f, topic }));
+    setAddingTopic(false); setNewTopic(''); setNewTopicError('');
+  };
 
   useEffect(() => {
     if (!isNew && id) {
@@ -588,11 +634,56 @@ export function AdminResourceDetail() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Topic</Label>
-              <Select value={form.topic} onValueChange={v => setForm({ ...form, topic: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{topics.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}</SelectContent>
+              <Label htmlFor="resource-topic">Topic</Label>
+              <Select
+                value={form.topic}
+                onValueChange={v => {
+                  if (v === NEW_TOPIC) { setAddingTopic(true); setNewTopicError(''); return; }
+                  setForm({ ...form, topic: v }); setAddingTopic(false);
+                }}
+              >
+                <SelectTrigger id="resource-topic"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {topicOptions.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}
+                  <SelectItem value={NEW_TOPIC} className="font-semibold text-gold-text">
+                    {t('admin.resource.addTopic', '+ Add a new topic…')}
+                  </SelectItem>
+                </SelectContent>
               </Select>
+              {addingTopic && (
+                <div className="space-y-1.5 rounded-md border border-rule bg-chip/50 p-2.5">
+                  <Label htmlFor="resource-new-topic" className="text-[13px]">
+                    {t('admin.resource.newTopicLabel', 'New topic for this article')}
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      id="resource-new-topic"
+                      autoFocus
+                      value={newTopic}
+                      maxLength={40}
+                      placeholder={t('admin.resource.newTopicPlaceholder', 'For example: Regulation')}
+                      onChange={e => { setNewTopic(e.target.value); setNewTopicError(''); }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); addTopic(); }
+                        if (e.key === 'Escape') { setAddingTopic(false); setNewTopic(''); }
+                      }}
+                      aria-invalid={!!newTopicError}
+                      aria-describedby={newTopicError ? 'resource-new-topic-error' : undefined}
+                      className="min-w-0 flex-1"
+                    />
+                    <Button type="button" size="sm" className={ADMIN_BTN_PRIMARY} onClick={addTopic}>
+                      {t('admin.resource.addTopicButton', 'Add topic')}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setAddingTopic(false); setNewTopic(''); setNewTopicError(''); }}>
+                      {t('common.cancel', 'Cancel')}
+                    </Button>
+                  </div>
+                  {newTopicError && <p id="resource-new-topic-error" className="text-[13px] text-red-700">{newTopicError}</p>}
+                  <p className="text-[12px] text-meta">
+                    {t('admin.resource.newTopicHint', 'It is saved with the article and offered in this list for the next articles.')}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

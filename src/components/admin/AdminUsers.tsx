@@ -10,7 +10,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -20,14 +19,10 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
 import { sendNotification } from '@/lib/notifications';
-import { useRegistrationFlags } from '@/lib/flags';
-import { ValidatePersonDialog } from './ValidatePersonDialog';
-import type { PersonAction } from './review/reviewApi';
 import { AdminContextBanner } from './AdminContextBanner';
 import {
-  AdminPageHeader, AdminFilterBar, AdminTableCard, AdminKpiCard, AdminLoading, AdminStatusPill, AdminEmpty,
+  AdminPageHeader, AdminFilterBar, AdminTableCard, AdminKpiCard, AdminLoading, AdminStatusPill, AdminStatus, AdminEmpty,
   ADMIN_BTN, ADMIN_BTN_PRIMARY,
 } from './AdminUI';
 import type { AdminProfile } from './types';
@@ -43,7 +38,6 @@ type ReferenceStatus = {
 
 export function AdminUsers() {
   const { t } = useTranslation();
-  const { user: currentUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status') || '';
@@ -60,8 +54,6 @@ export function AdminUsers() {
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
   const [onboardingFilter, setOnboardingFilter] = useState(urlOnboarding || 'all');
   const [inactiveOnly, setInactiveOnly] = useState(urlInactive);
-  const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
   const [referenceStatusMap, setReferenceStatusMap] = useState<Record<string, ReferenceStatus>>({});
   const [unconfirmedUsers, setUnconfirmedUsers] = useState<{ id: string; email: string; created_at: string; first_name: string | null; last_name: string | null; persona: string | null }[]>([]);
@@ -73,16 +65,6 @@ export function AdminUsers() {
   const [invitePartnerForm, setInvitePartnerForm] = useState({ email: '', firstName: '' });
   const [sendingPartnerInvite, setSendingPartnerInvite] = useState(false);
   const [changingPersona, setChangingPersona] = useState(false);
-  // Review list v2 (registration_flags.review_queue): Verified / Rejected go through M3's
-  // validation window (admin_validate_person). Off = the direct updates below, as before.
-  // Staff profiles (admin, moderator) always keep the direct path: admin_validate_person
-  // refuses them (staff_profile).
-  // A switch that could not be read is never taken for "off" (src/lib/flags.ts): Verified and
-  // Rejected then wait for a successful read (retried below and when the tab regains focus).
-  const { flags: regFlags, ready: flagsReady, failed: flagsFailed, retry: retryFlags } = useRegistrationFlags();
-  const validationV2 = regFlags.review_queue;
-  const [validating, setValidating] = useState<{ userId: string; action: PersonAction } | null>(null);
-
   useEffect(() => { loadUsers(); }, []);
 
   const loadUsers = async () => {
@@ -196,69 +178,6 @@ export function AdminUsers() {
 
   const getOrgName = (u: AdminProfile) => {
     return u.org_name || '';
-  };
-
-  // Send email notification (fire and forget — non-blocking)
-  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended', reason?: string) => {
-    try {
-      await supabase.functions.invoke('send-status-notification', {
-        body: { user_id: userId, status, reason },
-        headers: currentUser?.id ? { 'x-caller-user-id': currentUser.id } : undefined,
-      });
-    } catch (err) {
-      if (import.meta.env.DEV) console.warn('[AdminUsers] Email notification failed (non-blocking):', err);
-    }
-  };
-
-  const approveUser = async (userId: string) => {
-    const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    // Cascade to the org ONLY when this user is its owner and it's still pending
-    // — approving a collaborator must not auto-verify an unreviewed organization.
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).eq('role', 'owner').maybeSingle();
-    if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id).eq('access_status', 'pending');
-    }
-    sendStatusNotification(userId, 'verified');
-    toast({ title: 'User approved — email notification sent' }); loadUsers();
-  };
-  const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
-  const confirmReject = async () => {
-    if (!rejectingUserId || !rejectReason.trim()) { toast({ title: t('admin.userDetail.reasonRequired'), variant: 'destructive' }); return; }
-    const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', rejectingUserId);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    // Cascade to the org ONLY when this user is its owner and it's still pending
-    // — never reject a verified/established org because one collaborator was.
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', rejectingUserId).eq('role', 'owner').maybeSingle();
-    if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id).eq('access_status', 'pending');
-    }
-    sendStatusNotification(rejectingUserId, 'rejected', rejectReason.trim());
-    toast({ title: 'User rejected — email notification sent' }); setRejectingUserId(null); loadUsers();
-  };
-  const updateUserStatus = async (userId: string, newStatus: string) => {
-    if (newStatus === 'verified' || newStatus === 'rejected') {
-      // Until the switches are read, the path (window or direct update) is not known yet.
-      if (!flagsReady) { toast({ title: 'One moment', description: 'The page is still loading its settings. Try again in a second.' }); return; }
-      if (flagsFailed) {
-        retryFlags();
-        toast({ title: 'Settings not loaded', description: 'The review settings could not be loaded, so this decision cannot be made yet. Check your connection and try again in a moment.', variant: 'destructive' });
-        return;
-      }
-      const persona = users.find(u => u.user_id === userId)?.persona;
-      if (validationV2 && persona !== 'admin' && persona !== 'moderator') {
-        setValidating({ userId, action: newStatus === 'verified' ? 'validate' : 'reject' });
-        return;
-      }
-    }
-    if (newStatus === 'verified') {
-      await approveUser(userId);
-      return;
-    }
-    if (newStatus === 'rejected') { openReject(userId); return; }
-    await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
-    if (newStatus === 'suspended') sendStatusNotification(userId, 'suspended');
-    toast({ title: `Status: ${newStatus}` }); loadUsers();
   };
 
   const handleChangePersona = async (userId: string, newPersona: string) => {
@@ -622,13 +541,8 @@ export function AdminUsers() {
               {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-meta/60 text-xs">---</span>}
             </td>
             <td>
-              <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
-                <SelectTrigger className="h-8 w-32 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem><SelectItem value="verified">Verified</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem><SelectItem value="suspended">Suspended</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Read-only: a status changes in To validate or on the person's page, never in one click here. */}
+              <AdminStatus status={user.access_status} label={user.access_status === 'verified' ? 'Validated' : undefined} />
             </td>
             <td>
               <span className="whitespace-nowrap text-sm text-meta">{new Date(user.created_at).toLocaleDateString()}</span>
@@ -638,28 +552,6 @@ export function AdminUsers() {
         {filteredUsers.length === 0 && <tr><td colSpan={8}><AdminEmpty icon={UserCheck} title={t('admin.userDetail.noUsersFound', 'No users found')} /></td></tr>}
       </tbody></table></AdminTableCard>
 
-
-      {/* ─── M3's validation window (review list v2) ─── */}
-      {validating && (
-        <ValidatePersonDialog
-          open
-          onOpenChange={(o) => { if (!o) setValidating(null); }}
-          userId={validating.userId}
-          initialAction={validating.action}
-          onDone={() => { loadUsers(); }}
-        />
-      )}
-
-      {/* ─── Reject Dialog ─── */}
-      <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{t('admin.userDetail.rejectUser')}</DialogTitle><DialogDescription>{t('admin.userDetail.rejectReason')}</DialogDescription></DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="space-y-2"><Label>{t('admin.userDetail.rejectionReason')} *</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="..." /></div>
-            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRejectingUserId(null)}>{t('admin.userDetail.cancel')}</Button><Button variant="destructive" onClick={confirmReject}>{t('admin.userDetail.confirmRejection')}</Button></div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* ─── Create Admin Dialog ─── */}
       <Dialog open={createAdminOpen} onOpenChange={setCreateAdminOpen}>

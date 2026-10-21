@@ -16,7 +16,8 @@ import '@/styles/admin-skin.css';
  * every other tab is fetched on-demand. Each uses lazyWithRetry so stale
  * chunks after a deploy trigger a one-shot auto-reload instead of crashing.
  */
-const AdminDashboard = lazyWithRetry(() => import('@/components/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+// The home (/admin): 'To do today' and its Market tab (what was Industry Pulse, /admin/pulse).
+const AdminHome = lazyWithRetry(() => import('@/components/admin/home/AdminHome').then(m => ({ default: m.AdminHome })));
 const AdminUsers = lazyWithRetry(() => import('@/components/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
 const AdminUserDetail = lazyWithRetry(() => import('@/components/admin/AdminUserDetail').then(m => ({ default: m.AdminUserDetail })));
 const AdminOrganizations = lazyWithRetry(() => import('@/components/admin/AdminOrganizations').then(m => ({ default: m.AdminOrganizations })));
@@ -57,7 +58,6 @@ const AdminBanners = lazyWithRetry(() => import('@/components/admin/AdminBanners
 const AdminBannerDetail = lazyWithRetry(() => import('@/components/admin/AdminBannerDetail').then(m => ({ default: m.AdminBannerDetail })));
 const AdminPlatformSettings = lazyWithRetry(() => import('@/components/admin/AdminPlatformSettings').then(m => ({ default: m.AdminPlatformSettings })));
 const AdminSectors = lazyWithRetry(() => import('@/components/admin/AdminSectors').then(m => ({ default: m.AdminSectors })));
-const AdminPulse = lazyWithRetry(() => import('@/components/admin/AdminPulse').then(m => ({ default: m.AdminPulse })));
 const AdminSM26 = lazyWithRetry(() => import('@/components/admin/AdminSM26').then(m => ({ default: m.AdminSM26 })));
 const AdminSM26Detail = lazyWithRetry(() => import('@/components/admin/AdminSM26Detail').then(m => ({ default: m.AdminSM26Detail })));
 const AdminSM26Invitations = lazyWithRetry(() => import('@/components/admin/AdminSM26Invitations').then(m => ({ default: m.AdminSM26Invitations })));
@@ -152,7 +152,7 @@ export function AdminPage() {
               aria-label={t('adminReview.card.count', { count: reviewCount, defaultValue_one: '{{count}} item to review', defaultValue_other: '{{count}} items to review' })}
               className="ml-auto inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill bg-gold px-3 text-[13px] font-bold text-navy transition-colors hover:bg-gold/80 focus:outline-none focus-visible:shadow-focus"
             >
-              {t('adminReview.nav', 'To review')}
+              {t('adminNav.toValidate', 'To validate')}
               <span className="tabular-nums">{reviewCount}</span>
             </Link>
           )}
@@ -169,7 +169,7 @@ export function AdminPage() {
         <div className={frozen ? 'p-4 md:p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto' : 'admin-skin mx-auto w-full max-w-[1360px] px-4 py-6 md:px-8 md:py-8'}>
         <Suspense fallback={<AdminLazyFallback />}>
           <Routes>
-            <Route path="/" element={<AdminDashboard />} />
+            <Route path="/" element={<AdminHome />} />
             {/* Moderators too: admin_review_queue() gives them only what their screens can open. */}
             <Route path="/review" element={<AdminReviewQueue />} />
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
@@ -228,7 +228,8 @@ export function AdminPage() {
             <Route path="/banners" element={<AdminOnlyGuard><AdminBanners /></AdminOnlyGuard>} />
             <Route path="/banners/:id" element={<AdminOnlyGuard><AdminBannerDetail /></AdminOnlyGuard>} />
             <Route path="/sectors" element={<AdminOnlyGuard><AdminSectors /></AdminOnlyGuard>} />
-            <Route path="/pulse" element={<AdminOnlyGuard><AdminPulse /></AdminOnlyGuard>} />
+            {/* Industry Pulse is the Market tab of the home now. */}
+            <Route path="/pulse" element={<Navigate to="/admin?tab=market" replace />} />
             <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
             <Route path="/rights" element={<AdminOnlyGuard><AdminRights /></AdminOnlyGuard>} />
             {/* The spec's address for the rights screen (§8.4). */}

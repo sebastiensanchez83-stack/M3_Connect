@@ -572,7 +572,7 @@ export function AdminReviewQueue() {
   if (!known && failed) {
     return (
       <div>
-        <AdminPageHeader title={t('adminReview.title', 'To review')} />
+        <AdminPageHeader title={t('adminReview.title', 'To validate')} />
         <div className="rounded-card border border-rule bg-white">
           <AdminEmpty
             icon={AlertTriangle}
@@ -777,7 +777,7 @@ function ReviewQueueV1() {
 
   const header = (
     <AdminPageHeader
-      title={t('adminReview.title', 'To review')}
+      title={t('adminReview.title', 'To validate')}
       count={state === 'ready' ? items.length : undefined}
       description={t('adminReview.description', 'Everything waiting for a decision from the M3 team. Decide with the buttons on a card, or open it.')}
       meta={!isAdmin ? <span>{t('adminReview.moderatorNote', 'As a moderator, you see reported conversations, webinar proposals and article drafts. People, companies and event requests are reviewed by the administrators.')}</span> : undefined}

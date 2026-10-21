@@ -25,7 +25,7 @@ argument, or `EMAIL_PREVIEW_DIR`). Open `index.html` there.
 | Page | `#eef2f8`, 32 px / 12 px padding |
 | Card | white, 600 px (fluid below 620 px), 16 px radius |
 | Header band | navy `#0b2653`, white S logo (`https://smartmarinaconnect.com/logo-white.png`, 22 px) + "Smart Marina Connect" wordmark, Arial 18 px bold |
-| Rule | 4 px gold `#d7a647` |
+| Rule | 4 px sky blue `#7cc4f0` (gold until 21 Oct 2026; the frozen guest-list copy keeps it until 29 Nov) |
 | Content | 40 px side padding (24 px on mobile): eyebrow, title, greeting, body, button, note |
 | Footer | light `#f6f7f9`: "Smart Marina Connect · by M3 Monaco", "Questions? events@m3monaco.com", link to smartmarinaconnect.com |
 
@@ -42,7 +42,7 @@ to an address that is not the account's own gets the plain `/unsubscribe` page i
 | Token | Hex | Use |
 | --- | --- | --- |
 | `navy` | `#0b2653` | header band, titles, button text, links |
-| `gold` | `#d7a647` | rule, button, note left border |
+| `accent` | `#7cc4f0` | rule, button (navy text), note left border. Accent text on white, if ever needed: `#1b6ea8` |
 | `teal` | `#1f7a8c` | eyebrows and labels in small capitals, bullets |
 | `ink` | `#1f2937` | body text |
 | `muted` | `#5b6475` | small notes, footer |
@@ -57,11 +57,11 @@ capitals with 1 px letter spacing, title 26/32 bold (23/29 on mobile).
 | Function | What it gives |
 | --- | --- |
 | `emailLayout({ preheader, eyebrow, title, greeting, bodyHtml, cta, secondary, signoff, footerNote, reason, footerLinks, lang, pageTitle })` | the whole document |
-| `emButton(label, url)` | gold pill, navy bold text, arrow added |
+| `emButton(label, url)` | sky-blue pill, navy bold text, arrow added |
 | `emLink(label, url)` | bold underlined navy link (secondary action) |
 | `emP(html, gap?)` | one body paragraph |
 | `emInfoTable([[label, value], ...])` | label / value rows between hairlines (label in teal capitals) |
-| `emNote(html, label?)` | pale box with a gold left rule (a reason, a quoted message) |
+| `emNote(html, label?)` | pale box with a sky-blue left rule (a reason, a quoted message) |
 | `emCode(code)` | a code to read or type, monospace, in a bordered box |
 | `emTextToHtml(safeText)` | text body to paragraphs (see below) |
 | `emText({ title, greeting, body, cta, secondary, signoff, footerNote, reason, links })` | the plain-text alternative |
@@ -148,7 +148,7 @@ Notes for the next change:
   The privacy paragraph still names `contact@smartmarinaconnect.com` (its original wording, kept on purpose because this change is
   design only), while the footer and the reply-to are `events@m3monaco.com`. To unify, change the `contact` constant in
   `buildReferenceEmail` once Victor has confirmed which inbox clients should write to.
-  The two answers are the gold button (confirm) and the underlined link (do not confirm); both URLs and their tokens are unchanged.
+  The two answers are the accent button (confirm) and the underlined link (do not confirm); both URLs and their tokens are unchanged.
 - Each e-mail is built by a pure function (no I/O), so the previews run the real code: `buildInviteEmail` (sponsor-invite),
   `buildAssetNeededEmail` (sp-notify), `buildReminderEmail`, `buildConfirmationEmail` (webinar and claim-code), `renderStatusEmail`,
   `buildReferenceEmail`, `renderInboxEmail` (contact-submit), `renderPass` / `renderInvitation` / `renderRequestAck` / `renderReject` /

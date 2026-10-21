@@ -65,6 +65,10 @@ const hasBackslashU = (src) => {
 };
 
 const fnDir = path.join(root, "supabase", "functions");
+// guest-list is frozen until 29 Nov 2026 (WYS): its copy of the block keeps the old gold
+// accent and is not compared. Remove it from this set when guest-list is redeployed.
+const FROZEN_LAYOUT = new Set(["guest-list"]);
+const frozenSeen = [];
 const withLayout = [];
 const resendWithout = [];
 for (const name of fs.readdirSync(fnDir).sort()) {
@@ -74,7 +78,8 @@ for (const name of fs.readdirSync(fnDir).sort()) {
   const block = layoutOf(src);
   if (block) {
     withLayout.push(name);
-    if (block !== reference) fail(`${name}: the SMC e-mail layout block differs from docs/email-layout.ts`);
+    if (FROZEN_LAYOUT.has(name)) frozenSeen.push(name);
+    else if (block !== reference) fail(`${name}: the SMC e-mail layout block differs from docs/email-layout.ts`);
     if (hasBackslashU(src)) fail(`${name}: contains a backslash-u escape (the MCP deploy mangles them)`);
     if (src.includes("api.resend.com") && !src.includes("reply_to")) fail(`${name}: sends through Resend without a reply_to`);
   } else if (src.includes("api.resend.com") && !name.startsWith("sm26-")) {
@@ -257,6 +262,22 @@ const items = [];
   add("19b", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "join", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to join a verified company");
   add("19c", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "claim", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to manage an ownerless company");
   add("19d", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "none", org_name: "", sla: "within 2 working days" }, "no company");
+  // Every other notification type, with one generic set of fictional data (C4: a preview of
+  // every e-mail the site can send).
+  const generic = {
+    first_name: "Alex", title: "Fuel dock renovation", event_title: "Marina Days 2027", event_date: "12 June 2027", event_location: "Grimaldi Forum, Monaco",
+    org_name: "Port Azur Marina", partner_name: "Nautic Systems", marina_name: "Port Azur Marina", amount: "€500.00", invoice_ref: "INV-EXAMPLE-0042",
+    payment_type: "sponsorship", transaction_id: "TXN-EXAMPLE-0001", reason: "The description is too short for partners to understand the need.",
+    moderator_notes: "Clear topic, two speakers confirmed.", submitter: "Alex Martin", submission_type: "rfp", requested_tier: "Gold", deadline: "30 November 2026",
+    details: "Shore power for 40 berths.", message: "Thank you for your interest.", requester_name: "Sam Rivera", requester_email: "sam.rivera@example.com",
+    email: "alex.martin@example.com", confirmed_count: "3",
+  };
+  let n = 20;
+  for (const type of Object.keys(notif.TYPE_TO_CATEGORY)) {
+    if (items.some((i) => i.source.startsWith(`send-notification · ${type}`) && i.source.slice(`send-notification · ${type}`.length).match(/^( |$)/))) continue;
+    add(n++, type, "alex.martin@example.com", generic, "generic sample data");
+    items[items.length - 1].noButton = true; // some admin notices have no button
+  }
 }
 
 // Other Resend senders (each has its own function)
@@ -624,12 +645,15 @@ for (const it of items) {
 
   // wys26 parity: the staff notice is guest-list's, byte for byte; the acknowledgement is
   // guest-list's plus the "View my request" button to the personal link.
+  // Until guest-list is redeployed (after 29 Nov) its frozen copy keeps the old gold accent:
+  // compare with the accent colour aligned. Drop acc() once FROZEN_LAYOUT is empty.
+  const acc = (h) => (FROZEN_LAYOUT.has("guest-list") ? h.replaceAll("#7cc4f0", "#d7a647") : h);
   const glNotice = guestList.renderStaffNotice(wys, wysGuest);
   const pNotice = reg.renderParityStaffNotice(wys, wysGuest);
-  if (glNotice.subject !== pNotice.subject || glNotice.html !== pNotice.html || glNotice.text !== pNotice.text) fail("registration: the wys26 staff notice differs from guest-list's");
+  if (glNotice.subject !== pNotice.subject || glNotice.html !== acc(pNotice.html) || glNotice.text !== pNotice.text) fail("registration: the wys26 staff notice differs from guest-list's");
   const plusHost = { ...wysGuest, first_name: "Alex" };
   const plusRow = { ...wysGuest, first_name: "Sam", last_name: "Rivera", email: "sam.rivera@example.com", motivation: "" };
-  if (guestList.renderStaffNotice(wys, plusRow, plusHost).html !== reg.renderParityStaffNotice(wys, plusRow, plusHost).html) fail("registration: the wys26 plus-one staff notice differs from guest-list's");
+  if (guestList.renderStaffNotice(wys, plusRow, plusHost).html !== acc(reg.renderParityStaffNotice(wys, plusRow, plusHost).html)) fail("registration: the wys26 plus-one staff notice differs from guest-list's");
   const glAck = guestList.renderRequestAck(wys, wysGuest);
   const pAck = reg.renderParityAck(wys, wysGuest);
   const personal = `${SITE}/wys26/guest?t=${GUEST_TOKEN}`;
@@ -1024,26 +1048,227 @@ if (!checkOnly) {
     fs.writeFileSync(path.join(outDir, `${it.id}.html`), it.previewHtml ? it.previewHtml(it.html) : it.html);
     fs.writeFileSync(path.join(outDir, `${it.id}.txt`), it.text);
   }
-  const rows = items
+  // C4 (go-live): the WYS e-mails sent until 29 Nov come from the DEPLOYED guest-list v6
+  // (commit 446b1c9a, frozen), not from the repository copy. Render that version too: its
+  // send functions run with fetch, the database and QRCode stubbed; nothing leaves this process.
+  const extra = [];
+  try {
+    const { execFileSync } = await import("node:child_process");
+    let src = execFileSync("git", ["show", "446b1c9a:supabase/functions/guest-list/index.ts"], { cwd: root, encoding: "utf8" });
+    src = src.replace(/^import .*$/gm, "");
+    const js = ts.transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    const sent = [];
+    const fetchStub = async (_url, init) => (sent.push(JSON.parse(init.body)), { ok: true, text: async () => "" });
+    const Deno = { env: { get: (k) => ({ RESEND_API_KEY: "example", SITE_URL: SITE })[k] }, serve() {} };
+    const createClient = () => ({ from: () => ({ insert: () => Promise.resolve({}) }) });
+    const QR = { toDataURL: async () => wysQr || "data:image/png;base64," };
+    const gl6 = new Function("Deno", "createClient", "QRCode", "fetch", `${js}\nreturn { sendPass, sendInvitation, sendRequestAck, sendReject, notifyStaff };`)(Deno, createClient, QR, fetchStub);
+    const ev6 = { ...wys, notify_email: "events@m3monaco.com" };
+    const plus = { ...wysGuest, first_name: "Sam", last_name: "Rivera", email: "sam.rivera@example.com", motivation: "", wants_gala: false, plus_one_of: wysGuest.id };
+    const runs = [
+      ["wys-live-1-invitation", () => gl6.sendInvitation(ev6, wysGuest, null)],
+      ["wys-live-2-pass-with-qr", () => gl6.sendPass(ev6, wysGuest, null)],
+      ["wys-live-3-request-received", () => gl6.sendRequestAck(ev6, wysGuest)],
+      ["wys-live-4-request-declined", () => gl6.sendReject(ev6, wysGuest, null)],
+      ["wys-live-5-staff-request", () => gl6.notifyStaff(ev6, wysGuest)],
+      ["wys-live-6-staff-plus-one", () => gl6.notifyStaff(ev6, plus, wysGuest)],
+    ];
+    for (const [id, run] of runs) {
+      sent.length = 0;
+      await run();
+      const m = sent[0];
+      if (m) extra.push({ id, source: "guest-list v6 (deployed, frozen until 29 Nov)", subject: m.subject, html: wysQr ? m.html.replace("cid:entryqr", wysQr) : m.html });
+    }
+  } catch (e) {
+    console.warn(`guest-list v6 not rendered: ${e.message}`);
+  }
+
+  // Q16 draft: the one-off notice to the members who never signed in with a password
+  // (list: docs/operations/q16-no-password-members.sql). Draft only, sent by nobody here.
+  {
+    const lay = load("sponsor-invite", ["emailLayout", "emText", "emP"]);
+    const signIn = `${SITE}/?signin=true`;
+    const subject = "Smart Marina Connect: please choose a password";
+    const body1 = "Our new Smart Marina Connect website is now live. Signing in now uses your e-mail address and a password. Codes and links sent by e-mail are no longer offered.";
+    const body2 = "You have always signed in with a code or a link, so you do not have a password yet. Please click Forgot password once on the sign-in window, then choose your password from the e-mail you receive. Your account and your company stay as they are.";
+    extra.push({
+      id: "q16-password-notice",
+      source: "draft, one-off send (Q16)",
+      subject,
+      html: lay.emailLayout({
+        preheader: "Click Forgot password once to choose your password.",
+        eyebrow: "Your account",
+        title: "Choose your password",
+        greeting: "Hello Alex,",
+        bodyHtml: lay.emP(body1) + lay.emP(body2),
+        cta: { label: "Sign in", url: signIn },
+        signoff: "Best regards,<br>The Smart Marina Connect team",
+        reason: "You receive this e-mail because you have a Smart Marina Connect account.",
+      }),
+      text: lay.emText({ title: "Choose your password", greeting: "Hello Alex,", body: `${body1}\n\n${body2}`, cta: { label: "Sign in", url: signIn }, signoff: "Best regards,\nThe Smart Marina Connect team", reason: "You receive this e-mail because you have a Smart Marina Connect account." }),
+    });
+  }
+  for (const it of extra) {
+    fs.writeFileSync(path.join(outDir, `${it.id}.html`), it.html);
+    if (it.text) fs.writeFileSync(path.join(outDir, `${it.id}.txt`), it.text);
+  }
+
+  // When each e-mail leaves (French, for Victor) and when its function goes live.
+  const WHEN = {
+    "auth-1": "Inscription : lien pour confirmer l'adresse e-mail (quand « Confirm email » sera activé).",
+    "auth-2": "La personne clique « Forgot password ».",
+    "auth-3": "M3 invite quelqu'un depuis Supabase (invitation Auth).",
+    "auth-4": "Lien de connexion par e-mail (n'est plus proposé une fois la connexion par mot de passe seule activée).",
+    "auth-5": "La personne change son adresse e-mail (envoyé à la nouvelle adresse).",
+    "auth-6": "Code de vérification demandé avant une action sensible.",
+    event_registration_confirmed: "Inscription à un événement confirmée (ancien parcours d'inscription).",
+    partner_request_received: "Un membre envoie une demande de contact à un partenaire.",
+    partner_request_accepted: "Le partenaire accepte : mise en relation des deux, M3 en copie.",
+    partner_request_rejected: "Le partenaire décline une demande de contact.",
+    webinar_accepted: "M3 accepte une proposition de webinaire.",
+    webinar_rejected: "M3 refuse une proposition de webinaire.",
+    webinar_moderator_approved: "Un modérateur pré-approuve un webinaire (alerte aux admins).",
+    user_account_approved: "M3 valide un compte.",
+    payment_confirmed: "Paiement en ligne réussi.",
+    payment_failed: "Paiement en ligne échoué ou abandonné.",
+    rfp_submitted: "Un membre dépose un appel d'offres (alerte aux admins).",
+    rfp_approved: "M3 publie l'appel d'offres d'un membre.",
+    rfp_rejected: "M3 refuse un appel d'offres, avec la raison.",
+    rfp_closed: "Un appel d'offres est clôturé.",
+    consultation_submitted: "Un membre dépose une consultation (alerte aux admins).",
+    consultation_approved: "M3 publie la consultation d'un membre.",
+    consultation_rejected: "M3 refuse une consultation, avec la raison.",
+    consultation_closed: "Une consultation est clôturée.",
+    project_rejected: "M3 refuse un projet publié par un membre.",
+    project_status_updated: "Le statut d'un projet d'un membre change.",
+    reference_confirmed: "Le client confirme une recommandation (e-mail au partenaire).",
+    reference_rejected: "Le client refuse une recommandation (e-mail au partenaire).",
+    exposition_approved: "M3 accepte une demande d'exposant.",
+    exposition_rejected: "M3 refuse une demande d'exposant.",
+    exposition_invoice_sent: "M3 envoie la facture d'exposant.",
+    exposition_paid: "La facture d'exposant est payée.",
+    sponsorship_approved: "M3 valide un niveau de sponsoring.",
+    sponsorship_invoice_sent: "M3 envoie la facture de sponsoring.",
+    sponsorship_paid: "La facture de sponsoring est payée.",
+    sponsorship_rejected: "M3 refuse une demande de sponsoring.",
+    org_claim_code: "M3 envoie le code d'une entreprise à la personne qui va la gérer.",
+    partner_onboarding_welcome: "Un partenaire est créé : bienvenue en 3 étapes.",
+    membership_payment_received: "Paiement d'adhésion reçu (alerte aux admins).",
+    profile_reminder_verified_but_thin: "Relance automatique : compte validé, profil peu rempli.",
+    profile_reminder_signup_stalled: "Relance automatique : inscription commencée, pas finie.",
+    profile_reminder_onboarding_incomplete: "Relance automatique : profil d'entreprise incomplet.",
+    profile_reminder_pending_review_followup: "Relance automatique : compte toujours en attente de validation.",
+    team_invitation: "Un membre invite un collègue dans son entreprise.",
+    team_invitation_reminder: "Relance d'une invitation pas encore utilisée.",
+    team_join_request: "Quelqu'un demande à rejoindre l'entreprise (e-mail au responsable).",
+    team_join_approved: "Le responsable accepte la demande (e-mail à la personne).",
+    join_request_received: "Ancien parcours : demande pour rejoindre une entreprise reçue.",
+    join_request_approved: "Ancien parcours : demande pour rejoindre une entreprise acceptée.",
+    join_request_rejected: "Ancien parcours : demande pour rejoindre une entreprise refusée.",
+    account_under_review: "Après l'inscription : le compte attend la validation de M3 (à partir de l'allumage de front_door, D5).",
+    admin_new_submission: "Un membre soumet un contenu à valider (alerte aux admins).",
+    "wys-": "WYS, NOUVEAU design : pas avant le redéploiement de guest-list, après le 29 nov.",
+    "wys-live-1": "WYS : M3 envoie une invitation depuis la liste d'invités.",
+    "wys-live-2": "WYS : invitation acceptée ou demande validée par M3 ; QR d'entrée joint.",
+    "wys-live-3": "WYS : accusé de réception d'une demande d'invitation (formulaire /wys26).",
+    "wys-live-4": "WYS : M3 refuse une demande.",
+    "wys-live-5": "WYS : alerte à M3 pour chaque nouvelle demande.",
+    "wys-live-6": "WYS : alerte à M3 pour une demande d'accompagnant.",
+    "contact-1": "Formulaire /contact : alerte à events@m3monaco.com.",
+    "reference-1": "Un partenaire demande à son client de confirmer une recommandation.",
+    "webinar-1": "Un invité sans compte s'inscrit à un webinaire (ancien parcours).",
+    "webinar-2": "La veille d'un webinaire, aux invités sans compte (ancien parcours).",
+    "account-1": "Inscription avec un code d'entreprise : confirmer l'adresse.",
+    "account-2": "M3 valide un compte (ancien message de statut).",
+    "account-3": "M3 refuse une demande de compte (ancien message de statut).",
+    "account-4": "M3 suspend un compte.",
+    "sponsor-1": "M3 ouvre le portail sponsor (lien de connexion).",
+    "sponsor-2": "M3 demande un élément (logo, visuel) à un sponsor.",
+    "digest-": "Chaque vendredi vers 10 h : messages et demandes non lus de la semaine (rien si rien de neuf).",
+    "reg-01": "Inscription à un webinaire confirmée (.ics joint).",
+    "reg-02": "Inscription à un événement sur place reçue, en attente de M3.",
+    "reg-03": "Demande d'invitation reçue (événement sur invitation).",
+    "reg-04": "Événement complet : liste d'attente.",
+    "reg-05": "La personne s'inscrit une deuxième fois : rappel de son inscription.",
+    "reg-06": "M3 confirme la place sur place, avec le QR d'entrée.",
+    "reg-07": "M3 demande une précision sur une inscription.",
+    "reg-08": "M3 n'accepte pas une inscription.",
+    "reg-09": "La personne annule son inscription.",
+    "reg-10": "La personne demande « Get my links ».",
+    "reg-11": "Alerte à M3 : nouvelle inscription.",
+    "reg-12": "Alerte à M3 : la personne a répondu à la demande de précision.",
+    "reg-13": "Alerte à M3 : activité inhabituelle sur les inscriptions.",
+    "reg-14": "WYS, nouveau formulaire : accusé de réception (seulement si wys_form_v2 est allumé).",
+    "reg-15": "WYS, nouveau formulaire : alerte à M3 (seulement si wys_form_v2 est allumé).",
+    "cron-1": "Rappel 7 jours avant un webinaire.",
+    "cron-2": "Rappel la veille d'un webinaire, avec le lien.",
+    "cron-3": "Rappel 1 heure avant un webinaire.",
+    "cron-4": "Rappel 7 jours avant un événement sur place (infos pratiques, QR).",
+    "cron-5": "Après un webinaire, aux absents, avec le replay.",
+    "cron-6": "Après un webinaire, aux absents, replay pas encore prêt.",
+    "cron-7": "Replay disponible, à tous les inscrits (présence non relevée).",
+    "cron-8": "Replay ajouté après la relance des absents.",
+    "cron-9": "Résumé à M3 des nouvelles inscriptions (événement en mode résumé).",
+    "cron-10": "Chaque jour : résumé à M3 de ce qui attend une validation.",
+    "account-5-": "Compte créé à la confirmation d'une inscription : choisir son mot de passe.",
+    "account-5b": "WYS : une minute après l'e-mail avec le QR, compte prêt (choisir son mot de passe).",
+    "decision-1": "M3 valide le compte (membre d'une entreprise validée).",
+    "decision-2": "M3 valide le compte (participant, sans entreprise validée).",
+    "decision-3": "M3 refuse le compte, avec la raison.",
+    "decision-4": "M3 demande une précision avant de valider le compte.",
+    "decision-5": "M3 valide une nouvelle entreprise.",
+    "decision-6": "M3 accepte qu'une personne gère une entreprise.",
+    "decision-7": "M3 refuse cette demande, avec une note.",
+    "account-6": "Au responsable : un collègue a rejoint l'entreprise.",
+    "account-7": "Inscription avec l'adresse d'un compte qui existe déjà.",
+    "account-8": "Confirmer son adresse e-mail (bannière du tableau de bord).",
+    "account-9": "La personne demande un nouveau lien d'invitation depuis un ancien e-mail.",
+    "ops-1": "Surveillance : problème détecté (à M3 seulement, au plus une fois par 6 h).",
+    "ops-2": "Surveillance : e-mail de test.",
+    "q16-": "BROUILLON (question 16) : envoi unique aux ~45 membres sans mot de passe, après l'étape D5 ligne 4, avec ton OK.",
+  };
+  const DEPLOY = {
+    "send-email": "P7, avant le jour J",
+    "messages-digest": "Jour J, D3 (10 h 30)",
+    "guest-list": "Après le 29 nov",
+    "guest-list v6 (deployed, frozen until 29 Nov)": "Déjà en ligne, inchangé",
+    "draft, one-off send (Q16)": "Envoi manuel",
+  };
+  for (const fn of ["send-notification", "send-status-notification", "sponsor-invite", "claim-code-signup", "contact-submit", "guest-webinar-register", "guest-webinar-reminders", "sp-notify", "send-reference-email"]) DEPLOY[fn] = "Jour J, D2 (9 h 15)";
+  for (const fn of ["registration", "registration-cron", "provision-person", "account-signup", "accept-invite", "ops-health"]) DEPLOY[fn] = "Déjà en ligne (doré) ; bleu à J+1–J+5";
+  const whenOf = (it) => {
+    const type = it.source.match(/^send-notification · ([a-z_0-9]+)/)?.[1];
+    if (type) return WHEN[type] || `Notification du site (${type}).`;
+    const key = Object.keys(WHEN).filter((k) => k.includes("-") && it.id.startsWith(k)).sort((a, b) => b.length - a.length)[0];
+    return key ? WHEN[key] : "";
+  };
+  const deployOf = (it) => DEPLOY[it.source] || DEPLOY[it.source.split(" · ")[0]] || "";
+  const all = [...items.filter((i) => !i.id.startsWith("wys-")), ...extra, ...items.filter((i) => i.id.startsWith("wys-"))];
+  const rows = all
     .map(
       (it) =>
-        `<tr><td><a href="${it.id}.html">${esc(it.id)}</a></td><td>${esc(it.subject)}</td><td>${esc(it.source)}</td><td><a href="${it.id}.txt">text</a></td></tr>`,
+        `<tr><td><a href="${it.id}.html">${esc(it.id)}</a></td><td>${esc(whenOf(it))}</td><td>${esc(it.subject)}</td><td>${esc(it.source.split(" · ")[0])}<br><small>${esc(deployOf(it))}</small></td><td>${it.text ? `<a href="${it.id}.txt">texte</a>` : ""}</td></tr>`,
     )
     .join("\n");
+  const invit = fs.existsSync(path.join(outDir, "invitation-campaign", "index.html"))
+    ? `<tr><td><a href="invitation-campaign/index.html">invitation-campaign</a></td><td>${esc("Campagnes d'invitation (kit WYS) : M3 lance une campagne depuis l'admin. Déjà en ligne, inchangé.")}</td><td>(texte de la campagne)</td><td>invitation-campaign</td><td></td></tr>`
+    : "";
   fs.writeFileSync(
     path.join(outDir, "index.html"),
-    `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Smart Marina Connect e-mail previews</title>
-<style>body{margin:0;padding:32px 20px;background:#eef2f8;font:15px/1.5 Arial,Helvetica,sans-serif;color:#1f2937}main{max-width:980px;margin:0 auto}h1{color:#0b2653;font-size:26px;margin:0 0 6px}p{color:#5b6475;margin:0 0 20px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}th,td{padding:10px 14px;text-align:left;border-bottom:1px solid #e3e7ee;vertical-align:top}th{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#1f7a8c}a{color:#0b2653;font-weight:bold}</style></head>
-<body><main><h1>E-mail previews</h1><p>Rendered by the real code of the edge functions (send-email, send-notification and the other Resend senders) with fictional data,${new Date().toISOString().slice(0, 10)}. Regenerate with <code>node scripts/email-previews.mjs</code>.</p>
-<table><tr><th>Preview</th><th>Subject</th><th>Source</th><th></th></tr>
+    `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Aperçus des e-mails</title>
+<style>body{margin:0;padding:32px 20px;background:#eef2f8;font:15px/1.5 Arial,Helvetica,sans-serif;color:#1f2937}main{max-width:1100px;margin:0 auto}h1{color:#0b2653;font-size:26px;margin:0 0 6px}p{color:#5b6475;margin:0 0 20px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}th,td{padding:10px 14px;text-align:left;border-bottom:1px solid #e3e7ee;vertical-align:top}th{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#1b6ea8}a{color:#0b2653;font-weight:bold}small{color:#5b6475}</style></head>
+<body><main><h1>Aperçus des e-mails</h1><p>Chaque e-mail que le site peut envoyer à partir du jour J, rendu par le vrai code des fonctions, avec des données fictives (${new Date().toISOString().slice(0, 10)}). Rien n'a été envoyé. Les e-mails de la SM26 (fonctions sm26-*) ne sont pas ici : ils restent tels quels jusqu'au 29 nov.</p>
+<table><tr><th>Aperçu</th><th>Quand il part</th><th>Objet</th><th>Fonction / mise en ligne</th><th></th></tr>
 ${rows}
+${invit}
 </table></main></body></html>`,
   );
 }
 
 // ---------------------------------------------------------------- report
 
-console.log(`Layout block: identical in ${withLayout.length - failures.filter((f) => f.includes("differs")).length}/${withLayout.length} function(s) (${withLayout.join(", ")})`);
+console.log(`Layout block: identical in ${withLayout.length - frozenSeen.length - failures.filter((f) => f.includes("differs")).length}/${withLayout.length - frozenSeen.length} function(s) (${withLayout.filter((n) => !FROZEN_LAYOUT.has(n)).join(", ")})`);
+if (frozenSeen.length) console.log(`Frozen, not compared (old gold copy until 29 Nov): ${frozenSeen.join(", ")}`);
 if (resendWithout.length) console.log(`Resend senders not on the new layout yet: ${resendWithout.join(", ")}`);
 console.log(`${items.length} e-mails rendered${checkOnly ? " (nothing written)" : ` into ${outDir}`}`);
 if (failures.length) {

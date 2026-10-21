@@ -1,31 +1,39 @@
 import { useState, useEffect } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SM26SectorSuggestions } from '@/components/admin/SM26SectorSuggestions';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import {
-  ArrowLeft, Save, Loader2, Building2, Globe, MapPin, Users,
-  ExternalLink, RefreshCw, Anchor, Copy, CheckCircle, Shield,
-  KeyRound, Send, Archive, ArchiveRestore,
+  Save, Loader2, Building2, Globe, Users, UserPlus,
+  ExternalLink, Anchor, Copy, CheckCircle, Shield,
+  KeyRound, Send, Archive, ArchiveRestore, Crown,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
-import { AdminDetailHeader, AdminStatus, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { TIER_LABELS, OrgTier } from '@/types/database';
+import { ActionCue, CardLink } from '@/components/home/dashboard/DashboardKit';
+import {
+  AdminDetailHeader, AdminEmpty, AdminLoading, AdminPanel, AdminStatus, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+import { FIELD, FormField, fmtDay, orgTypeLabel, personaLabel, TierPill } from './AdminStyleKit';
+import { Field, Note } from './v2/MembersKit';
 import { archiveOrg, markDuplicateOrg, reviewErrorText } from './review/reviewApi';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+
+/**
+ * A company's settings screen (/admin/organizations/:id), opened from the company page
+ * ("Plan, claim code and other settings") and from To validate. Refonte admin style
+ * (Oct 2026): panels, labelled fields, buttons that say what they do; the members list
+ * shows each person with an "Open their account" pill. Same reads and writes as before.
+ */
 
 /* ─── Types ─── */
 
@@ -104,16 +112,9 @@ const STATUS_OPTIONS = ['verified', 'pending', 'rejected', 'suspended'];
 // the user-facing admin screens filter on profiles.access_status, not on the
 // organization's onboarding_status.
 const ONBOARDING_OPTIONS = ['draft', 'submitted', 'completed'];
-const STATUS_COLORS: Record<string, string> = {
-  verified: 'bg-green-50 text-green-700 border-green-200',
-  pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
-  suspended: 'bg-gray-100 text-gray-600 border-gray-300',
-};
 
 export function AdminOrganizationDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -247,12 +248,12 @@ export function AdminOrganizationDetail() {
   const handleSetOwner = async (m: MemberRow) => {
     if (!org) return;
     const label = [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email || 'this member';
-    if (!window.confirm(`Make ${label} the owner of ${org.name}?\n\nAny current owner becomes a collaborator.`)) return;
+    if (!window.confirm(`Make ${label} the person in charge of ${org.name}?\n\nThe current person in charge, if any, becomes a member.`)) return;
     setSettingOwner(m.user_id);
     const { error } = await supabase.rpc('admin_set_org_owner', { p_org_id: org.id, p_user_id: m.user_id });
     setSettingOwner(null);
-    if (error) { toast({ title: 'Could not set the owner', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: 'Owner updated', description: `${label} now owns ${org.name}.` });
+    if (error) { toast({ title: 'Could not change the person in charge', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Person in charge changed', description: `${label} is now in charge of ${org.name}.` });
     await loadOrg();
   };
 
@@ -297,7 +298,7 @@ export function AdminOrganizationDetail() {
       }
     }
 
-    toast({ title: 'Organization updated' });
+    toast({ title: 'Settings saved' });
     await loadOrg();
     setSaving(false);
   };
@@ -391,29 +392,34 @@ export function AdminOrganizationDetail() {
     setSendingInvite(false);
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   if (!org) return (
-    <div className="text-center py-12 text-gray-500">
-      <p>Organization not found.</p>
-      <Button variant="ghost" onClick={() => navigate('/admin/organizations')} className="mt-4">
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back to Organizations
-      </Button>
+    <div className="mx-auto max-w-3xl rounded-card border border-rule bg-white">
+      <AdminEmpty
+        icon={Building2}
+        title={t('adm2.org.notFound', 'This company was not found')}
+        action={<CardLink to="/admin/companies">{t('adm2.org.backToList', 'Back to Companies')}</CardLink>}
+      />
     </div>
   );
 
-  const tierColors = TIER_COLORS[org.tier as OrgTier];
-  const statusColor = STATUS_COLORS[org.access_status] || STATUS_COLORS.pending;
+  const roleLabel = (role: string) => role === 'owner'
+    ? t('adm2.org.roleOwner', 'Person in charge')
+    : role === 'collaborator' ? t('adm2.org.roleMember', 'Member') : role.charAt(0).toUpperCase() + role.slice(1);
+  const saveButton = (extra?: string) => (
+    <Button variant="secondary" size="sm" className={[ADMIN_BTN_PRIMARY, extra].filter(Boolean).join(' ')} onClick={handleSave} disabled={saving}>
+      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="mr-2 h-4 w-4" aria-hidden="true" />}
+      {t('adm2.org.save', 'Save the settings')}
+    </Button>
+  );
+  const link = 'font-semibold text-teal-text underline decoration-teal/40 underline-offset-2 hover:text-navy';
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="mx-auto max-w-5xl space-y-6">
       {/* Header */}
       <AdminDetailHeader
-        back={{ to: '/admin/organizations', label: 'Organizations' }}
+        back={{ to: `/admin/companies/${org.id}`, label: t('adm2.org.back', 'Back to the company page') }}
         title={org.name}
         leading={
           <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-rule bg-white">
@@ -427,20 +433,14 @@ export function AdminOrganizationDetail() {
         badges={
           <>
             <AdminStatus status={org.access_status} />
-            {org.organization_type && <AdminStatusPill>{org.organization_type === 'partner' ? 'Service provider' : org.organization_type === 'media_partner' ? 'Media' : org.organization_type}</AdminStatusPill>}
-            <Badge className={[tierColors?.bg || 'bg-gray-50', tierColors?.text || 'text-gray-700', 'border', tierColors?.border || 'border-gray-200', 'text-[11px]'].join(' ')}>
-              {TIER_LABELS[org.tier as OrgTier] || org.tier}
-            </Badge>
+            {org.organization_type && <AdminStatusPill>{orgTypeLabel(org.organization_type)}</AdminStatusPill>}
+            <TierPill tier={org.tier} />
             {listing?.archived_at && <AdminStatusPill icon={Archive}>{t('admin.orgListing.archivedPill', 'Archived')}</AdminStatusPill>}
             {listing?.duplicate_of && <AdminStatusPill>{t('admin.orgListing.duplicatePill', 'Duplicate')}</AdminStatusPill>}
           </>
         }
-        actions={
-          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-            Save Changes
-          </Button>
-        }
+        subtitle={t('adm2.org.subtitle', 'Settings: access, sponsor plan, seats, claim code and team.')}
+        actions={saveButton()}
       />
 
       {/* Listing: archived or marked as a duplicate from the review queue; M3 can undo it here. */}
@@ -464,7 +464,7 @@ export function AdminOrganizationDetail() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="[overflow-wrap:anywhere]">
                 <span className="font-semibold">{t('admin.orgListing.duplicateOf', 'Marked as a duplicate of')}</span>{' '}
-                <Link to={`/admin/organizations/${listing.duplicate_of}`} className="font-semibold text-teal-text underline underline-offset-2 hover:text-navy">
+                <Link to={`/admin/organizations/${listing.duplicate_of}`} className={link}>
                   {listing.survivor?.name || t('admin.orgListing.anotherCompany', 'another company')}
                 </Link>
                 {'. '}
@@ -485,361 +485,322 @@ export function AdminOrganizationDetail() {
       {/* D2 crosswalk: sectors suggested from this org's SM26 innovation categories (self-hides if none) */}
       {id && <SM26SectorSuggestions orgId={id} />}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left column: Details */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Left column: what the company is */}
         <div className="space-y-6">
-          {/* Basic Info */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Building2 className="h-4 w-4" /> Organization Info
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-gray-500">Slug</Label>
-                  <p className="text-sm font-mono">{org.slug}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500">Domain</Label>
-                  <p className="text-sm">{org.primary_domain || '—'}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-gray-500">Country</Label>
-                  <p className="text-sm flex items-center gap-1"><MapPin className="h-3 w-3" />{org.country || '—'}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500">City</Label>
-                  <p className="text-sm">{org.city || '—'}</p>
-                </div>
-              </div>
+          <AdminPanel icon={Building2} title={t('adm2.org.details', 'Company details')}>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('adm2.org.slug', 'Address on the site')}><span className="font-mono text-[14px]">{org.slug}</span></Field>
+              <Field label={t('adm2.org.domain', 'E-mail domain')}>{org.primary_domain}</Field>
+              <Field label={t('adm2.org.country', 'Country')}>{org.country}</Field>
+              <Field label={t('adm2.org.city', 'City')}>{org.city}</Field>
               {org.website && (
-                <div>
-                  <Label className="text-xs text-gray-500">Website</Label>
-                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-sm text-primary flex items-center gap-1 hover:underline">
-                    <Globe className="h-3 w-3" /> {org.website}
-                  </a>
+                <div className="sm:col-span-2">
+                  <Field label={t('adm2.org.website', 'Website')}>
+                    <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1.5 ${link}`}>
+                      <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="[overflow-wrap:anywhere]">{org.website}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="sr-only">{t('adm2.newTab', '(opens in a new tab)')}</span>
+                    </a>
+                  </Field>
                 </div>
               )}
               {org.description && (
-                <div>
-                  <Label className="text-xs text-gray-500">Description</Label>
-                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{org.description}</p>
+                <div className="sm:col-span-2">
+                  <Field label={t('adm2.org.description', 'Description')}><span className="whitespace-pre-wrap">{org.description}</span></Field>
                 </div>
               )}
-              <div className="text-xs text-gray-400 pt-1">
-                Created {new Date(org.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                {' • '}Updated {new Date(org.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </div>
-            </CardContent>
-          </Card>
+            </dl>
+            <p className="mt-4 text-[13px] leading-5 text-meta">
+              {t('adm2.org.dates', 'Created {{created}} · last change {{updated}}', { created: fmtDay(org.created_at), updated: fmtDay(org.updated_at) })}
+            </p>
+          </AdminPanel>
 
           {/* Claim Code & Send Connect Link */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <KeyRound className="h-4 w-4" /> Claim Code
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex items-center gap-2">
+          <AdminPanel
+            icon={KeyRound}
+            title={t('adm2.org.claimTitle', 'Claim code')}
+            description={t('adm2.org.claimDesc', 'A person types this code when they sign up, to join this company.')}
+          >
+            <div className="space-y-4">
+              <FormField
+                label={t('adm2.org.claimLabel', 'The code')}
+                htmlFor="org-claim-code"
+                hint={claimCodeReady
+                  ? t('adm2.org.claimHint', 'A new code takes effect when you press "Save the settings".')
+                  : <span className="text-amber-800">{t('admin.orgClaimCode.unavailable', 'The claim code could not be loaded. Only verified admins can see it; reload the page to try again.')}</span>}
+              >
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
+                    id="org-claim-code"
                     value={claimCode}
                     onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
                     // Fake example on purpose: the bundle and the repo are public, so never put a real code here.
                     placeholder={t('admin.orgClaimCode.placeholder', 'e.g. ABC-1234')}
                     disabled={!claimCodeReady}
-                    className="max-w-[200px] uppercase tracking-wider font-mono text-sm"
+                    className={`${FIELD} max-w-[220px] font-mono uppercase tracking-wider`}
                   />
                   {claimCode && (
-                    <Button variant="ghost" size="sm" onClick={copyCode}>
-                      {codeCopied ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                    <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={copyCode}>
+                      {codeCopied ? <CheckCircle className="mr-2 h-4 w-4 text-emerald-600" aria-hidden="true" /> : <Copy className="mr-2 h-4 w-4" aria-hidden="true" />}
+                      {codeCopied ? t('adm2.org.copied', 'Copied') : t('adm2.org.copy', 'Copy the code')}
                     </Button>
                   )}
                 </div>
-                {claimCodeReady ? (
-                  <p className="text-xs text-gray-400 mt-2">Users enter this code during onboarding to join this organization.</p>
-                ) : (
-                  <p className="text-xs text-amber-700 mt-2">
-                    {t('admin.orgClaimCode.unavailable', 'The claim code could not be loaded. Only verified admins can see it; reload the page to try again.')}
-                  </p>
-                )}
-              </div>
+              </FormField>
 
               {savedClaimCode && orgOwned && (
-                <>
-                  <Separator />
-                  <div>
-                    <Label className="text-xs font-medium text-gray-600 mb-1.5 block">Send Connect Link</Label>
-                    <p className="text-xs text-amber-800">
-                      {t('admin.orgClaimCode.owned', 'This company already has an owner on Smart Marina Connect, so its code cannot add anyone. To bring someone in, ask the owner to invite them to the team, or use "Invite a colleague" in the Members box.')}
-                    </p>
-                  </div>
-                </>
+                <div className="border-t border-rule pt-4">
+                  <Note>{t('admin.orgClaimCode.owned', 'This company already has an owner on Smart Marina Connect, so its code cannot add anyone. To bring someone in, ask the owner to invite them to the team, or use "Invite a colleague" in the Members box.')}</Note>
+                </div>
               )}
               {savedClaimCode && !orgOwned && (
-                <>
-                  <Separator />
-                  <div>
-                    <Label className="text-xs font-medium text-gray-600 mb-1.5 block">Send Connect Link</Label>
-                    <div className="flex items-center gap-2">
+                <div className="border-t border-rule pt-4">
+                  <FormField
+                    label={t('adm2.org.sendLabel', 'Send the code by e-mail')}
+                    htmlFor="org-connect-email"
+                    hint={claimCodeDirty
+                      ? <span className="text-amber-800">{t('admin.orgClaimCode.saveBeforeSend', 'Save the new code first: the e-mail always carries the saved code.')}</span>
+                      : t('adm2.org.sendHint', 'They get an e-mail with the code and how to sign up.')}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <Input
+                        id="org-connect-email"
                         type="email"
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
-                        placeholder="manager@marina.com"
-                        className="text-sm"
+                        placeholder="name@example.com"
+                        className={FIELD}
                       />
                       <Button
+                        type="button"
+                        variant="outline"
                         size="sm"
+                        className={`${ADMIN_BTN} shrink-0`}
                         onClick={handleSendConnectLink}
                         disabled={sendingInvite || !inviteEmail.trim() || claimCodeDirty}
                       >
-                        {sendingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                        {sendingInvite ? '' : 'Send'}
+                        {sendingInvite ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="mr-2 h-4 w-4" aria-hidden="true" />}
+                        {sendingInvite ? t('adm2.sending', 'Sending…') : t('adm2.org.send', 'Send the e-mail')}
                       </Button>
                     </div>
-                    {claimCodeDirty ? (
-                      <p className="text-xs text-amber-700 mt-1.5">
-                        {t('admin.orgClaimCode.saveBeforeSend', 'Save the new code first: the e-mail always carries the saved code.')}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-gray-400 mt-1.5">Sends an email with the claim code and signup instructions.</p>
-                    )}
-                  </div>
-                </>
+                  </FormField>
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </AdminPanel>
 
           {/* Marina Details */}
           {marina && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Anchor className="h-4 w-4" /> Marina Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-xs text-gray-500">Type</Label>
-                    <p className="text-sm">{marina.marina_type || '—'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-gray-500">Berths</Label>
-                    <p className="text-sm font-semibold">{marina.berths_count ?? '—'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-gray-500">Superyacht Berths</Label>
-                    <p className="text-sm">{marina.superyacht_berths ?? '—'}</p>
+            <AdminPanel icon={Anchor} title={t('adm2.org.marina', 'Marina details')}>
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <Field label={t('adm2.org.marinaType', 'Type')}>{marina.marina_type}</Field>
+                <Field label={t('adm2.org.berths', 'Berths')}>{marina.berths_count ?? null}</Field>
+                <Field label={t('adm2.org.superyacht', 'Superyacht berths')}>{marina.superyacht_berths ?? null}</Field>
+                {marina.longest_berth_meters ? <Field label={t('adm2.org.longest', 'Longest berth')}>{`${marina.longest_berth_meters} m`}</Field> : null}
+              </dl>
+              {(marina.has_yacht_club || marina.has_sailing_school || marina.has_boat_yard || marina.has_restaurants || marina.has_concierge) && (
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {marina.has_yacht_club && <AdminStatusPill>Yacht club</AdminStatusPill>}
+                  {marina.has_sailing_school && <AdminStatusPill>Sailing school</AdminStatusPill>}
+                  {marina.has_boat_yard && <AdminStatusPill>Boat yard</AdminStatusPill>}
+                  {marina.has_restaurants && <AdminStatusPill>Restaurants ({marina.restaurants_count || '?'})</AdminStatusPill>}
+                  {marina.has_concierge && <AdminStatusPill>Concierge</AdminStatusPill>}
+                </div>
+              )}
+              {marina.certifications && marina.certifications.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-meta">{t('adm2.org.certifications', 'Certifications')}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {marina.certifications.map(c => <AdminStatusPill key={c} tone="info">{c}</AdminStatusPill>)}
                   </div>
                 </div>
-                {marina.longest_berth_meters && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Longest Berth</Label>
-                    <p className="text-sm">{marina.longest_berth_meters}m</p>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {marina.has_yacht_club && <Badge variant="outline" className="text-[10px]">Yacht Club</Badge>}
-                  {marina.has_sailing_school && <Badge variant="outline" className="text-[10px]">Sailing School</Badge>}
-                  {marina.has_boat_yard && <Badge variant="outline" className="text-[10px]">Boat Yard</Badge>}
-                  {marina.has_restaurants && <Badge variant="outline" className="text-[10px]">Restaurants ({marina.restaurants_count || '?'})</Badge>}
-                  {marina.has_concierge && <Badge variant="outline" className="text-[10px]">Concierge</Badge>}
-                </div>
-                {marina.certifications && marina.certifications.length > 0 && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Certifications</Label>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {marina.certifications.map(c => <Badge key={c} variant="secondary" className="text-[10px]">{c}</Badge>)}
-                    </div>
-                  </div>
-                )}
-                {marina.marina_description && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Marina Description</Label>
-                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{marina.marina_description}</p>
-                  </div>
-                )}
-                {marina.services_description && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Services</Label>
-                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{marina.services_description}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              )}
+              {(marina.marina_description || marina.services_description) && (
+                <dl className="mt-4 grid gap-4">
+                  {marina.marina_description && <Field label={t('adm2.org.marinaDesc', 'About the marina')}><span className="whitespace-pre-wrap">{marina.marina_description}</span></Field>}
+                  {marina.services_description && <Field label={t('adm2.org.services', 'Services')}><span className="whitespace-pre-wrap">{marina.services_description}</span></Field>}
+                </dl>
+              )}
+            </AdminPanel>
           )}
         </div>
 
-        {/* Right column: Admin controls + Members */}
+        {/* Right column: M3 settings + the people */}
         <div className="space-y-6">
-          {/* Admin Controls */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Shield className="h-4 w-4" /> Admin Controls
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label className="text-xs">Access Status</Label>
+          <AdminPanel
+            icon={Shield}
+            title={t('adm2.org.settings', 'M3 settings')}
+            description={t('adm2.org.settingsDesc', 'Nothing changes until you press "Save the settings".')}
+          >
+            <div className="space-y-5">
+              <FormField label={t('adm2.org.access', 'Access')} htmlFor="org-access">
                 <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="org-access" className={FIELD}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
+              </FormField>
               {status === 'rejected' && (
-                <div>
-                  <Label className="text-xs">Rejection Reason</Label>
-                  <Textarea value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} rows={2} />
-                </div>
+                <FormField label={t('adm2.org.reason', 'Why it was not accepted')} htmlFor="org-reason">
+                  <Textarea id="org-reason" value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} rows={2} className="bg-white" />
+                </FormField>
               )}
-              <div>
-                <Label className="text-xs">Onboarding Status</Label>
+              <FormField
+                label={t('adm2.org.onboarding', 'Registration progress')}
+                htmlFor="org-onboarding"
+                hint={t('adm2.org.onboardingHint', 'Only "Completed" counts as a fully registered company. Set it here rather than in SQL.')}
+              >
                 <Select value={onboardingStatus} onValueChange={setOnboardingStatus}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="org-onboarding" className={FIELD}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {ONBOARDING_OPTIONS.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Only “Completed” counts as a fully onboarded organization. Set it here rather than in SQL.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs">Tier</Label>
+              </FormField>
+              <FormField
+                label={t('adm2.org.tier', 'Sponsor plan')}
+                htmlFor="org-tier"
+                hint={
+                  <>
+                    {t('adm2.org.tierHint1', 'A paying plan puts a validated company on the one sponsors list:')}{' '}
+                    <Link to="/partners" className={link}>{t('adm2.org.tierHintLink', 'the Partners page')}</Link>
+                    {t('adm2.org.tierHint2', ', the home page band and the event pages, grouped by plan. Member = free, not listed.')}
+                  </>
+                }
+              >
                 <Select value={tier} onValueChange={setTier}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="org-tier" className={FIELD}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
-                    <SelectItem value="associate_partner">Associate Partner</SelectItem>
-                    <SelectItem value="premium_partner">Partner</SelectItem>
-                    <SelectItem value="premium_sponsor">Premium Sponsor</SelectItem>
-                    <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
+                    {(Object.keys(TIER_LABELS) as OrgTier[]).map(k => <SelectItem key={k} value={k}>{TIER_LABELS[k]}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <p className="mt-1 text-xs text-gray-500">
-                  A paying tier puts a verified organisation on the one sponsors list: the <Link to="/partners" className="text-primary hover:underline">Partners page</Link>, the
-                  home page band and the event pages, grouped by tier. Member = not listed.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs">Max Seats</Label>
-                <Input type="number" value={maxSeats} onChange={e => setMaxSeats(parseInt(e.target.value) || 1)} min={1} className="h-9 w-24" />
-              </div>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <Checkbox checked={mediaPartner} onCheckedChange={v => setMediaPartner(!!v)} className="mt-0.5" />
+              </FormField>
+              <FormField label={t('adm2.org.seats', 'Seats (people who can join)')} htmlFor="org-seats">
+                <Input id="org-seats" type="number" value={maxSeats} onChange={e => setMaxSeats(parseInt(e.target.value) || 1)} min={1} className={`${FIELD} w-28`} />
+              </FormField>
+              <label htmlFor="org-media" className="flex cursor-pointer items-start gap-3 rounded-xl border border-rule bg-white p-3">
+                <Checkbox id="org-media" checked={mediaPartner} onCheckedChange={v => setMediaPartner(!!v)} className="mt-0.5" />
                 <span>
-                  <span className="text-sm font-medium text-gray-800">Media partner</span>
-                  <span className="block text-xs text-gray-500">
-                    Tag this media outlet as one of our media partners — shown with a badge in the public
-                    partners directory. Accreditation for an event is separate.
+                  <span className="block text-[14px] font-semibold leading-5 text-navy">{t('adm2.org.media', 'Media partner')}</span>
+                  <span className="mt-0.5 block text-[13px] leading-[18px] text-meta">
+                    {t('adm2.org.mediaHint', 'Tags this media outlet as one of our media partners, with a badge in the public directory. Accreditation for an event is separate.')}
                   </span>
                 </span>
               </label>
-              <Separator />
-              <div className="text-xs text-gray-400 space-y-1">
-                <p>Auto-approve domain joins: <span className="font-medium text-gray-600">{org.auto_approve_domain_joins ? 'Yes' : 'No'}</span></p>
-              </div>
-            </CardContent>
-          </Card>
+              <p className="text-[13px] leading-5 text-meta">
+                {t('adm2.org.autoJoin', 'People with its e-mail domain join without approval:')}{' '}
+                <span className="font-semibold text-navy">{org.auto_approve_domain_joins ? t('adm2.yes', 'Yes') : t('adm2.no', 'No')}</span>
+              </p>
+              <div className="border-t border-rule pt-4">{saveButton('w-full sm:w-auto')}</div>
+            </div>
+          </AdminPanel>
 
           {/* Members */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Users className="h-4 w-4" /> Members ({members.length}/{maxSeats})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!org.owner_user_id && members.length > 0 && (
-                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
-                  This organization has no owner. Use “Make owner” on a member, or let the real
-                  manager claim it with the code — claiming now promotes an existing member too.
-                </p>
-              )}
-
-              {/* Add a colleague on the organisation's behalf. The owner's own
-                  screen can do this too, but not when the owner cannot sign in —
-                  which is exactly when someone asks us to. */}
-              <div className="mb-3 rounded-lg border border-gray-200 p-2.5 space-y-2">
-                <Label className="text-xs font-medium text-gray-600">Invite a colleague</Label>
-                <Input value={memberEmail} onChange={e => setMemberEmail(e.target.value)}
-                  placeholder="their@email.com" type="email" className="h-8 text-sm"
-                  onKeyDown={e => { if (e.key === 'Enter') handleAdminInvite(); }} />
-                <div className="flex gap-2">
-                  <Input value={memberFirst} onChange={e => setMemberFirst(e.target.value)}
-                    placeholder="First name" className="h-8 text-sm" />
-                  <Input value={memberLast} onChange={e => setMemberLast(e.target.value)}
-                    placeholder="Last name" className="h-8 text-sm" />
-                </div>
-                <Button size="sm" className="w-full h-8" disabled={!memberEmail.trim() || invitingMember}
-                  onClick={handleAdminInvite}>
-                  {invitingMember ? 'Sending…' : 'Send invitation'}
-                </Button>
-                <p className="text-[11px] text-gray-400">
-                  They get a link to join {org.name} as a collaborator. The owner keeps their role.
-                  {members.length >= maxSeats && ' The team is full — sending will free a seat.'}
-                </p>
+          <AdminPanel
+            icon={Users}
+            title={t('adm2.org.people', 'People ({{count}} of {{max}} seats)', { count: members.length, max: maxSeats })}
+            padded={false}
+          >
+            {!org.owner_user_id && members.length > 0 && (
+              <div className="px-5 pt-4">
+                <Note tone="warning">
+                  {t('adm2.org.noOwner', 'This company has no person in charge. Press "Make them the person in charge" on someone below, or let the real manager claim it with the code: claiming also promotes an existing member.')}
+                </Note>
               </div>
+            )}
 
-              {members.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">No members yet</p>
-              ) : (
-                <div className="space-y-2">
-                  {members.map(m => (
-                    <div key={m.id}
-                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => navigate(`/admin/users/${m.user_id}`)}
-                    >
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
-                        {(m.first_name?.[0] || '?').toUpperCase()}
+            {members.length === 0 ? (
+              <p className="px-5 py-6 text-center text-[14px] text-meta">{t('adm2.org.noMembers', 'Nobody has joined yet.')}</p>
+            ) : (
+              <ul className="divide-y divide-rule">
+                {members.map(m => {
+                  const name = [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Unknown';
+                  return (
+                    <li key={m.id} className="px-5 py-3.5">
+                      <Link
+                        to={`/admin/users/${m.user_id}`}
+                        className="group -mx-2 flex flex-col gap-2 rounded-xl px-2 py-1 transition-colors hover:bg-page focus:outline-none focus-visible:shadow-focus sm:flex-row sm:items-center sm:gap-3"
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-3">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-pill bg-chip text-[13px] font-semibold text-navy" aria-hidden="true">
+                            {(m.first_name?.[0] || '?').toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{name}</span>
+                            <span className="block text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
+                              {[m.email, m.persona ? personaLabel(m.persona) : null].filter(Boolean).join(' · ')}
+                            </span>
+                          </span>
+                        </span>
+                        <ActionCue size="sm" className="self-start sm:self-center">{t('adm2.org.openAccount', 'Open their account')}</ActionCue>
+                      </Link>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:pl-12">
+                        <AdminStatusPill tone={m.role === 'owner' ? 'navy' : 'neutral'}>{roleLabel(m.role)}</AdminStatusPill>
+                        {m.access_status && <AdminStatus status={m.access_status} />}
+                        {m.role !== 'owner' && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSetOwner(m)}
+                            disabled={settingOwner === m.user_id}
+                            className="h-9 rounded-pill border-navy/30 bg-white px-3 text-[13px] text-navy hover:border-navy hover:bg-chip hover:text-navy sm:ml-auto"
+                          >
+                            {settingOwner === m.user_id ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Crown className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />}
+                            {t('adm2.org.makeOwner', 'Make them the person in charge')}
+                          </Button>
+                        )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {[m.first_name, m.last_name].filter(Boolean).join(' ') || 'Unknown'}
-                        </p>
-                        <p className="text-xs text-gray-400 truncate">{m.email}</p>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">{m.role}</Badge>
-                      {m.role !== 'owner' && (
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); handleSetOwner(m); }}
-                          disabled={settingOwner === m.user_id}
-                          title="Make this member the organization owner"
-                          className="shrink-0 text-[10px] font-medium border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 hover:bg-white hover:text-primary hover:border-primary/40 disabled:opacity-60"
-                        >
-                          {settingOwner === m.user_id ? '…' : 'Make owner'}
-                        </button>
-                      )}
-                      {m.access_status && (
-                        <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${
-                          m.access_status === 'verified' ? 'bg-green-500' :
-                          m.access_status === 'pending' ? 'bg-yellow-500' :
-                          m.access_status === 'rejected' ? 'bg-red-500' : 'bg-gray-400'
-                        }`} title={m.access_status} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <Separator className="my-3" />
-              <Button variant="outline" size="sm" className="w-full text-xs"
-                onClick={() => navigate(`/admin/users?org=${org.id}`)}>
-                <ExternalLink className="h-3 w-3 mr-1" /> View all users from this org
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* Add a colleague on the organisation's behalf. The owner's own
+                screen can do this too, but not when the owner cannot sign in —
+                which is exactly when someone asks us to. */}
+            <div className="space-y-3 border-t border-rule bg-page/60 px-5 py-4">
+              <p className="flex items-center gap-2 text-[14px] font-semibold text-navy">
+                <UserPlus className="h-4 w-4 text-teal" aria-hidden="true" />
+                {t('adm2.org.invite', 'Invite a colleague')}
+              </p>
+              <FormField label={t('adm2.org.inviteEmail', 'Their e-mail')} htmlFor="org-invite-email">
+                <Input
+                  id="org-invite-email"
+                  value={memberEmail}
+                  onChange={e => setMemberEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  type="email"
+                  className={FIELD}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAdminInvite(); }}
+                />
+              </FormField>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label={t('adm2.org.first', 'First name')} htmlFor="org-invite-first">
+                  <Input id="org-invite-first" value={memberFirst} onChange={e => setMemberFirst(e.target.value)} className={FIELD} />
+                </FormField>
+                <FormField label={t('adm2.org.last', 'Last name')} htmlFor="org-invite-last">
+                  <Input id="org-invite-last" value={memberLast} onChange={e => setMemberLast(e.target.value)} className={FIELD} />
+                </FormField>
+              </div>
+              <Button type="button" variant="outline" size="sm" className={`${ADMIN_BTN} w-full sm:w-auto`} disabled={!memberEmail.trim() || invitingMember} onClick={handleAdminInvite}>
+                {invitingMember ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="mr-2 h-4 w-4" aria-hidden="true" />}
+                {invitingMember ? t('adm2.sending', 'Sending…') : t('adm2.org.inviteSend', 'Send the invitation')}
               </Button>
-            </CardContent>
-          </Card>
+              <p className="text-[13px] leading-[18px] text-meta">
+                {t('adm2.org.inviteHint', 'They get an e-mail with a link to join {{org}} as a member. The person in charge keeps their role.', { org: org.name })}
+                {members.length >= maxSeats && ` ${t('adm2.org.inviteFull', 'The team is full: sending frees a seat.')}`}
+              </p>
+            </div>
+
+            <div className="border-t border-rule px-5 py-4">
+              <CardLink to={`/admin/users?org=${org.id}`}>{t('adm2.org.allAccounts', 'See these people in Accounts and export')}</CardLink>
+            </div>
+          </AdminPanel>
         </div>
       </div>
     </div>

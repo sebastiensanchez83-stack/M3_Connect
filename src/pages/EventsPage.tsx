@@ -30,7 +30,7 @@ import { canCreate } from '@/lib/nav';
 import { cn, downloadICS } from '@/lib/utils';
 import { newEventPagesOn, useRegistrationFlags } from '@/lib/flags';
 import {
-  fetchMyParticipations, fetchOpenRegistrations, isActiveStatus, isShownRegistration,
+  fetchMyEventAccess, fetchMyParticipations, fetchOpenRegistrations, isActiveStatus, isShownRegistration,
   type OpenRegistration, type Participation,
 } from '@/lib/registration';
 import { ParticipateCardAction } from '@/components/registration/ParticipateCardAction';
@@ -40,8 +40,10 @@ import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { withSlug } from '@/lib/slugRoutes';
 
 /**
- * What the list reads of each event (ListEvent and Event below). Never meeting_url for a visitor:
- * that column is closed to them at go-live (Q10 = a, held/directory_visitor_basic.sql).
+ * What the list reads of each event (ListEvent and Event below). Never meeting_url, for anyone:
+ * that column is closed to visitors at go-live (Q10 = a, held/directory_visitor_basic.sql), and a
+ * signed-in reader gets the join link of a webinar they registered for from get_my_event_access
+ * (as the event page and the dashboard do), never every webinar's link with the list.
  */
 const EVENT_LIST_COLUMNS = 'id, title, description, date_time, end_date_time, location, language, access_level, event_type, invitation_only, is_full_day, published, speakers, replay_url, image_url';
 
@@ -113,6 +115,8 @@ export function EventsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const loadedOnce = useRef(false);
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
+  // event id -> the join link, for the reader's own registrations only (get_my_event_access).
+  const [meetingUrls, setMeetingUrls] = useState<Record<string, string>>({});
   const [sectorSlugsByEvent, setSectorSlugsByEvent] = useState<Record<string, string[]>>({});
   const [smPaths, setSmPaths] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -133,12 +137,12 @@ export function EventsPage() {
     if (!loadedOnce.current) { setLoading(true); setLoadFailed(false); }
     (async () => {
       // Explicit columns, never '*': visitors cannot read the webinar meeting link at go-live
-      // (held/directory_visitor_basic.sql), and select=* would then be refused. Signed-in
-      // readers add it (the "Join now" link of a webinar they registered for). The slug when the
-      // database has it (withSlug).
+      // (held/directory_visitor_basic.sql), and select=* would then be refused. The join links
+      // come from get_my_event_access below, for the reader's own registrations only. The slug
+      // when the database has it (withSlug).
       const { data, error } = await withSlug('events', (slug) => supabase
         .from('events')
-        .select(`${EVENT_LIST_COLUMNS}${signedIn ? ', meeting_url' : ''}${slug}`)
+        .select(`${EVENT_LIST_COLUMNS}${slug}`)
         .order('date_time', { ascending: true, nullsFirst: false }));
       if (!alive) return;
 
@@ -187,18 +191,23 @@ export function EventsPage() {
   }, [isModerator, reloadKey, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The member's own registrations (and exhibition requests), for the
-  // "Registered" badge, the join link and the "My events" filter.
+  // "Registered" badge and the "My events" filter; and the join links of the
+  // webinars they registered for (get_my_event_access: handed to a registrant only).
   useEffect(() => {
-    if (!userId) { setRegisteredEvents([]); return; }
+    if (!userId) { setRegisteredEvents([]); setMeetingUrls({}); return; }
     let alive = true;
     Promise.all([
       supabase.from('event_registrations').select('event_id').eq('user_id', userId),
       supabase.from('exposition_requests').select('event_id').eq('requested_by', userId),
-    ]).then(([{ data: regData }, { data: expoData }]) => {
+      fetchMyEventAccess(null),
+    ]).then(([{ data: regData }, { data: expoData }, access]) => {
       if (!alive) return;
       const regIds = ((regData || []) as { event_id: string }[]).map((r) => r.event_id);
       const expoIds = ((expoData || []) as { event_id: string }[]).map((r) => r.event_id);
       setRegisteredEvents([...new Set([...regIds, ...expoIds])]);
+      const urls: Record<string, string> = {};
+      for (const a of access) if (a.is_registered && a.meeting_url) urls[a.event_id] = a.meeting_url;
+      setMeetingUrls(urls);
     });
     return () => { alive = false; };
   }, [userId]);
@@ -479,6 +488,7 @@ export function EventsPage() {
   const primaryAction = (e: Event, mode: 'card' | 'featured' = 'card') => {
     const phase = phaseOf(e, now);
     const isRegistered = registeredSet.has(e.id);
+    const meetingUrl = meetingUrls[e.id] ?? null;
     const hasAccess = canAccess(e.access_level);
     const smPath = smPaths[e.id];
     const detail = eventPath(e);
@@ -504,10 +514,10 @@ export function EventsPage() {
     }
 
     if (phase === 'live') {
-      if (isRegistered && e.event_type === 'webinar' && e.meeting_url) {
+      if (isRegistered && e.event_type === 'webinar' && meetingUrl) {
         return (
           <Button asChild size={size} variant={main}>
-            <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinNow', 'Join now')}</a>
+            <a href={meetingUrl} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinNow', 'Join now')}</a>
           </Button>
         );
       }
@@ -545,10 +555,10 @@ export function EventsPage() {
         </Button>
       );
     }
-    if (isRegistered && e.event_type === 'webinar' && e.meeting_url) {
+    if (isRegistered && e.event_type === 'webinar' && meetingUrl) {
       return (
         <Button asChild size={size} variant={main}>
-          <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinWebinar', 'Join the webinar')}</a>
+          <a href={meetingUrl} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinWebinar', 'Join the webinar')}</a>
         </Button>
       );
     }
@@ -767,7 +777,7 @@ export function EventsPage() {
                   {...viewProps(featured, phaseOf(featured, now))}
                   action={primaryAction(featured, 'featured')}
                   extra={calendarButton(featured, true, 'sm:hidden')}
-                  calendarUrl={registeredSet.has(featured.id) ? featured.meeting_url : null}
+                  calendarUrl={registeredSet.has(featured.id) ? meetingUrls[featured.id] ?? null : null}
                 />
               ) : showWys ? (
                 <>

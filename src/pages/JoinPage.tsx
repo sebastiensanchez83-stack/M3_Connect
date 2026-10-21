@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { clearStoredInvite } from '@/lib/invite-store';
+import { fetchInvitationOrgType } from '@/lib/orgVisibility';
 import { ResendConfirmationButton, isEmailNotConfirmed } from '@/components/auth/LoginForm';
 import { isInvalidCredentials, signInErrorMessage, signUpErrorMessage } from '@/lib/authErrors';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
@@ -255,13 +256,19 @@ function LegacyJoinPage() {
 
     setLoading(true);
 
-    // Determine persona from the organization type
-    const { data: orgData } = await supabase
-      .from('organizations')
-      .select('organization_type')
-      .eq('id', invite.organization_id)
-      .single();
-    const persona = orgData?.organization_type || 'marina';
+    // The persona is the inviting company's type (org_type_for_invitation: it answers signed out,
+    // even for a company M3 has not validated, which visitors cannot read at go-live). Never a
+    // guess: a wrong persona would give the person another company type's rights once validated.
+    const persona = await fetchInvitationOrgType(invite.id, invite.organization_id);
+    if (!persona) {
+      setLoading(false);
+      toast({
+        title: t('joinInvite.signupError', 'Signup error'),
+        description: t('joinInvite.orgTypeUnavailable', 'This invitation may have expired, or we could not read its company. Please try again, or ask the person who invited you to send a new one.'),
+        variant: 'destructive',
+      });
+      return;
+    }
 
     const { error, needsConfirmation } = await signUp(
       invite.email,

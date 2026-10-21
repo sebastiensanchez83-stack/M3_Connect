@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { fetchPeopleOrgs } from '@/lib/personOrg';
+import { seesMore, useOrgViewer } from '@/lib/orgVisibility';
 
 /**
  * /users/:id is no longer a page (Victor, Oct 2026: "no personal page at all"):
@@ -17,11 +18,17 @@ import { fetchPeopleOrgs } from '@/lib/personOrg';
 export function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
   const [target, setTarget] = useState<string | null>(null);
+  // A company M3 has not validated is never the target for a reader who cannot see it (Q5);
+  // wait until we know who is reading (primitives only: the refocus trap).
+  const viewer = useOrgViewer();
+  const viewerReady = viewer !== 'loading';
+  const listedOnly = !seesMore(viewer);
 
   useEffect(() => {
+    if (!viewerReady) return;
     let alive = true;
     setTarget(null);
-    fetchPeopleOrgs([id])
+    fetchPeopleOrgs([id], { listedOnly })
       .then((orgs) => {
         if (!alive) return;
         const org = id ? orgs[id] : undefined;
@@ -29,7 +36,7 @@ export function UserProfilePage() {
       })
       .catch(() => { if (alive) setTarget('/directory'); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, viewerReady, listedOnly]);
 
   if (!target) return <LoadingSkeleton variant="screen" />;
   return <Navigate to={target} replace />;

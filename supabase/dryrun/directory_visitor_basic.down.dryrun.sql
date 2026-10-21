@@ -1,9 +1,11 @@
 -- DRY RUN of the DOWN of supabase/migrations/held/directory_visitor_basic.sql. NOT A MIGRATION.
--- ONE execute_sql call, after the four P2 files and BEFORE the held file (or, in a rollback, to
--- check the down before running it): a snapshot of every grant and policy the held file touches,
--- the held file verbatim, the down verbatim, then every grant and policy must be the same set as in
+-- ONE execute_sql call, after the five P2 files and BEFORE the held file (or, in a rollback, to
+-- check the down before running it): a snapshot of every grant, policy and public function body
+-- the held file touches, the held file verbatim, then the mistake the down must survive (the
+-- superseded directory_signed_in_only down run after the held file: org_members_select_public is
+-- back), the down verbatim, then every grant, policy and function body must be the same set as in
 -- the snapshot and main's signed-out reads must answer again.
--- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "6 PASS, 0 FAIL".
+-- Ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back. Expected: "8 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -36,6 +38,12 @@ create function pg_temp.dr_state() returns table (k text, v text) language sql a
                                                     || ':' || x.grantor::regrole::text || ':' || x.is_grantable::text, ','
                                                     order by p.oid::regprocedure::text, x.grantee::regrole::text, x.privilege_type), ''))
     from pg_proc p cross join lateral aclexplode(p.proacl) x
+   where p.pronamespace = 'public'::regnamespace
+  union all
+  select 'function bodies', md5(coalesce(string_agg(p.oid::regprocedure::text || ':' || md5(p.prosrc) || ':' || coalesce(array_to_string(p.proconfig, ';'), '')
+                                                    || ':' || p.prosecdef::text || ':' || p.provolatile::text, ','
+                                                    order by p.oid::regprocedure::text), ''))
+    from pg_proc p
    where p.pronamespace = 'public'::regnamespace
 $f$;
 create temp table _dr_before on commit drop as select * from pg_temp.dr_state();
@@ -107,8 +115,15 @@ $f$;
 --     social_media_links, marina_subtype (claim_code is already granted to nobody).
 --   Companies M3 has not validated (12 pending and 1 suspended on 21 Oct 2026) are INVISIBLE to
 --   visitors (Q5 = a); the 6 copies merged into another company stay readable, only so that their
---   old address redirects. Signed-in accounts still see pending companies, as today.
+--   old address redirects. Signed-in accounts still see pending companies, as today. What hangs
+--   off a hidden company follows it for visitors (privacy review of 21 Oct 2026): its sectors
+--   (organization_service_sectors / organization_interest_sectors, 11 such companies on 21 Oct
+--   2026), its confirmed recommendations (reference_requests, 0 rows that day) and its award wins
+--   (org_award_wins, 0 that day).
 --   The webinar meeting link (events.meeting_url) is no longer readable signed out (Q10 = a).
+--   "Validated account" in a policy is public.is_verified(null::public.persona_enum): the
+--   no-argument call public.is_verified() is ambiguous on production (is_verified() and
+--   is_verified(persona_enum default null) both exist: 42725), so it is never written here.
 --
 -- What this file does NOT do (Victor, 21 Oct 2026, Q9 = "December"):
 --   - signed-in accounts keep the same 37 organizations columns as today, the internal ones
@@ -119,8 +134,9 @@ $f$;
 --     (organization_members, user ids only: the onboarding join flow reads them) and call
 --     get_public_profile(s), org_sm26_showcase and sm_org_marina_submission. The screens give it
 --     the visitor version. The row tables that CAN tell validated accounts apart do: marina
---     details, purchase projects and media details need public.is_verified().
---   - reference_requests does not change here (recommendations stay public, Q1 = C).
+--     details, purchase projects and media details need a validated account.
+--   - recommendations stay public (Q1 = C): reference_requests only loses, for visitors, the rows
+--     of a company they cannot see (its column grants are 20261021120000's, unchanged here).
 --   - the gallery photos, logos and covers stay in the public org-logos bucket, which anyone can
 --     list: the column gate hides the list of a hidden company, not the files (accepted: they are
 --     marketing photos).
@@ -134,11 +150,14 @@ $f$;
 --   - /users/:id is blank (UserProfilePage.tsx:65, get_public_profile);
 --   - the sign-up form stops recognising company domains (SignupForm.tsx:175-177);
 --   - member counts read 0 in the directory and on company pages (organization_members);
---   - the marinas' Smart Marina 2026 texts disappear (SM26MarinaSustainability.tsx:50).
+--   - the marinas' Smart Marina 2026 texts disappear (SM26MarinaSustainability.tsx:50);
+--   - its invitation sign-up page reads the inviting company's type directly (JoinPage.tsx:226):
+--     for a company M3 has not validated it finds nothing and gives the persona 'marina'.
 -- The redesign reads none of these signed out (rf-visitor, 21 Oct 2026): it reads is_claimed,
--- the visitor column lists of src/lib/orgVisibility.ts, org_visitor_teaser, org_public_highlights
--- and org_by_email_domain, and explicit event columns without meeting_url.
+-- the visitor column lists of src/lib/orgVisibility.ts, org_visitor_teaser, org_public_highlights,
+-- org_by_email_domain and org_type_for_invitation, and explicit event columns without meeting_url.
 -- Rollback (§8): this file's down runs BEFORE main is published again.
+-- Items 11 to 13 only drop, for visitors, rows that belong to companies they cannot see.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -152,7 +171,8 @@ begin
   -- 1. What the redesign reads instead must be there first (runbook P2).
   select string_agg(f, ', ') into v_missing
     from unnest(array['public.org_public_member_counts(uuid[])', 'public.org_visitor_teaser(uuid)', 'public.org_public_highlights(uuid)',
-                      'public.org_by_email_domain(text)', 'public.org_award_wins()', 'public.is_verified()', 'public.is_moderator()']) as f
+                      'public.org_by_email_domain(text)', 'public.org_type_for_invitation(uuid)', 'public.org_award_wins()',
+                      'public.is_verified(public.persona_enum)', 'public.is_moderator()']) as f
    where to_regprocedure(f) is null or not has_function_privilege('anon', f, 'execute');
   if v_missing is not null then
     raise exception 'directory_visitor_basic: missing or not callable by anon: % (apply the P2 files first)', v_missing;
@@ -171,8 +191,23 @@ begin
     raise exception 'directory_visitor_basic: the anon column grants of organizations changed; rebuild this file (now: %)', v_anon_cols;
   end if;
   if not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organizations'
-                  and p.policyname = 'org_select_public' and p.roles = '{anon}'::name[] and p.cmd = 'SELECT' and p.qual = 'true') then
-    raise exception 'directory_visitor_basic: org_select_public changed; rebuild this file';
+                  and p.policyname = 'org_select_public' and p.roles = '{anon}'::name[] and p.cmd = 'SELECT' and p.qual = 'true')
+     or not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organizations'
+                     and p.policyname = 'org_select_auth' and p.roles = '{authenticated}'::name[] and p.cmd = 'SELECT' and p.qual = 'true') then
+    raise exception 'directory_visitor_basic: org_select_public / org_select_auth changed; rebuild this file';
+  end if;
+  -- Items 11 and 12: the sectors and recommendations policies, as on 21 Oct 2026.
+  if (select count(*) from pg_policies p
+       where p.schemaname = 'public' and p.cmd = 'SELECT' and p.permissive = 'PERMISSIVE'
+         and ((p.tablename = 'organization_service_sectors' and p.policyname = 'oss_public_read' and p.roles = '{public}'::name[] and p.qual = 'true')
+           or (p.tablename = 'organization_interest_sectors' and p.policyname = 'ois_public_read' and p.roles = '{public}'::name[] and p.qual = 'true')
+           or (p.tablename = 'reference_requests' and p.policyname = 'reference_requests_public_select_confirmed'
+               and p.roles = '{anon,authenticated}'::name[] and p.qual = '(status = ''confirmed''::text)'))) <> 3 then
+    raise exception 'directory_visitor_basic: oss_public_read / ois_public_read / reference_requests_public_select_confirmed changed; rebuild this file';
+  end if;
+  -- Item 13: org_award_wins() as created by 20261020130000 (its down restores that body).
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.org_award_wins()'::regprocedure) is distinct from '4b6a7cbe7a2f83f3d190abd65d5964e2' then
+    raise exception 'directory_visitor_basic: org_award_wins() is not the 20261020130000 body; rebuild this file';
   end if;
   if not exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organization_members'
                   and p.policyname = 'org_members_select_public' and p.roles = '{anon}'::name[] and p.cmd = 'SELECT' and p.qual = 'true')
@@ -252,19 +287,19 @@ drop policy org_members_select_public on public.organization_members;
 --    Visitors get the key figures from org_public_highlights.
 alter policy marina_details_public_read on public.organization_marina_details
   to authenticated
-  using ((select public.is_verified())
+  using ((select public.is_verified(null::public.persona_enum))
          and exists (select 1 from public.organizations o
                       where o.id = organization_marina_details.organization_id and o.access_status = 'verified'));
 
 -- 5. Purchase projects: validated accounts only (their own members keep ofp_owner_write).
 alter policy ofp_public_read on public.organization_future_plans
   to authenticated
-  using ((select public.is_verified()));
+  using ((select public.is_verified(null::public.persona_enum)));
 
 -- 6. Media details (press_contact_email): validated accounts only (members keep org_media_details_write).
 alter policy org_media_details_read on public.organization_media_details
   to authenticated
-  using ((select public.is_verified()));
+  using ((select public.is_verified(null::public.persona_enum)));
 
 -- 7. Partner and media cards (0 rows on 21 Oct 2026): no anon read any more; owners and staff keep theirs.
 drop policy partner_profiles_anon_public on public.partner_profiles;
@@ -290,6 +325,56 @@ revoke execute on function public.org_sm26_showcase(uuid) from anon;
 -- 10. The marinas' Smart Marina 2026 evidence images: signed-in accounts only.
 alter policy event_media_marina_evidence_public_read on storage.objects to authenticated;
 
+-- 11. Sectors: a visitor reads the sectors of the companies it can see (item 2), no others.
+--     Signed-in accounts see every company (org_select_auth), so nothing changes for them.
+alter policy oss_public_read on public.organization_service_sectors
+  using (exists (select 1 from public.organizations o where o.id = organization_service_sectors.organization_id));
+alter policy ois_public_read on public.organization_interest_sectors
+  using (exists (select 1 from public.organizations o where o.id = organization_interest_sectors.organization_id));
+
+-- 12. Confirmed recommendations: still public (Q1 = C), but not those of a company a visitor
+--     cannot see. Same rows as before for signed-in accounts.
+alter policy reference_requests_public_select_confirmed on public.reference_requests
+  using (status = 'confirmed'
+         and exists (select 1 from public.organizations o where o.id = reference_requests.partner_organization_id));
+
+-- 13. Award wins: the wins of a company M3 has not validated are for validated accounts only (the
+--     company a win belongs to is the one a merged copy was merged into). Same columns, grants
+--     and owner; the down restores the 20261020130000 body.
+create or replace function public.org_award_wins()
+returns table (
+  organization_id uuid,
+  award_key text,
+  award_label text,
+  competition text,
+  award_type text,
+  edition_year integer,
+  event_slug text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $fn$
+  select coalesce(o.duplicate_of, o.id),
+         a.key,
+         a.label,
+         a.competition,
+         a.type,
+         extract(year from e.start_date)::integer,
+         e.slug
+    from sm_award a
+    join sm_event e on e.id = a.event_id
+    join sm_role_assignment ra on ra.id = a.winner_role_assignment_id
+    join sm_registration r on r.id = ra.registration_id
+    join organizations o on o.id = coalesce(ra.organization_id, r.organization_id)
+    join organizations k on k.id = coalesce(o.duplicate_of, o.id)
+   where a.confirmed = true
+     and not a.hidden
+     and (k.access_status = 'verified' or (select public.is_verified(null::public.persona_enum)))
+   order by e.start_date desc, a.sort;
+$fn$;
+
 -- ─── C. The held file is in place ──────────────────────────────────────────────────────────────
 create temp table _dr_ids on commit drop as
   select (select o.id from public.organizations o where o.organization_type = 'marina' and o.access_status = 'verified' order by o.id limit 1) as m,
@@ -304,23 +389,38 @@ begin
 end
 $held$;
 
+-- The superseded down's own statement, as if it had been run by mistake after the held file: the
+-- anon team read is back. The down below must still run (its guard is the column grant).
+create policy org_members_select_public on public.organization_members for select to anon using (true);
+do $mistake$
+begin
+  perform pg_temp.chk(exists (select 1 from pg_policies p where p.policyname = 'org_members_select_public')
+                      and not has_column_privilege('anon', 'public.organizations', 'primary_domain', 'select'),
+    'C02 simulated mistake: org_members_select_public recreated after the held file; anon still without primary_domain');
+end
+$mistake$;
+
 -- ─── E. The down, verbatim ───────────────────────────────────────────────────────────────────────
 -- DOWN for supabase/migrations/held/directory_visitor_basic.sql: signed-out visitors read
 -- exactly what they read on 21 Oct 2026 again (column grants, policies with their roles and
 -- conditions, function EXECUTE grants with the PUBLIC entries of get_public_profile and
--- org_member_count, the storage policy). The definitions below were read from production on
--- 21 Oct 2026 (read-only). The dry runs check that every grant and policy is the same set again.
+-- org_member_count, the storage policy, the body of org_award_wins). The definitions below were
+-- read from production on 21 Oct 2026 (read-only). The dry runs check that every grant and policy
+-- is the same set again.
 -- In a rollback (runbook §8) run this BEFORE main is published again: main reads all of it
 -- signed out.
+-- Guarded on the column grant the held file revokes first (anon's SELECT on
+-- organizations.primary_domain), not on a policy: the superseded directory_signed_in_only down,
+-- run by mistake, recreates org_members_select_public, and this down must still run then. Items 3
+-- and 7 drop the policies they create first for the same reason.
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
 do $pre$
 begin
-  if exists (select 1 from pg_policies p where p.schemaname = 'public' and p.tablename = 'organization_members'
-              and p.policyname = 'org_members_select_public') then
-    raise exception 'directory_visitor_basic down: org_members_select_public exists, so the held file is not applied; nothing to undo';
+  if has_column_privilege('anon', 'public.organizations', 'primary_domain', 'select') then
+    raise exception 'directory_visitor_basic down: anon still reads organizations.primary_domain, so the held file is not applied; nothing to undo';
   end if;
 end
 $pre$;
@@ -334,6 +434,7 @@ grant select (primary_domain, max_seats, created_by_user_id, owner_user_id, onbo
 alter policy org_select_public on public.organizations using (true);
 
 -- 3. the team
+drop policy if exists org_members_select_public on public.organization_members;
 create policy org_members_select_public on public.organization_members for select to anon using (true);
 
 -- 4. marina details of validated marinas, anyone
@@ -349,9 +450,11 @@ alter policy ofp_public_read on public.organization_future_plans to public using
 alter policy org_media_details_read on public.organization_media_details to public using (true);
 
 -- 7. partner and media cards of verified people, signed out
+drop policy if exists partner_profiles_anon_public on public.partner_profiles;
 create policy partner_profiles_anon_public on public.partner_profiles for select to anon
   using (exists (select 1 from public.profiles p
                   where p.user_id = partner_profiles.user_id and p.access_status = 'verified'::public.access_status_enum));
+drop policy if exists media_partner_profiles_anon_public on public.media_partner_profiles;
 create policy media_partner_profiles_anon_public on public.media_partner_profiles for select to anon
   using (exists (select 1 from public.profiles p
                   where p.user_id = media_partner_profiles.user_id and p.access_status = 'verified'::public.access_status_enum));
@@ -373,6 +476,46 @@ grant execute on function public.org_sm26_showcase(uuid) to anon;
 -- 10. the evidence images, signed out too
 alter policy event_media_marina_evidence_public_read on storage.objects to anon, authenticated;
 
+-- 11. the sectors of every company
+alter policy oss_public_read on public.organization_service_sectors using (true);
+alter policy ois_public_read on public.organization_interest_sectors using (true);
+
+-- 12. every confirmed recommendation
+alter policy reference_requests_public_select_confirmed on public.reference_requests using (status = 'confirmed');
+
+-- 13. org_award_wins as created by 20261020130000 (body md5 4b6a7cbe7a2f83f3d190abd65d5964e2)
+create or replace function public.org_award_wins()
+returns table (
+  organization_id uuid,
+  award_key text,
+  award_label text,
+  competition text,
+  award_type text,
+  edition_year integer,
+  event_slug text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $fn$
+  select coalesce(o.duplicate_of, o.id),
+         a.key,
+         a.label,
+         a.competition,
+         a.type,
+         extract(year from e.start_date)::integer,
+         e.slug
+    from sm_award a
+    join sm_event e on e.id = a.event_id
+    join sm_role_assignment ra on ra.id = a.winner_role_assignment_id
+    join sm_registration r on r.id = ra.registration_id
+    join organizations o on o.id = coalesce(ra.organization_id, r.organization_id)
+   where a.confirmed = true
+     and not a.hidden
+   order by e.start_date desc, a.sort;
+$fn$;
+
 -- ─── F. After the down: the same grants and policies as the snapshot; main's reads answer again ──
 do $after$
 declare
@@ -393,12 +536,15 @@ begin
                       and exists (select 1 from aclexplode((select p.proacl from pg_proc p where p.oid = 'public.get_public_profile(uuid)'::regprocedure)) x where x.grantee = 0)
                       and exists (select 1 from aclexplode((select p.proacl from pg_proc p where p.oid = 'public.org_member_count(uuid)'::regprocedure)) x where x.grantee = 0),
     'F04 down: every function grant the same set as before, the PUBLIC entries of get_public_profile and org_member_count back');
+  perform pg_temp.chk((select a.v from pg_temp.dr_state() a where a.k = 'function bodies') = (select b.v from _dr_before b where b.k = 'function bodies')
+                      and (select md5(p.prosrc) from pg_proc p where p.oid = 'public.org_award_wins()'::regprocedure) = '4b6a7cbe7a2f83f3d190abd65d5964e2',
+    'F05 down: every public function body the same as before, org_award_wins back to its 20261020130000 body');
   v_out := pg_temp.dr_as('anon', null, format('select count(*)::text from (select %s from public.organizations) x', v_main33))
         || ' ' || pg_temp.dr_as('anon', null, 'select count(*)::text from (select * from public.events) x')
         || ' ' || pg_temp.dr_as('anon', null, format('select count(*)::text from public.get_public_profile(%L)', v.member_user))
         || ' ' || pg_temp.dr_as('anon', null, format('select (public.sm_org_marina_submission(%L) is null)::text', v.m))
         || ' ' || pg_temp.dr_as('anon', null, format('select count(*)::text from public.organizations where id = %L', v.p));
-  perform pg_temp.chk(v_out !~ 'err:', 'F05 down: main''s company read, events select *, get_public_profile, SM26 texts and a pending company answer anon again -> ' || left(v_out, 120));
+  perform pg_temp.chk(v_out !~ 'err:', 'F06 down: main''s company read, events select *, get_public_profile, SM26 texts and a pending company answer anon again -> ' || left(v_out, 120));
   select string_agg(case when r.ok then 'PASS ' else 'FAIL ' end || r.label, chr(10) order by r.n) into v_txt from _dr_res r;
   raise exception 'DRYRUN %', format('%s PASS, %s FAIL (directory_visitor_basic down, run %s)',
     (select count(*) from _dr_res where ok), (select count(*) from _dr_res where ok is not true), now()) || chr(10) || v_txt;

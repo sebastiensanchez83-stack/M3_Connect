@@ -63,9 +63,16 @@ export function isMissingClaimedColumn(error: ErrorLike | null | undefined): boo
  * Runs a read that names is_claimed (in its columns or its filters), and runs it again with
  * owner_user_id while the column does not exist (the first refusal is remembered for the visit).
  * Filter with claimedFilter(); read the answer with rowIsClaimed().
+ * A tab left open across the go-live (the column added, then owner_user_id closed to visitors)
+ * gets 42501 on the remembered owner_user_id read: it forgets it and reads is_claimed again.
  */
 export async function withClaimed<R extends { error: ErrorLike | null }>(run: (col: ClaimedColumn) => PromiseLike<R>): Promise<R> {
-  if (claimedColumnMissing) return run('owner_user_id');
+  if (claimedColumnMissing) {
+    const legacy = await run('owner_user_id');
+    if (legacy.error?.code !== '42501') return legacy;
+    claimedColumnMissing = false;
+    return run('is_claimed');
+  }
   const first = await run('is_claimed');
   if (!isMissingClaimedColumn(first.error)) return first;
   claimedColumnMissing = true;
@@ -170,6 +177,26 @@ export async function findCompanyByEmailDomain(domain: string): Promise<{ id: st
     if (!isMissingFunction(error)) return null;
     const { data: legacy } = await supabase.from('organizations').select('id, name').eq('primary_domain', clean).maybeSingle();
     return (legacy as { id: string; name: string } | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The type of the company an open invitation is for (org_type_for_invitation, 20261021144000), for
+ * the invitation sign-up page: it chooses the new account's persona. While the function does not
+ * exist yet, the old direct read of organizations, which works until go-live (after it, a company
+ * M3 has not validated is invisible signed out). Null when neither answers: the caller stops, it
+ * never guesses a persona.
+ */
+export async function fetchInvitationOrgType(invitationId: string, organizationId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('org_type_for_invitation', { p_invitation_id: invitationId });
+    if (!error) return typeof data === 'string' && data ? data : null;
+    if (!isMissingFunction(error)) return null;
+    const { data: legacy } = await supabase.from('organizations').select('organization_type').eq('id', organizationId).maybeSingle();
+    const type = (legacy as { organization_type?: string | null } | null)?.organization_type;
+    return type || null;
   } catch {
     return null;
   }

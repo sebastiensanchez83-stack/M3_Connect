@@ -179,7 +179,7 @@ export function AdminExpositionDetail() {
         <AdminPanel
           title={t('adminContent.expo.invoicePanel', 'Invoice and notes')}
           icon={DollarSign}
-          description={t('adminContent.expo.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes stay with the M3 team.')}
+          description={t('adminContent.expo.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes are not shown to the company.')}
         >
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -190,7 +190,7 @@ export function AdminExpositionDetail() {
                 <Input id="expo-amount" type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="1400" className={ADMIN_INPUT} />
               </FormField>
             </div>
-            <FormField label={t('adminContent.expo.notes', 'Notes for the M3 team')} htmlFor="expo-notes" hint={t('adminContent.expo.notesHint', 'Only the M3 team sees these notes.')}>
+            <FormField label={t('adminContent.expo.notes', 'Notes for the M3 team')} htmlFor="expo-notes" hint={t('adminContent.expo.notesHint', 'Not shown to the company on the site.')}>
               <Textarea id="expo-notes" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." className="bg-white" />
             </FormField>
             <Button variant="outline" onClick={saveFields} disabled={saving} className={ADMIN_BTN + ' gap-1.5'}>

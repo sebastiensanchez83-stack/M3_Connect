@@ -226,7 +226,9 @@ export function AdminBannerDetail() {
           ? t('adminContent.banner.onHint', 'Switched on: shown on the site between its dates.')
           : t('adminContent.banner.offHint', 'Switched off: not shown on the site.')) : undefined}
         actions={
-          <>
+          // Three buttons do not fit on one phone line: the header's action box takes the width of
+          // its content, so this box is capped at the screen (less the page gutters) and wraps.
+          <div className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 sm:max-w-none">
             {!isNew && (
               <>
                 <Button variant="outline" onClick={handleToggleActive} className={ADMIN_BTN + ' gap-1.5'}>
@@ -244,7 +246,7 @@ export function AdminBannerDetail() {
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
               {saveLabel}
             </Button>
-          </>
+          </div>
         }
       />
 

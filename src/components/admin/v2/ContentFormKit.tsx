@@ -151,7 +151,8 @@ export function LinkCard({
         className,
       )}
     >
-      <div className="min-w-0 flex-1">{children}</div>
+      {/* A column, so a block can sit at the bottom of a card in a grid (mt-auto). */}
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       <div className="mt-3 flex justify-end">
         <ActionCue size="sm">{cue}</ActionCue>
       </div>

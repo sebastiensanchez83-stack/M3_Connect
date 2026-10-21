@@ -478,7 +478,9 @@ export function AdminResourceDetail() {
           back={{ to: '/admin/resources', label: t('adminContent.article.back', 'Back to Articles') }}
           title={draft.title}
           badges={<><AdminStatusPill>Draft</AdminStatusPill>{draftStatusBadge(draft.status)}</>}
-          subtitle={t('adminContent.draft.subtitle', 'Proposed by a member: read it, then publish it or refuse it at the bottom of the page.')}
+          subtitle={awaitingReview
+            ? t('adminContent.draft.subtitle', 'Proposed by a member: read it, then publish it or refuse it at the bottom of the page.')
+            : t('adminContent.draft.subtitleDone', 'Proposed by a member. This draft has already been reviewed.')}
         />
 
         <div className="space-y-6">
@@ -535,7 +537,7 @@ export function AdminResourceDetail() {
           <AdminPanel title={t('adminContent.draft.decision', 'Your decision')} icon={Gavel}>
             <div className="space-y-4">
               <FormField
-                label="Comment for the author"
+                label="Review comment"
                 htmlFor="draft-review-comment"
                 hint={awaitingReview ? 'Optional to publish, required to refuse.' : undefined}
               >
@@ -720,7 +722,7 @@ export function AdminResourceDetail() {
         <AdminPanel
           title={<>Sectors{selectedSectorIds.length > 0 && <span className="ml-2 rounded-pill bg-chip px-2 py-0.5 text-[12px] font-semibold tabular-nums text-navy">{selectedSectorIds.length}</span>}</>}
           icon={Tags}
-          description="Tick the sectors this article is about. Members who follow these sectors see it first."
+          description="Tick the sectors this article is about. Members whose sectors match will see it, and readers can filter the articles by sector."
         >
           {allSectors.length === 0 ? (
             <p className="flex items-center gap-2 text-[14px] text-meta" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading sectors...</p>
@@ -854,7 +856,7 @@ export function AdminResourceDetail() {
               id="published"
               checked={form.published}
               label="Published on Smart Marina Connect"
-              hint={!isAdmin && isNew ? '(Requires admin approval to publish)' : 'Unticked: a draft, seen only by the M3 team.'}
+              hint={!isAdmin && isNew ? '(Requires admin approval to publish)' : 'Unticked: a draft, not shown on the site.'}
               control={<Checkbox id="published" checked={form.published} onCheckedChange={(c) => setForm({ ...form, published: c as boolean })} disabled={!isAdmin && isNew} />}
             />
             {/* The feeds that m3monaco.com (/rss.xml) and s3monaco.com (/rss-s3.xml) import (netlify/edge-functions/rss.ts). */}

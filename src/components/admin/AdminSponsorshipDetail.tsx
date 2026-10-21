@@ -205,7 +205,7 @@ export function AdminSponsorshipDetail() {
         <AdminPanel
           title={t('adminContent.spReq.invoicePanel', 'Invoice and notes')}
           icon={DollarSign}
-          description={t('adminContent.spReq.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes stay with the M3 team.')}
+          description={t('adminContent.spReq.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes are not shown to the company.')}
         >
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -216,7 +216,7 @@ export function AdminSponsorshipDetail() {
                 <Input id="spr-amount" type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="0" className={ADMIN_INPUT} />
               </FormField>
             </div>
-            <FormField label={t('adminContent.spReq.notes', 'Notes for the M3 team')} htmlFor="spr-notes" hint={t('adminContent.spReq.notesHint', 'Only the M3 team sees these notes.')}>
+            <FormField label={t('adminContent.spReq.notes', 'Notes for the M3 team')} htmlFor="spr-notes" hint={t('adminContent.spReq.notesHint', 'Not shown to the company on the site.')}>
               <Textarea id="spr-notes" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." className="bg-white" />
             </FormField>
             <Button variant="outline" onClick={saveFields} disabled={saving} className={ADMIN_BTN + ' gap-1.5'}>

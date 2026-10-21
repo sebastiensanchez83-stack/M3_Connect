@@ -28,6 +28,10 @@ import {
   ProgressBar, SponsorStatusPill, SponsorshipFrame,
 } from './sponsorshipUi';
 import { cn } from '@/lib/utils';
+import {
+  AdminDetailHeader, AdminEmpty, AdminLoading, AdminStatus, AdminStatusPill, ADMIN_BTN_DANGER,
+} from '@/components/admin/AdminUI';
+import { CardLink } from '@/components/home/dashboard/DashboardKit';
 
 const eurosToCents = (s: string): number | null => {
   const n = parseFloat(s.replace(/\s/g, '').replace(',', '.'));
@@ -35,9 +39,12 @@ const eurosToCents = (s: string): number | null => {
 };
 const centsToEuros = (c: number | null | undefined) => (c == null ? '' : String(c / 100));
 
-// `band` puts the marine band on top (the /sponsorship page); the admin workspace
-// (/admin/sponsorships) brings its own shell and gets a plain heading.
+// `band` puts the marine band on top (the /sponsorship page, for M3 and Yacht Club
+// de Monaco: it looks exactly as before); the admin workspace (/admin/sponsorships)
+// brings its own shell and gets the admin's detail header and plainer button words
+// (wave 2, 21 Oct 2026). Same data, same handlers either way.
 export function SponsorAgreementDetail({ basePath, band = false }: { basePath: string; band?: boolean }) {
+  const admin = !band;
   const { sponsorId } = useParams<{ sponsorId: string }>();
   const navigate = useNavigate();
   const { isModerator } = useAuth(); // M3 staff see the commercial fee; Yacht Club (YCM) do not
@@ -256,11 +263,27 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
 
   const backTo = { to: basePath, label: 'All sponsors' };
 
+  if (loading && admin) return <AdminLoading />;
   if (loading) {
     return (
       <SponsorshipFrame band={band} icon={Award} eyebrow="Sponsor" title="Sponsor" back={backTo}>
         <CardShell><RowSkeleton rows={3} /></CardShell>
       </SponsorshipFrame>
+    );
+  }
+  if (!sponsor && admin) {
+    return (
+      <div className="mx-auto w-full max-w-3xl">
+        <AdminDetailHeader back={{ to: basePath, label: 'Back to Sponsors and partners' }} title="Sponsor not found" />
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty
+            icon={Building2}
+            title="Sponsor not found"
+            body="It may have been removed, or the link is out of date."
+            action={<CardLink to={basePath}>See all the sponsors</CardLink>}
+          />
+        </div>
+      </div>
     );
   }
   if (!sponsor) {
@@ -301,7 +324,7 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
               platform — so it goes to Victor to finish, not to the sponsor. */}
           <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={reportBusy} onClick={buildSponsorReport}>
             {reportBusy ? <RefreshCw className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileDown className="h-4 w-4" aria-hidden="true" />}
-            Renewal report
+            {admin ? 'Download the renewal report' : 'Renewal report'}
           </Button>
         </div>
 
@@ -334,8 +357,8 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
           <Label htmlFor="sp-link-email" className={FIELD_LABEL}>Contact email to link or invite</Label>
           <Input id="sp-link-email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="name@company.com" className={FIELD} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className={BTN_OUTLINE} disabled={busy || !linkEmail.trim()} onClick={linkUser} title="Link an existing account — no email sent">Link existing</Button>
-            <Button className={BTN} disabled={busy || !linkEmail.trim()} onClick={inviteUser} title="Create their account and email a set-password link">Invite</Button>
+            <Button variant="outline" className={BTN_OUTLINE} disabled={busy || !linkEmail.trim()} onClick={linkUser} title="Link an existing account — no email sent">{admin ? 'Link an existing account' : 'Link existing'}</Button>
+            <Button className={BTN} disabled={busy || !linkEmail.trim()} onClick={inviteUser} title="Create their account and email a set-password link">{admin ? 'Invite by e-mail' : 'Invite'}</Button>
           </div>
         </div>
       </div>
@@ -355,7 +378,7 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
               <SelectTrigger className={cn(FIELD, 'sm:w-60')} aria-label="Tier"><SelectValue placeholder="Choose a tier…" /></SelectTrigger>
               <SelectContent>{tiers.map(t => <SelectItem key={t.tier_key} value={t.tier_key}>{t.label} — {formatMoney(t.list_fee_cents)}</SelectItem>)}</SelectContent>
             </Select>
-            <Button className={cn(BTN, 'gap-1.5')} disabled={!buildTier || busy} onClick={build}>{busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} Build agreement</Button>
+            <Button className={cn(BTN, 'gap-1.5')} disabled={!buildTier || busy} onClick={build}>{busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} {admin ? 'Build the agreement' : 'Build agreement'}</Button>
           </div>
         )}
       />
@@ -367,7 +390,7 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
       actions={(
         <div className="flex items-center gap-2">
           <AgreementStatusPill status={agreement.status} />
-          <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={busy} onClick={renew}><RotateCcw className="h-4 w-4" aria-hidden="true" /> Renew</Button>
+          <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={busy} onClick={renew}><RotateCcw className="h-4 w-4" aria-hidden="true" /> {admin ? 'Renew the agreement' : 'Renew'}</Button>
         </div>
       )}
     >
@@ -425,7 +448,7 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
     <section aria-labelledby="sp-entitlements" className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="sp-entitlements" className="text-h3 text-navy">Entitlements &amp; deliverables</h2>
-        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" aria-hidden="true" /> Add custom line</Button>
+        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" aria-hidden="true" /> {admin ? 'Add a custom line' : 'Add custom line'}</Button>
       </div>
       {grouped.map(g => (
         <MemberPanel key={g.program} title={PROGRAM_NAMES[g.program]} count={g.count}>
@@ -470,7 +493,7 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
                         <SelectContent>{FULFILMENT_STATUSES.map(s => <SelectItem key={s} value={s}><FulfilmentPill status={s} /></SelectItem>)}</SelectContent>
                       </Select>
                       {i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' && i.status !== 'REQUESTED_FROM_SPONSOR' && !i.delivered && (
-                        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setStatus(i, 'REQUESTED_FROM_SPONSOR')}><Send className="h-4 w-4" aria-hidden="true" /> Request from sponsor</Button>
+                        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setStatus(i, 'REQUESTED_FROM_SPONSOR')}><Send className="h-4 w-4" aria-hidden="true" /> {admin ? 'Ask the sponsor by e-mail' : 'Request from sponsor'}</Button>
                       )}
                     </div>
                     {(i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' || i.requires_file) && (
@@ -486,21 +509,18 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
     </section>
   );
 
-  const dangerZone = (
+  const dangerZone = admin ? (
+    <Button variant="outline" className={cn(ADMIN_BTN_DANGER, 'gap-1.5')} disabled={busy} onClick={removeSponsor}>
+      <Trash2 className="h-4 w-4" aria-hidden="true" /> Delete this sponsor
+    </Button>
+  ) : (
     <Button variant="ghost" className={cn(BTN, 'gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800')} disabled={busy} onClick={removeSponsor}>
       <Trash2 className="h-4 w-4" aria-hidden="true" /> Remove sponsor
     </Button>
   );
 
-  return (
-    <SponsorshipFrame
-      band={band}
-      icon={Award}
-      eyebrow={tierLabel || 'Sponsor'}
-      title={sponsor.company_name}
-      back={backTo}
-      meta={items.length > 0 ? <span>{doneCount} of {items.length} delivered · {pct}%</span> : undefined}
-    >
+  const body = (
+    <>
       <div className={cn('space-y-6', band && 'lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:grid-rows-[auto_auto_1fr] lg:gap-x-8 lg:gap-y-6 lg:space-y-0')}>
         <div className="lg:col-start-2 lg:row-start-1">{sponsorPanel}</div>
         <div className="space-y-6 lg:col-start-1 lg:row-span-3 lg:row-start-1">
@@ -513,6 +533,38 @@ export function SponsorAgreementDetail({ basePath, band = false }: { basePath: s
 
       {editItem && <EditValueDialog item={editItem} onClose={() => setEditItem(null)} onSave={patch => { patchItem(editItem.id, patch); setEditItem(null); }} />}
       {addOpen && agreement && <AddCustomDialog agreementId={agreement.id} nextOrder={(items[items.length - 1]?.display_order || 0) + 1} onClose={() => setAddOpen(false)} onAdded={() => { setAddOpen(false); load(); }} />}
+    </>
+  );
+
+  if (admin) {
+    return (
+      <div className="mx-auto w-full max-w-5xl">
+        <AdminDetailHeader
+          back={{ to: basePath, label: 'Back to Sponsors and partners' }}
+          title={sponsor.company_name}
+          badges={(
+            <>
+              <AdminStatus status={sponsor.status} />
+              {tierLabel && <AdminStatusPill tone="info">{tierLabel}</AdminStatusPill>}
+            </>
+          )}
+          subtitle={items.length > 0 ? `${doneCount} of ${items.length} delivered · ${pct}%` : undefined}
+        />
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <SponsorshipFrame
+      band={band}
+      icon={Award}
+      eyebrow={tierLabel || 'Sponsor'}
+      title={sponsor.company_name}
+      back={backTo}
+      meta={items.length > 0 ? <span>{doneCount} of {items.length} delivered · {pct}%</span> : undefined}
+    >
+      {body}
     </SponsorshipFrame>
   );
 }

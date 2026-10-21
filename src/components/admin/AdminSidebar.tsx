@@ -221,7 +221,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
                   </div>
                 )}
                 {/* Add another on-site event */}
-                <Link to="/admin/events/new?type=on_site" onClick={onNavigate} className={quietLink}>
+                <Link to="/admin/events/new?type=on_site&editor=new" onClick={onNavigate} className={quietLink}>
                   <Plus className={ICON} /> Add on-site event
                 </Link>
               </div>
@@ -238,7 +238,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
                   <Calendar className={ICON} /><span className="min-w-0 truncate">All webinars</span>
                 </Link>
                 {renderItem({ to: '/admin/webinars', label: 'Webinar requests', icon: <Radio className={ICON} /> })}
-                <Link to="/admin/events/new?type=webinar" onClick={onNavigate} className={quietLink}>
+                <Link to="/admin/events/new?type=webinar&editor=new" onClick={onNavigate} className={quietLink}>
                   <Plus className={ICON} /> Create webinar
                 </Link>
               </div>

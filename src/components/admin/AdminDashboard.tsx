@@ -1306,7 +1306,7 @@ export function AdminDashboard() {
           {[
             { label: 'Manage Users', icon: Users, link: '/admin/users' },
             { label: 'Add Resource', icon: FileText, link: '/admin/resources/new' },
-            { label: 'Add Event', icon: Calendar, link: '/admin/events/new' },
+            { label: 'Add Event', icon: Calendar, link: '/admin/events/new?type=on_site&editor=new' },
             { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resources?tab=drafts' },
           ].map((a, i) => (
             <Button key={i} variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav(a.link)}>

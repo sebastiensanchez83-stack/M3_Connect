@@ -87,7 +87,7 @@ export function AdminEvents() {
         count={filtered.length}
         description={t('adminUi.pages.events')}
         actions={
-          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => navigate('/admin/events/new')}>
+          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => navigate('/admin/events/new?type=on_site&editor=new')}>
             <Plus className="h-4 w-4 mr-1.5" /> Create Event
           </Button>
         }

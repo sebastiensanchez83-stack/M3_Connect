@@ -10,8 +10,9 @@
  * their classes and simply pick up the new palette.
  *
  * Rules of use (design proposal §5):
- *  - gold is for the main action and selected states only, with navy text;
- *    gold TEXT on white is gold-text (#87681b), never gold itself;
+ *  - gold (the accent, sky blue #7cc4f0 since 21 Oct 2026) is for the main action and
+ *    selected states only, with navy text; accent TEXT on white is gold-text (#1b6ea8),
+ *    never gold itself;
  *  - teal marks eyebrow dots, the verified icon and quotes;
  *  - organisation type colours always sit next to the written type label.
  */
@@ -49,7 +50,7 @@ export default {
         },
         secondary: {
           DEFAULT: token('gold'),
-          // Gold for text on white: 5.2:1 (the old #9a7520 was 4.25:1).
+          // The accent for text on white (#1b6ea8): 5.5:1.
           dark: token('gold-text'),
           foreground: token('navy'),
         },

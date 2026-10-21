@@ -12,7 +12,7 @@ import { awardWinText, type AwardWin } from '@/lib/awardWins';
  *  - `WinnerLine`: the one-line version for a directory card (no link: the
  *    whole card already links to the company page).
  *
- * Gold-text #87681b on the gold tint keeps 4.7:1.
+ * The accent text #1b6ea8 on the accent tint keeps 5:1 (sky blue since 21 Oct 2026, gold before).
  */
 
 const RESULTS_PATH: Record<string, string> = { sm26: '/sm26/vote' };

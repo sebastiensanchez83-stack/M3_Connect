@@ -96,18 +96,18 @@ interface InsightItem {
 
 const PERSONA_COLORS: Record<string, string> = {
   marina: '#0b2653', partner: '#1f7a8c', media_partner: '#64748b',
-  individual: '#d7a647', admin: '#b91c1c', moderator: '#b91c1c',
+  individual: '#7cc4f0', admin: '#b91c1c', moderator: '#b91c1c',
 };
 const STATUS_COLORS: Record<string, string> = {
-  verified: '#1f7a8c', pending: '#d7a647',
+  verified: '#1f7a8c', pending: '#7cc4f0',
   rejected: '#b91c1c', suspended: '#64748b',
 };
 const TIER_CHART_COLORS: Record<string, string> = {
   member: '#94a3b8', innovation_partner: '#4a6fa5', associate_partner: '#1f7a8c',
-  premium_partner: '#d7a647', premium_sponsor: '#0b2653', main_sponsor: '#081d40',
+  premium_partner: '#7cc4f0', premium_sponsor: '#0b2653', main_sponsor: '#081d40',
 };
 const LEAD_STATUS_COLORS: Record<string, string> = {
-  new: '#d7a647', qualified: '#4a6fa5', in_discussion: '#1f7a8c',
+  new: '#7cc4f0', qualified: '#4a6fa5', in_discussion: '#1f7a8c',
   signed: '#0b2653', rejected: '#b91c1c',
 };
 

@@ -26,8 +26,8 @@ const SWATCHES: { name: string; hex: string; cls: string; dark?: boolean }[] = [
   { name: 'navy', hex: '#0b2653', cls: 'bg-navy', dark: true },
   { name: 'navy-deep', hex: '#081d40', cls: 'bg-navy-deep', dark: true },
   { name: 'chip', hex: '#eef2f8', cls: 'bg-chip' },
-  { name: 'gold (action)', hex: '#d7a647', cls: 'bg-gold' },
-  { name: 'gold-text', hex: '#87681b', cls: 'bg-gold-text', dark: true },
+  { name: 'gold (action, sky blue)', hex: '#7cc4f0', cls: 'bg-gold' },
+  { name: 'gold-text', hex: '#1b6ea8', cls: 'bg-gold-text', dark: true },
   { name: 'teal', hex: '#1f7a8c', cls: 'bg-teal', dark: true },
   { name: 'foam', hex: '#eaf3f4', cls: 'bg-foam' },
   { name: 'page', hex: '#f6f7f9', cls: 'bg-page' },
@@ -121,7 +121,7 @@ export function BrandShowcasePage() {
           <p className="text-meta-caps">Meta 12/16 caps .06em 500</p>
           <p className="text-figure text-navy tabular">1,234</p>
           <p className="font-wordmark text-xl font-semibold text-navy">Smart Marina Connect (Outfit 600 wordmark)</p>
-          <p className="text-gold-text text-sm font-semibold">Gold text #87681b on white</p>
+          <p className="text-gold-text text-sm font-semibold">Accent text #1b6ea8 on white</p>
         </div>
       </Section>
 
@@ -187,7 +187,7 @@ export function BrandShowcasePage() {
         </div>
       </Section>
 
-      <Section id="reveals" title="Reveals and heading lines" note="Section eyebrows carry a small gold number (01, 02…): #87681b on light, #d7a647 on navy, tabular figures, hidden from screen readers.">
+      <Section id="reveals" title="Reveals and heading lines" note="Section eyebrows carry a small accent number (01, 02…): #1b6ea8 on light, #7cc4f0 on navy, tabular figures, hidden from screen readers.">
         <div className="mb-8 flex flex-wrap items-center gap-x-10 gap-y-4">
           <Eyebrow number="01">Section eyebrow, light</Eyebrow>
           <div className="rounded-pill bg-navy px-5 py-3">

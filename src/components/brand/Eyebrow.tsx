@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
  * words in capitals, 13 px semibold, tracked at .08 em. White at 75 % on navy.
  *
  * `number` ("01", "02"…) puts a small gold section number before the dot, with
- * a short rule: gold text (#87681b) on light, gold (#d7a647) on navy, tabular
+ * a short rule: accent text (#1b6ea8) on light, accent (#7cc4f0) on navy, tabular
  * figures, hidden from screen readers (it only orders the page visually).
  */
 export function SectionNo({

@@ -325,7 +325,7 @@ export function SearchField({
           md ? 'h-12' : 'h-14',
           onPhoto
             // A gold ring on focus: visible against the navy hero.
-            ? 'border-2 border-white bg-white text-navy focus-within:border-gold focus-within:shadow-[0_0_0_4px_rgba(215,166,71,.35)]'
+            ? 'border-2 border-white bg-white text-navy focus-within:border-gold focus-within:shadow-[0_0_0_4px_rgba(124,196,240,.35)]'
             // #6b7588 edge: 4.6:1 against white and the page grey.
             : 'border border-checkbox bg-white text-navy focus-within:border-navy focus-within:shadow-focus',
         )}

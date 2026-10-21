@@ -15,10 +15,12 @@
     --navy: 11 38 83;          /* #0b2653 brand, headings, panels */
     --navy-deep: 8 29 64;      /* #081d40 large panels, footer */
     --chip: 238 242 248;       /* #eef2f8 chip and counter backgrounds */
-    /* Gold: the main action and selected states only (navy text on it, 6.7:1) */
-    --gold: 215 166 71;        /* #d7a647 */
-    --gold-hover: 201 154 61;  /* #c99a3d */
-    --gold-text: 135 104 27;   /* #87681b gold for text on white, 5.2:1 */
+    /* The accent: the main action and selected states only (navy text on it, 7.8:1).
+       Still named "gold": it was #d7a647 until 21 Oct 2026, when Victor chose sky blue
+       (other sites use a navy + gold palette). Class names stay bg-gold, text-gold-text… */
+    --gold: 124 196 240;       /* #7cc4f0 sky blue */
+    --gold-hover: 95 179 232;  /* #5fb3e8 */
+    --gold-text: 27 110 168;   /* #1b6ea8 accent for text on white, 5.5:1 */
     /* Accents */
     --teal: 31 122 140;        /* #1f7a8c eyebrow marks, verified icon, quotes */
     --teal-text: 25 106 122;   /* #196a7a teal words on foam (5.5:1) or white (6.2:1) */
@@ -59,7 +61,7 @@
     --popover-foreground: 215 28% 17%;
     --primary: 218 77% 18%;             /* navy */
     --primary-foreground: 0 0% 100%;
-    --secondary: 40 64% 56%;            /* gold */
+    --secondary: 203 79% 71%;           /* the accent (sky blue, token "gold") */
     --secondary-foreground: 218 77% 18%;
     --muted: 216 42% 95%;               /* chip */
     --muted-foreground: 219 13% 41%;    /* meta */

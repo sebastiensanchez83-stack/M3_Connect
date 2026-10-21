@@ -243,7 +243,7 @@ begin
     if not public.resource_comments_on() then
       raise exception using errcode = 'P0001', message = 'comments_off';
     end if;
-    if not public.is_verified() then
+    if not public.is_verified(null::public.persona_enum) then
       raise exception using errcode = '42501', message = 'comment_not_validated';
     end if;
   end if;

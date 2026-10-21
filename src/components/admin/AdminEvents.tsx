@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Event } from './types';
 import { useAdminFilters } from './hooks/useAdminFilters';
+import { loadEventRegistrationCounts, regSourceText, type EventRegistrationCount } from './events/registrationCounts';
 import { AdminContextBanner } from './AdminContextBanner';
 import {
   AdminPageHeader, AdminFilterBar, AdminTableCard, AdminStatusPill, AdminEmpty, AdminLoading, ADMIN_BTN_PRIMARY,
@@ -28,7 +29,7 @@ export function AdminEvents() {
   const [events, setEvents] = useState<ExtendedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [regCounts, setRegCounts] = useState<Record<string, number>>({});
+  const [regCounts, setRegCounts] = useState<Record<string, EventRegistrationCount>>({});
 
   const typeFilter = getFilter('type', 'all');
   const timeFilter = getFilter('time', 'all');
@@ -42,14 +43,8 @@ export function AdminEvents() {
     const evts = (data || []) as ExtendedEvent[];
     setEvents(evts);
 
-    if (evts.length > 0) {
-      const counts: Record<string, number> = {};
-      for (const e of evts) {
-        const { count } = await supabase.from('event_registrations').select('id', { count: 'exact' }).eq('event_id', e.id);
-        counts[e.id] = count || 0;
-      }
-      setRegCounts(counts);
-    }
+    // Every registration system (event_registrations, guest lists, the new editor, SM26): head counts.
+    if (evts.length > 0) setRegCounts(await loadEventRegistrationCounts(evts).catch(() => ({})));
     setLoading(false);
   };
 
@@ -144,7 +139,7 @@ export function AdminEvents() {
                 const hasDate = !!e.date_time;
                 const isPast = hasDate && new Date(e.date_time) < now;
                 const evType = e.event_type || 'webinar';
-                const regs = regCounts[e.id] || 0;
+                const rc = regCounts[e.id];
                 const isDraft = e.published === false;
 
                 return (
@@ -203,7 +198,10 @@ export function AdminEvents() {
                     <td><AdminStatusPill tone={e.access_level === 'public' ? 'success' : 'neutral'}>{e.access_level}</AdminStatusPill></td>
                     <td>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="whitespace-nowrap text-sm tabular-nums text-ink">{regs}</span>
+                        <span className="whitespace-nowrap text-sm tabular-nums text-ink" title={rc ? regSourceText(rc) : undefined}>
+                          {!rc || rc.registered === null ? '—' : rc.capacity ? `${rc.registered} / ${rc.capacity}` : rc.registered}
+                          {!!rc?.waiting && <span className="text-meta"> · {rc.waiting} waiting</span>}
+                        </span>
                         <ChevronRight className="h-4 w-4 text-meta/50 transition-colors group-hover:text-navy" aria-hidden="true" />
                       </div>
                     </td>

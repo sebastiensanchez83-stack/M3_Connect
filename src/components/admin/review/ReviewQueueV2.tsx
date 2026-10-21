@@ -712,7 +712,7 @@ export function ReviewQueueV2() {
 
   const header = (
     <AdminPageHeader
-      title={t('adminReview.title', 'To review')}
+      title={t('adminReview.title', 'To validate')}
       count={state === 'ready' ? live.filter(needsDecision).length : undefined}
       description={t('adminReview.v2.description', 'Everything waiting for a decision from the M3 team, by topic. The gold button on a card is the usual decision.')}
       meta={

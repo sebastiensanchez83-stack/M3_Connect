@@ -2,10 +2,10 @@ import { useState, useEffect, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
-  Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
-  ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck,
-  Scale, Activity, Upload, Newspaper, Mail, Archive, Inbox, ShieldCheck,
+  Users, FileText, Calendar, Anchor, Radio, MessageSquare, ClipboardList,
+  Award, Home, Settings, Image, Building2, Tag, Ship, ChevronRight, Store, UsersRound,
+  Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck, Scale, Activity, Upload,
+  Newspaper, Mail, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -13,13 +13,19 @@ import { registerAdminRefonteStrings } from '@/i18n/refonte-admin';
 
 registerAdminRefonteStrings();
 
-// Grouped admin navigation, on a marine rail. Events nests On-site → Smart 26
-// (which expands to its operational sub-tabs) and a separate Webinars branch;
-// the rest of the admin lives in a few labelled groups, always visible. The
-// branch containing the current route auto-opens. Routes, labels and the
-// admin / moderator split are unchanged: this file only draws them.
+// The admin menu by TASKS (Victor, 21 Oct 2026), on a marine rail:
+//   Today          Home ("To do today", with the Market tab that replaced Industry Pulse)
+//   Members        Companies, To validate (the one place to validate), conversations between companies
+//   Events         All events, Smart 26 (frozen console), WYS 2026, webinar proposals, invitation campaigns, create
+//   Site content   Articles, Banners and announcements, Sponsors and partners
+//   Marketplace    Marina projects, RFPs, Consultations, Partner leads
+//   Settings       Switches, Rights per company type, Sectors, Press, Accounts and export, Archives
+// Entries whose screen does not exist yet (Inbox, Site pages, Site health, Exports) are left out:
+// the lanes that build them add them here at merge. Every route of the old menu is still in
+// this one, or redirected (/admin/pulse -> /admin?tab=market). The admin / moderator split is
+// unchanged: moderators see Home, To validate, webinar proposals, invitations and Articles.
 
-interface NavItem { to: string; label: string; icon?: ReactNode; exact?: boolean; adminOnly?: boolean }
+interface NavItem { to: string; label: string; icon?: ReactNode; exact?: boolean; adminOnly?: boolean; activeAlso?: string[] }
 
 const ICON = 'h-4 w-4 shrink-0';
 
@@ -30,13 +36,14 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
   const isMod = profile?.persona === 'moderator';
   const path = location.pathname;
 
-  const isActive = (to: string, exact?: boolean) => {
-    const toPath = to.split('?')[0];
-    if (exact) return path === toPath;
+  const isActive = (l: NavItem) => {
+    const toPath = l.to.split('?')[0];
+    if (l.exact) return path === toPath;
+    if (l.activeAlso?.some(p => path.startsWith(p))) return true;
     return path.startsWith(toPath) && toPath !== '/admin';
   };
 
-  // ---- Smart 26 sub-tabs (real routes) ----
+  // ---- Smart 26 sub-tabs (real routes; the SM26 console is frozen) ----
   const sm26Children: NavItem[] = [
     { to: '/admin/sm26/health', label: 'Overview', icon: <Activity className={ICON} /> },
     { to: '/admin/sm26', label: 'Registrations', icon: <ClipboardList className={ICON} />, exact: true },
@@ -53,75 +60,69 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
     { to: '/admin/sm26/import', label: 'Import', icon: <Upload className={ICON} /> },
   ];
   // "Registrations" owns /admin/sm26 AND the registration detail (/admin/sm26/:id),
-  // but NOT the named sub-routes — pick the most specific match.
+  // but NOT the named sub-routes: pick the most specific match.
   const sm26SubPrefixes = sm26Children.filter(c => c.to !== '/admin/sm26').map(c => c.to);
   const sm26ChildActive = (c: NavItem) => {
     if (c.to === '/admin/sm26') return path.startsWith('/admin/sm26') && !sm26SubPrefixes.some(p => path.startsWith(p));
     return path.startsWith(c.to);
   };
   const onSm26 = path.startsWith('/admin/sm26');
-  const eventsType = path === '/admin/events' ? new URLSearchParams(location.search).get('type') : null;
-  const onWebinarList = eventsType === 'webinar';
-  const onOnsiteList = eventsType === 'on_site';
-  // Old queues kept reachable (no link left anywhere else, both empty when archived on 8 Oct 2026).
-  const archiveItems: NavItem[] = [
-    { to: '/admin/sponsorship-requests', label: 'Old sponsorship requests', icon: <Award className={ICON} />, adminOnly: true },
-    { to: '/admin/expositions', label: 'Old exposition requests', icon: <Store className={ICON} />, adminOnly: true },
-  ];
-  const onArchives = archiveItems.some(i => path.startsWith(i.to));
-  // ---- WYS 2026 (guest-list event): Guest list and its Invitations, like the Smart 26 sub-tabs ----
-  // /admin/invitations (every campaign, any event) is not WYS 2026's: it highlights nothing.
+  // ---- WYS 2026 (guest-list event): its guest list and its invitations ----
   const wysInvitations = path.startsWith('/admin/guest-list/wys26/invitations');
   const onWys = path.startsWith('/admin/guest-list/wys26');
   const wysChildren: (NavItem & { active: boolean })[] = [
     { to: '/admin/guest-list/wys26', label: 'Guest list', icon: <ClipboardList className={ICON} />, active: onWys && !wysInvitations },
     { to: '/admin/guest-list/wys26/invitations', label: 'Invitations', icon: <Mail className={ICON} />, active: wysInvitations },
   ];
-  const onWebinars = path.startsWith('/admin/webinars') || onWebinarList;
+  // Old queues kept reachable (both empty when archived on 8 Oct 2026).
+  const archiveItems: NavItem[] = [
+    { to: '/admin/sponsorship-requests', label: 'Old sponsorship requests', icon: <Award className={ICON} />, adminOnly: true },
+    { to: '/admin/expositions', label: 'Old exposition requests', icon: <Store className={ICON} />, adminOnly: true },
+  ];
+  const onArchives = archiveItems.some(i => path.startsWith(i.to));
+  // "All events" is the list and every event's own page, not the SM26 / WYS consoles.
+  const onEventList = path === '/admin/events' || (path.startsWith('/admin/events/') && !path.startsWith('/admin/events/new'));
 
-  // ---- Labelled groups ----
+  // ---- The groups, in Victor's order ----
   interface Group { key: string; label: string; items: NavItem[] }
   const groups: Group[] = [
-    { key: 'people', label: 'People & companies', items: [
-      { to: '/admin/users', label: t('admin.users'), icon: <Users className={ICON} />, adminOnly: true },
-      { to: '/admin/organizations', label: 'Organizations', icon: <Building2 className={ICON} />, adminOnly: true },
-      { to: '/admin/partner-requests', label: 'B2B requests', icon: <Link2 className={ICON} />, adminOnly: true },
-      // Rights per company type (read-only): the table and what the switch would change.
-      { to: '/admin/rights', label: 'Rights', icon: <ShieldCheck className={ICON} />, adminOnly: true },
+    { key: 'members', label: t('adminNav.members', 'Members'), items: [
+      { to: '/admin/organizations', label: t('adminNav.companies', 'Companies'), icon: <Building2 className={ICON} />, adminOnly: true },
+      // Company-to-company conversations (the old "B2B requests").
+      { to: '/admin/partner-requests', label: t('adminNav.conversations', 'Conversations'), icon: <MessagesSquare className={ICON} />, adminOnly: true },
     ] },
-    { key: 'marketplace', label: 'Marketplace', items: [
-      { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className={ICON} />, adminOnly: true },
-      { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className={ICON} />, adminOnly: true },
-      { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className={ICON} />, adminOnly: true },
-      { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className={ICON} />, adminOnly: true },
+    { key: 'content', label: t('adminNav.content', 'Site content'), items: [
+      { to: '/admin/resources', label: t('adminNav.articles', 'Articles'), icon: <FileText className={ICON} /> },
+      { to: '/admin/banners', label: t('adminNav.banners', 'Banners and announcements'), icon: <Image className={ICON} />, adminOnly: true },
+      { to: '/admin/sponsorships', label: t('adminNav.sponsors', 'Sponsors and partners'), icon: <Award className={ICON} />, adminOnly: true },
     ] },
-    { key: 'commercial', label: 'Commercial & content', items: [
-      { to: '/admin/sponsorships', label: 'Sponsorship', icon: <Award className={ICON} />, adminOnly: true },
-      { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className={ICON} /> },
-      { to: '/admin/banners', label: 'Ad banners', icon: <Image className={ICON} />, adminOnly: true },
-      { to: '/admin/sectors', label: 'Sectors', icon: <Tag className={ICON} />, adminOnly: true },
-      { to: '/admin/media-downloads', label: 'Press', icon: <Newspaper className={ICON} />, adminOnly: true },
+    { key: 'marketplace', label: t('adminNav.marketplace', 'Marketplace'), items: [
+      { to: '/admin/projects', label: t('adminNav.projects', 'Marina projects'), icon: <Anchor className={ICON} />, adminOnly: true },
+      { to: '/admin/rfps', label: t('adminNav.rfps', 'RFPs'), icon: <ClipboardList className={ICON} />, adminOnly: true },
+      { to: '/admin/consultations', label: t('adminNav.consultations', 'Consultations'), icon: <MessageSquare className={ICON} />, adminOnly: true },
+      { to: '/admin/leads', label: t('adminNav.leads', 'Partner leads'), icon: <Users className={ICON} />, adminOnly: true },
+    ] },
+    { key: 'settings', label: t('adminNav.settings', 'Settings'), items: [
+      { to: '/admin/settings', label: t('adminNav.switches', 'Switches'), icon: <Settings className={ICON} />, adminOnly: true },
+      { to: '/admin/rights', label: t('adminNav.rights', 'Rights per company type'), icon: <ShieldCheck className={ICON} />, adminOnly: true },
+      { to: '/admin/sectors', label: t('adminNav.sectors', 'Sectors'), icon: <Tag className={ICON} />, adminOnly: true },
+      { to: '/admin/media-downloads', label: t('adminNav.press', 'Press'), icon: <Newspaper className={ICON} />, adminOnly: true },
+      // Every account in one list, its CSV export and the staff accounts. A person's page
+      // (/admin/users/:id) opens from their company or the search; this is not a People menu.
+      { to: '/admin/users', label: t('adminNav.accounts', 'Accounts and export'), icon: <Download className={ICON} />, adminOnly: true },
     ] },
   ];
 
   const visible = (items: NavItem[]) => (isAdmin ? items : items.filter(i => !i.adminOnly));
 
-  // Expansion state: the Events branches only. The one holding the current route opens.
-  const [open, setOpen] = useState<Record<string, boolean>>(() => ({
-    onsite: onSm26 || onWys || isAdmin,  // on-site open by default for admins
-    smart26: onSm26,
-    wys26: onWys,
-    webinars: onWebinars,
-    archives: onArchives,
-  }));
+  // Expansion state: Smart 26, WYS 2026 and Archives. The one holding the current route opens.
+  const [open, setOpen] = useState<Record<string, boolean>>(() => ({ smart26: onSm26, wys26: onWys, archives: onArchives }));
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }));
   useEffect(() => {
     setOpen(p => ({
       ...p,
-      ...(onSm26 ? { onsite: true, smart26: true } : {}),
-      ...(onWys ? { onsite: true, wys26: true } : {}),
-      ...(onWebinars ? { webinars: true } : {}),
-      ...(onOnsiteList ? { onsite: true } : {}),
+      ...(onSm26 ? { smart26: true } : {}),
+      ...(onWys ? { wys26: true } : {}),
       ...(onArchives ? { archives: true } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,24 +131,36 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
   const linkClass = (active: boolean) => cn(
     'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[14px] font-medium leading-5 transition-colors',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-white',
-    active ? 'bg-white text-navy' : 'text-white/75 hover:bg-white/10 hover:text-white',
+    active ? 'bg-white text-navy' : 'text-white/80 hover:bg-white/10 hover:text-white',
   );
   const quietLink = cn(
-    'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[14px] leading-5 text-white/55 transition-colors',
+    'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[14px] leading-5 text-white/60 transition-colors',
     'hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white',
   );
-  const sectionLabel = 'px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45';
+  const sectionLabel = 'px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50';
   const nested = 'ml-3 space-y-0.5 border-l border-white/15 pl-2';
 
-  const renderItem = (l: NavItem) => (
-    <Link key={l.to} to={l.to} onClick={onNavigate} className={linkClass(isActive(l.to, l.exact))} aria-current={isActive(l.to, l.exact) ? 'page' : undefined}>
-      {l.icon}<span className="min-w-0 truncate">{l.label}</span>
+  const renderLink = (l: NavItem, active: boolean, trailing?: ReactNode) => (
+    <Link key={l.to} to={l.to} onClick={onNavigate} className={linkClass(active)} aria-current={active ? 'page' : undefined}>
+      {l.icon}<span className="min-w-0 flex-1 leading-tight">{l.label}</span>{trailing}
     </Link>
   );
+  const renderItem = (l: NavItem) => renderLink(l, isActive(l));
 
   const caret = (isOpen: boolean) => (
     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none', isOpen && 'rotate-90')} aria-hidden="true" />
   );
+  const branch = (key: string, label: string, icon: ReactNode, on: boolean, children: ReactNode) => (
+    <>
+      <button type="button" onClick={() => toggle(key)} aria-expanded={!!open[key]} className={cn(linkClass(on && !open[key]), 'justify-between')}>
+        <span className="flex items-center gap-3">{icon} {label}</span>
+        {caret(!!open[key])}
+      </button>
+      {open[key] && <div className={nested}>{children}</div>}
+    </>
+  );
+
+  const reviewItem: NavItem = { to: '/admin/review', label: t('adminNav.toValidate', 'To validate'), icon: <UserCheck className={ICON} /> };
 
   return (
     <nav
@@ -161,126 +174,58 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
         <div className="mb-1 rounded-xl bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-white">Moderator View</div>
       )}
 
-      <div className="shrink-0 space-y-0.5 pb-3">
-        {/* Overview */}
-        <div className={cn(sectionLabel, 'pt-1')}>Overview</div>
-        {renderItem({ to: '/admin', label: isAdmin ? t('admin.dashboard') : 'Moderator Dashboard', icon: <LayoutDashboard className={ICON} />, exact: true })}
-        {/* Everything waiting for M3 (/admin/review), with its count from admin_review_queue_count() */}
-        <Link to="/admin/review" onClick={onNavigate} className={linkClass(isActive('/admin/review'))} aria-current={isActive('/admin/review') ? 'page' : undefined}>
-          <Inbox className={ICON} />
-          <span className="min-w-0 flex-1 truncate">{t('adminReview.nav', 'To review')}</span>
-          {!!reviewCount && (
-            <span className="shrink-0 rounded-pill bg-gold px-2 text-[12px] font-bold leading-5 tabular-nums text-navy">
-              {reviewCount}<span className="sr-only"> {t('adminReview.navCount', 'waiting')}</span>
-            </span>
-          )}
-        </Link>
-        {isAdmin && renderItem({ to: '/admin/pulse', label: 'Industry Pulse', icon: <TrendingUp className={ICON} /> })}
+      <div className="shrink-0 space-y-0.5 pb-6">
+        {/* Today */}
+        <div className={cn(sectionLabel, 'pt-1')}>{t('adminNav.today', 'Today')}</div>
+        {renderItem({ to: '/admin', label: t('adminNav.home', 'Home'), icon: <Home className={ICON} />, exact: true })}
+
+        {/* Members: Companies, To validate (with its count), Conversations */}
+        <div className={sectionLabel}>{t('adminNav.members', 'Members')}</div>
+        {visible(groups[0].items).slice(0, 1).map(renderItem)}
+        {renderLink(reviewItem, isActive(reviewItem), !!reviewCount && (
+          <span className="shrink-0 rounded-pill bg-gold px-2 text-[12px] font-bold leading-5 tabular-nums text-navy">
+            {reviewCount}<span className="sr-only"> {t('adminReview.navCount', 'waiting')}</span>
+          </span>
+        ))}
+        {visible(groups[0].items).slice(1).map(renderItem)}
 
         {/* Events */}
-        <div className={sectionLabel}>Events</div>
-        {isAdmin ? (
+        <div className={sectionLabel}>{t('adminNav.events', 'Events')}</div>
+        {isAdmin && (
           <>
-            {/* On-site */}
-            <button type="button" onClick={() => toggle('onsite')} aria-expanded={!!open.onsite} className={cn(linkClass(false), 'justify-between')}>
-              <span className="flex items-center gap-3"><Anchor className={ICON} /> On-site</span>
-              {caret(!!open.onsite)}
-            </button>
-            {open.onsite && (
-              <div className={nested}>
-                {/* Every on-site event (the list, filtered), like "All webinars" below */}
-                <Link to="/admin/events?type=on_site" onClick={onNavigate} className={linkClass(onOnsiteList)} aria-current={onOnsiteList ? 'page' : undefined}>
-                  <Calendar className={ICON} /><span className="min-w-0 truncate">All on-site events</span>
-                </Link>
-                {/* Smart 26 (expands to its sub-tabs) */}
-                <button type="button" onClick={() => toggle('smart26')} aria-expanded={!!open.smart26} className={cn(linkClass(onSm26 && !open.smart26), 'justify-between')}>
-                  <span className="flex items-center gap-3"><Ship className={ICON} /> Smart 26</span>
-                  {caret(!!open.smart26)}
-                </button>
-                {open.smart26 && (
-                  <div className={nested}>
-                    {sm26Children.map(c => (
-                      <Link key={c.to} to={c.to} onClick={onNavigate} className={linkClass(sm26ChildActive(c))} aria-current={sm26ChildActive(c) ? 'page' : undefined}>
-                        {c.icon}<span className="min-w-0 leading-tight">{c.label}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-                {/* Guest-list events (invitation-only): WYS 2026 expands to its guest list and invitations */}
-                <button type="button" onClick={() => toggle('wys26')} aria-expanded={!!open.wys26} className={cn(linkClass(onWys && !open.wys26), 'justify-between')}>
-                  <span className="flex items-center gap-3"><Mail className={ICON} /> WYS 2026</span>
-                  {caret(!!open.wys26)}
-                </button>
-                {open.wys26 && (
-                  <div className={nested}>
-                    {wysChildren.map(c => (
-                      <Link key={c.to} to={c.to} onClick={onNavigate} className={linkClass(c.active)} aria-current={c.active ? 'page' : undefined}>
-                        {c.icon}<span className="min-w-0 leading-tight">{c.label}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-                {/* Add another on-site event */}
-                <Link to="/admin/events/new?type=on_site&editor=new" onClick={onNavigate} className={quietLink}>
-                  <Plus className={ICON} /> Add on-site event
-                </Link>
-              </div>
-            )}
-
-            {/* Webinars (separate from on-site) */}
-            <button type="button" onClick={() => toggle('webinars')} aria-expanded={!!open.webinars} className={cn(linkClass(onWebinars && !open.webinars), 'justify-between')}>
-              <span className="flex items-center gap-3"><Radio className={ICON} /> Webinars</span>
-              {caret(!!open.webinars)}
-            </button>
-            {open.webinars && (
-              <div className={nested}>
-                <Link to="/admin/events?type=webinar" onClick={onNavigate} className={linkClass(onWebinarList)} aria-current={onWebinarList ? 'page' : undefined}>
-                  <Calendar className={ICON} /><span className="min-w-0 truncate">All webinars</span>
-                </Link>
-                {renderItem({ to: '/admin/webinars', label: 'Webinar requests', icon: <Radio className={ICON} /> })}
-                <Link to="/admin/events/new?type=webinar&editor=new" onClick={onNavigate} className={quietLink}>
-                  <Plus className={ICON} /> Create webinar
-                </Link>
-              </div>
-            )}
+            {renderLink({ to: '/admin/events', label: t('adminNav.allEvents', 'All events'), icon: <Calendar className={ICON} /> }, onEventList)}
+            {branch('smart26', 'Smart 26', <Ship className={ICON} />, onSm26, sm26Children.map(c => renderLink(c, sm26ChildActive(c))))}
+            {branch('wys26', 'WYS 2026', <Mail className={ICON} />, onWys, wysChildren.map(c => renderLink(c, c.active)))}
           </>
-        ) : (
-          /* Moderator sees only the webinar queue under Events */
-          renderItem({ to: '/admin/webinars', label: 'Webinar proposals', icon: <Radio className={ICON} /> })
+        )}
+        {renderItem({ to: '/admin/webinars', label: t('adminNav.webinarProposals', 'Webinar proposals'), icon: <Radio className={ICON} /> })}
+        {/* Every invitation campaign, any event (the WYS ones are also under WYS 2026). */}
+        {renderLink({ to: '/admin/invitations', label: t('adminNav.invitations', 'Invitation campaigns'), icon: <Send className={ICON} /> }, path.startsWith('/admin/invitations'))}
+        {isAdmin && (
+          <>
+            <Link to="/admin/events/new?type=on_site&editor=new" onClick={onNavigate} className={quietLink}>
+              <Plus className={ICON} /> {t('adminNav.createEvent', 'Create an on-site event')}
+            </Link>
+            <Link to="/admin/events/new?type=webinar&editor=new" onClick={onNavigate} className={quietLink}>
+              <Plus className={ICON} /> {t('adminNav.createWebinar', 'Create a webinar')}
+            </Link>
+          </>
         )}
 
-        {/* Labelled groups */}
-        {groups.map(g => {
+        {/* Site content, Marketplace, Settings */}
+        {groups.slice(1).map(g => {
           const items = visible(g.items);
           if (items.length === 0) return null;
           return (
             <div key={g.key} className="space-y-0.5">
               <div className={sectionLabel}>{g.label}</div>
               {items.map(renderItem)}
+              {/* Archives: small, at the end of Settings. Old queues nobody links to any more. */}
+              {g.key === 'settings' && isAdmin && branch('archives', t('adminNav.archives', 'Archives'), <Archive className={ICON} />, onArchives, visible(archiveItems).map(renderItem))}
             </div>
           );
         })}
-
-        {/* Archives: small and last. Old queues nobody links to any more, kept reachable. */}
-        {isAdmin && (
-          <div className="space-y-0.5 pt-4">
-            <button type="button" onClick={() => toggle('archives')} aria-expanded={!!open.archives} className={cn(quietLink, 'justify-between')}>
-              <span className="flex items-center gap-3"><Archive className={ICON} /> Archives</span>
-              {caret(!!open.archives)}
-            </button>
-            {open.archives && <div className={nested}>{visible(archiveItems).map(renderItem)}</div>}
-          </div>
-        )}
-
       </div>
-
-      {/* Settings: pinned to the bottom of the rail. It sits outside the spaced list so
-          mt-auto holds it down on a tall screen, and stays stuck while the groups scroll. */}
-      {isAdmin && (
-        <div className="sticky bottom-0 mt-auto shrink-0 border-t border-white/15 bg-navy pb-4 pt-3">
-          {renderItem({ to: '/admin/settings', label: 'Settings', icon: <Settings className={ICON} /> })}
-        </div>
-      )}
     </nav>
   );
 }

@@ -293,6 +293,14 @@ export async function loadUpcomingEvents(): Promise<UpcomingEvent[] | null> {
   return rows.map(r => ({ id: r.id, title: r.title, date_time: r.date_time, location: r.location, event_type: r.event_type, published: r.published, counts: counts[r.id] ?? null }));
 }
 
+/* ------------------------------------------------------------------ site health */
+
+/**
+ * The home's one line about the site monitor: what its last automatic run found (ops_health_run,
+ * staff read). Null when it cannot be read: the line is then left out, never shown as "fine".
+ */
+export { fetchHealthLine as loadHealthLine, SITE_HEALTH_PATH, type HealthLine } from '@/components/admin/v2/health/healthApi';
+
 /* ------------------------------------------------------------------ content */
 
 export interface ContentItem {

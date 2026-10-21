@@ -15,9 +15,10 @@ import { AdminLoading, AdminPageHeader, AdminPanel, AdminSectionLabel, AdminStat
 import { useReviewCount } from '../reviewQueueCount';
 import { regSourceText } from '../events/registrationCounts';
 import {
-  loadContent, loadFigures, loadQueue, loadUpcomingEvents,
-  type ContentItem, type Figure, type QueueItem, type QueueKey, type UpcomingEvent,
+  SITE_HEALTH_PATH, loadContent, loadFigures, loadHealthLine, loadQueue, loadUpcomingEvents,
+  type ContentItem, type Figure, type HealthLine, type QueueItem, type QueueKey, type UpcomingEvent,
 } from './homeData';
+import { formatAgo, formatWhen } from '../v2/inboxApi';
 import { MarketTab } from './MarketTab';
 
 /**
@@ -85,6 +86,35 @@ function FigureCard({ f }: { f: Figure }) {
   );
 }
 
+/**
+ * "Site health: 42 of 42 checks fine ->" under the greeting: what the monitor's last automatic
+ * run found, as a pill that opens Site health. Orange when a check is worth a look or the
+ * monitor looks stopped, red when one fails. Left out when the runs cannot be read.
+ */
+function HealthLineLink({ h }: { h: HealthLine }) {
+  const { t } = useTranslation();
+  const tone = h.fail ? 'bg-red-600' : h.warn || h.late ? 'bg-amber-500' : 'bg-teal';
+  const text = h.late
+    ? t('adminHome.health.late', 'Site health: the monitor last ran {{ago}}', { ago: formatAgo(h.runAt) })
+    : h.fail
+      ? t('adminHome.health.fail', { count: h.fail, defaultValue_one: 'Site health: {{count}} check failing', defaultValue_other: 'Site health: {{count}} checks failing' })
+      : h.warn
+        ? t('adminHome.health.warn', { count: h.warn, n: h.total, defaultValue_one: 'Site health: {{count}} of {{n}} checks worth a look', defaultValue_other: 'Site health: {{count}} of {{n}} checks worth a look' })
+        : t('adminHome.health.ok', 'Site health: {{ok}} of {{n}} checks fine', { ok: h.ok, n: h.total });
+  return (
+    <Link
+      to={SITE_HEALTH_PATH}
+      title={t('adminHome.health.title', 'Last automatic check: {{when}}', { when: formatWhen(h.runAt) })}
+      className="group inline-flex max-w-full rounded-pill focus:outline-none focus-visible:shadow-focus"
+    >
+      <ActionCue size="sm">
+        <span aria-hidden="true" className={cn('mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle', tone)} />
+        {text}
+      </ActionCue>
+    </Link>
+  );
+}
+
 function eventCountLine(e: UpcomingEvent, t: TFunction): string {
   const c = e.counts;
   if (!c || c.registered === null) return t('adminHome.events.noCount', 'The registrations could not be counted.');
@@ -118,6 +148,7 @@ export function AdminHome() {
   const [figures, setFigures] = useState<Figure[] | null>(null);
   const [events, setEvents] = useState<UpcomingEvent[] | null | 'error'>(null);
   const [content, setContent] = useState<ContentItem[] | null>(null);
+  const [health, setHealth] = useState<HealthLine | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -127,6 +158,7 @@ export function AdminHome() {
       isAdmin ? loadFigures().then(setFigures).catch(() => setFigures([])) : Promise.resolve(),
       isAdmin ? loadUpcomingEvents().then(r => setEvents(r ?? 'error')).catch(() => setEvents('error')) : Promise.resolve(),
       loadContent(isAdmin).then(setContent).catch(() => setContent([])),
+      loadHealthLine().then(setHealth).catch(() => setHealth(null)),
     ]);
     setBusy(false);
   }, [isAdmin]);
@@ -167,6 +199,7 @@ export function AdminHome() {
         className="mb-0"
         title={first ? t('adminHome.hello', 'Hello {{name}}', { name: first }) : t('adminHome.title', 'To do today')}
         description={t('adminHome.description', 'First what is waiting for M3, then the figures of the week. {{date}}.', { date: today })}
+        meta={health ? <HealthLineLink h={health} /> : undefined}
         actions={
           <>
             <Button

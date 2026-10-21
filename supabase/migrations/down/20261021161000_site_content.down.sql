@@ -1,5 +1,5 @@
 -- DOWN for supabase/migrations/20261021161000_site_content.sql
--- Drops site_content_publish, site_content_history (and its append-only trigger), its trigger
+-- Drops site_content_publish, site_content_history (and its append-only triggers), its trigger
 -- function and site_content. Every published block and its history are LOST: export them first
 -- if they matter (select * from public.site_content; select * from public.site_content_history).
 -- Harmless for main (it never reads them). The redesign falls back to the code's text by itself:

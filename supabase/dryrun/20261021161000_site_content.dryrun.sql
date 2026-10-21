@@ -8,7 +8,7 @@
 -- down verbatim and a check that everything is gone. Each try runs in a sub-transaction that is
 -- always undone (pg_temp._dr_try); the two real publishes (pg_temp._dr_as) and everything else
 -- roll back with the final RAISE EXCEPTION 'DRYRUN ...'. Prints labels and SQLSTATEs only.
--- Expected: "26 PASS, 0 FAIL".
+-- Expected: "29 PASS, 0 FAIL".
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -69,7 +69,7 @@ select 'member', p.user_id from public.profiles p join auth.users u on u.id = p.
 -- B. The migration, verbatim
 -- Site pages (CMS), 21 Oct 2026. Admin redesign wave 1, lane cms (branch rf-adm-cms).
 -- Down: supabase/migrations/down/20261021161000_site_content.down.sql
--- Dry run: supabase/dryrun/20261021161000_site_content.dryrun.sql (expected "26 PASS, 0 FAIL")
+-- Dry run: supabase/dryrun/20261021161000_site_content.dryrun.sql (expected "29 PASS, 0 FAIL")
 --
 -- Additive: two new tables, two new functions, nothing existing is changed. main never reads
 -- them. The redesign reads them with the code's own text as fallback (src/lib/siteContent), so
@@ -79,6 +79,8 @@ select 'member', p.user_id from public.profiles p join auth.users u on u.id = p.
 -- site_content: one row per editable block.
 --   key 'text:<i18n key>'  kind 'text', body {"text": "..."}: replaces one sentence of the site
 --                          (the page's t('<i18n key>') call), e.g. 'text:staticPages.about.team.p1'.
+--                          Only the editor's pages: keys under staticPages, home, homePage, about,
+--                          contact, contentPages, flows, join, legal, help (nothing else can be overridden).
 --   key 'legal.<doc>'      kind 'rich', body {"html": "...", "version": "..."}: a legal page's body
 --                          (HTML from the admin's editor, sanitized with DOMPurify on display).
 --   key 'home.hero', 'help.custom'  kind 'json': the home hero's photo/video and featured event,
@@ -91,7 +93,7 @@ select 'member', p.user_id from public.profiles p join auth.users u on u.id = p.
 -- Write: only through site_content_publish (SECURITY DEFINER, search_path '', is_moderator()),
 --   which writes the blocks and one history row per block in the same transaction. Clients have
 --   no INSERT, UPDATE or DELETE on either table.
--- site_content_history: append-only. A trigger refuses UPDATE and DELETE for every role,
+-- site_content_history: append-only. Triggers refuse UPDATE, DELETE and TRUNCATE for every role,
 --   the owner included (DROP TABLE still works). Staff read it. `page` is the admin page the
 --   change was made from ('home', 'about', 'privacy'...), `batch_id` groups one Publish.
 
@@ -117,7 +119,7 @@ create table public.site_content (
   published boolean not null default true,
   updated_at timestamptz not null default now(),
   updated_by uuid references auth.users (id) on delete set null,
-  constraint site_content_key_format check (key ~ '^(text:[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$'),
+  constraint site_content_key_format check (key ~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help).[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$'),
   constraint site_content_kind check (kind in ('text', 'rich', 'json')),
   constraint site_content_kind_matches_key check ((key like 'text:%') = (kind = 'text')),
   constraint site_content_body_shape check (
@@ -164,6 +166,10 @@ $fn$;
 create trigger site_content_history_append_only
   before update or delete on public.site_content_history
   for each row execute function public.site_content_history_append_only();
+
+create trigger site_content_history_no_truncate
+  before truncate on public.site_content_history
+  for each statement execute function public.site_content_history_append_only();
 
 alter table public.site_content enable row level security;
 alter table public.site_content_history enable row level security;
@@ -228,7 +234,7 @@ begin
     if jsonb_typeof(v_body) = 'null' then
       v_body := null;
     end if;
-    if v_key is null or v_key !~ '^(text:[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$' then
+    if v_key is null or v_key !~ '^(text:(staticPages|home|homePage|about|contact|contentPages|flows|join|legal|help).[A-Za-z0-9_.-]{1,200}|[a-z][a-z0-9_.-]{0,80})$' then
       raise exception 'site_content_publish: bad key %', coalesce(v_key, '(none)') using errcode = '22023';
     end if;
     if v_kind is null or v_kind not in ('text', 'rich', 'json') or (v_key like 'text:%') <> (v_kind = 'text') then
@@ -320,6 +326,10 @@ begin
     pg_temp._dr_try('authenticated', v_staff, 'update public.site_content_history set note = null') = '42501');
   perform pg_temp._dr_ok('the owner cannot delete history rows either (trigger, 42501)',
     pg_temp._dr_try(v_me, null, 'delete from public.site_content_history') = '42501');
+  perform pg_temp._dr_ok('the owner cannot truncate the history (trigger, 42501)',
+    pg_temp._dr_try(v_me, null, 'truncate public.site_content_history') = '42501');
+  perform pg_temp._dr_ok('a member cannot write the history directly (42501)',
+    pg_temp._dr_try('authenticated', v_member, $q$insert into public.site_content_history (batch_id, page, key, kind) values (gen_random_uuid(), 'about', 'text:about.title', 'text')$q$) = '42501');
   perform pg_temp._dr_ok('staff cannot update a block directly (42501)',
     pg_temp._dr_try('authenticated', v_staff, $q$update public.site_content set body = '{"text":"x"}' where key = 'text:about.title'$q$) = '42501');
 
@@ -334,6 +344,8 @@ begin
     and (select h.body is null and h.changed_by = v_staff from public.site_content_history h order by h.id desc limit 1));
   perform pg_temp._dr_ok('a bad key is refused (22023)',
     pg_temp._dr_try('authenticated', v_staff, $q$select public.site_content_publish('about', '[{"key":"Bad Key!","kind":"json","body":{}}]'::jsonb)$q$) = '22023');
+  perform pg_temp._dr_ok('a text key outside the editor pages is refused (22023)',
+    pg_temp._dr_try('authenticated', v_staff, $q$select public.site_content_publish('about', '[{"key":"text:preaudit.indicativeNotice","kind":"text","body":{"text":"x"}}]'::jsonb)$q$) = '22023');
   perform pg_temp._dr_ok('a kind that does not match the key is refused (22023)',
     pg_temp._dr_try('authenticated', v_staff, $q$select public.site_content_publish('about', '[{"key":"text:about.title","kind":"rich","body":{"html":"x"}}]'::jsonb)$q$) = '22023');
   perform pg_temp._dr_ok('a text block without its text is refused (22023)',
@@ -352,7 +364,7 @@ $cases$;
 
 -- D. The down, verbatim
 -- DOWN for supabase/migrations/20261021161000_site_content.sql
--- Drops site_content_publish, site_content_history (and its append-only trigger), its trigger
+-- Drops site_content_publish, site_content_history (and its append-only triggers), its trigger
 -- function and site_content. Every published block and its history are LOST: export them first
 -- if they matter (select * from public.site_content; select * from public.site_content_history).
 -- Harmless for main (it never reads them). The redesign falls back to the code's text by itself:

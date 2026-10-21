@@ -89,7 +89,7 @@ export function ExportsPage() {
       key: 'accounts', icon: Users,
       title: t('adminExports.accounts.title', 'Accounts (people)'),
       inside: t('adminExports.accounts.inside', 'One line per account: name, e-mail, company, account type, status, sign-up step and the date the account was created.'),
-      how: t('adminExports.accounts.how', 'Filter the list if you want only part of it, then press the Export button at the top.'),
+      how: t('adminExports.accounts.how', 'Filter the list if you want only part of it, then press "Export CSV" at the top.'),
       to: '/admin/users', cue: t('adminExports.accounts.cue', 'Open Accounts'),
     },
   ];

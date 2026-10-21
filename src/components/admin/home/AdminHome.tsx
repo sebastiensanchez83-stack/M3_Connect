@@ -95,7 +95,7 @@ function HealthLineLink({ h }: { h: HealthLine }) {
   const { t } = useTranslation();
   const tone = h.fail ? 'bg-red-600' : h.warn || h.late ? 'bg-amber-500' : 'bg-teal';
   const text = h.late
-    ? t('adminHome.health.late', 'Site health: the monitor has not run since {{ago}}', { ago: formatAgo(h.runAt) })
+    ? t('adminHome.health.late', 'Site health: the monitor last ran {{ago}}', { ago: formatAgo(h.runAt) })
     : h.fail
       ? t('adminHome.health.fail', { count: h.fail, defaultValue_one: 'Site health: {{count}} check failing', defaultValue_other: 'Site health: {{count}} checks failing' })
       : h.warn

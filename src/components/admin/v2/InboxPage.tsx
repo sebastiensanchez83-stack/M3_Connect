@@ -333,7 +333,7 @@ function HealthSection() {
       {data === undefined ? (
         <AdminLoading className="h-40" />
       ) : data === null ? (
-        <AdminEmpty icon={Activity} title={t('adminInbox.health.unreadable', 'The alerts cannot be read here')} body={t('adminInbox.health.unreadableBody', 'See them on the Site health page.')} action={link} />
+        <AdminEmpty icon={Activity} title={t('adminInbox.health.unreadable', 'The alerts cannot be read here')} body={t('adminInbox.health.unreadableBody', 'Try again in a few minutes, or run the checks on the Site health page.')} action={link} />
       ) : (
         <>
           {data.alerts.length === 0 ? (

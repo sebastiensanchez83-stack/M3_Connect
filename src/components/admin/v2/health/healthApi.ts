@@ -51,6 +51,8 @@ export interface MonitorSettings {
   /** null: not readable (the page then says nothing about it). */
   enabled: boolean | null;
   intervalMinutes: number;
+  /** Hours before the monitor e-mails again about the same problem; null when not readable. */
+  realertHours: number | null;
 }
 
 export type ReadError = 'missing' | 'forbidden' | 'other';
@@ -128,16 +130,18 @@ export async function fetchOpenAlerts(): Promise<OpenAlert[] | null> {
 export async function fetchMonitorSettings(): Promise<MonitorSettings> {
   const { data, error } = await supabase
     .from('platform_settings')
-    .select('enabled:value->enabled, interval:value->interval_minutes')
+    .select('enabled:value->enabled, interval:value->interval_minutes, realert:value->realert_hours')
     .eq('key', 'ops_health')
     .maybeSingle();
-  if (error || !data) return { enabled: null, intervalMinutes: 60 };
-  const row = data as { enabled?: unknown; interval?: unknown };
+  if (error || !data) return { enabled: null, intervalMinutes: 60, realertHours: null };
+  const row = data as { enabled?: unknown; interval?: unknown; realert?: unknown };
   const n = Number(row.interval);
+  const h = Number(row.realert);
   return {
     enabled: typeof row.enabled === 'boolean' ? row.enabled : null,
     // The invoker clamps the interval to 15-300 minutes, as here.
     intervalMinutes: Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 15), 300) : 60,
+    realertHours: typeof row.realert === 'number' && Number.isFinite(h) && h > 0 ? h : null,
   };
 }
 

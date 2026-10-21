@@ -132,16 +132,37 @@ export function SiteHealthPage() {
   if (live === undefined || runs === undefined || alerts === undefined) return <AdminLoading />;
 
   const liveError = live && 'error' in live ? live : null;
+
+  const checkNow = (
+    <Button type="button" size="sm" className={cn(ADMIN_BTN_PRIMARY, 'gap-1.5')} disabled={checking} onClick={() => void load(true)}>
+      {checking
+        ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+      {checking ? t('adminHealth.checking', 'Checking…') : t('adminHealth.checkNow', 'Check again now')}
+    </Button>
+  );
+
   if (liveError && runs === null && alerts === null) {
+    // Nothing could be read. Refused by the database: not staff. Anything else (network,
+    // outage): say so and keep "Check again now".
+    const refused = liveError.error === 'forbidden';
     return (
       <div>
-        <AdminPageHeader title={t('adminHealth.title', 'Site health')} />
+        <AdminPageHeader title={t('adminHealth.title', 'Site health')} actions={refused ? undefined : checkNow} />
         <AdminPanel padded={false}>
-          <AdminEmpty
-            icon={Activity}
-            title={t('adminHealth.forbidden', 'Only the M3 team can see the site health')}
-            body={t('adminHealth.forbiddenBody', 'Sign in with a validated admin or moderator account, then open this page again.')}
-          />
+          {refused ? (
+            <AdminEmpty
+              icon={Activity}
+              title={t('adminHealth.forbidden', 'Only the M3 team can see the site health')}
+              body={t('adminHealth.forbiddenBody', 'Sign in with a validated admin or moderator account, then open this page again.')}
+            />
+          ) : (
+            <AdminEmpty
+              icon={Activity}
+              title={t('adminHealth.unreadable', 'Site health cannot be read right now')}
+              body={t('adminHealth.unreadableBody', 'Nothing could be read from the database just now. Press "Check again now" in a minute. If it keeps failing, tell the technical contact.')}
+            />
+          )}
         </AdminPanel>
       </div>
     );
@@ -158,14 +179,7 @@ export function SiteHealthPage() {
       <AdminPageHeader
         title={t('adminHealth.title', 'Site health')}
         description={t('adminHealth.desc', 'The site checks itself automatically: the database, scheduled jobs, e-mails, payments and the WYS guest list. Green is fine, orange is worth a look, red needs action now.')}
-        actions={(
-          <Button type="button" size="sm" className={cn(ADMIN_BTN_PRIMARY, 'gap-1.5')} disabled={checking} onClick={() => void load(true)}>
-            {checking
-              ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-            {checking ? t('adminHealth.checking', 'Checking…') : t('adminHealth.checkNow', 'Check again now')}
-          </Button>
-        )}
+        actions={checkNow}
         meta={(
           <>
             <span className="w-full sm:w-auto">
@@ -225,7 +239,7 @@ export function SiteHealthPage() {
 
         {all && <AreasSection all={all} />}
 
-        <RunsSection runs={runs} />
+        <RunsSection runs={runs} realertHours={settings?.realertHours ?? null} />
       </div>
     </div>
   );
@@ -354,7 +368,7 @@ function AlertsPanel({ alerts, all }: { alerts: OpenAlert[] | null; all: HealthC
                   </div>
                   {a.summary && <p className="text-[14px] leading-5 text-meta [overflow-wrap:anywhere]">{a.summary}</p>}
                   <p className="mt-1 text-[13px] leading-5 text-meta">
-                    {t('adminHealth.alerts.since', 'Since {{ago}} ({{when}})', { ago: formatAgo(a.first_seen_at), when: formatWhen(a.first_seen_at) })}
+                    {t('adminHealth.alerts.since', 'Found {{ago}} ({{when}})', { ago: formatAgo(a.first_seen_at), when: formatWhen(a.first_seen_at) })}
                     {' · '}
                     {a.last_alert_at
                       ? t('adminHealth.alerts.mailed', 'last e-mailed to M3 {{ago}}', { ago: formatAgo(a.last_alert_at) })
@@ -412,27 +426,29 @@ function AreaCard({ area, rows }: { area: string; rows: HealthCheck[] }) {
   const listId = `health-area-${area.replace(/[^a-z0-9]+/gi, '-')}`;
   return (
     <section className="overflow-hidden rounded-card border border-rule bg-white">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        onClick={() => setOpen((o) => !o)}
-        className="group flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3.5 text-left transition-colors hover:bg-page focus:outline-none focus-visible:shadow-focus"
-      >
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h3 className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{areaLabel(area)}</h3>
-          {fail
-            ? <AdminStatusPill tone="danger" icon={XCircle}>{t('adminHealth.area.fail', { count: fail, defaultValue: '{{count}} failing' })}</AdminStatusPill>
-            : warn
-              ? <AdminStatusPill tone="warning" icon={AlertTriangle}>{t('adminHealth.area.warn', { count: warn, defaultValue: '{{count}} worth a look' })}</AdminStatusPill>
-              : <AdminStatusPill tone="success" icon={CheckCircle2}>{t('adminHealth.area.ok', { ok, n: rows.length, defaultValue: '{{ok}} of {{n}} fine' })}</AdminStatusPill>}
-        </span>
-        <ActionCue size="sm" icon={open ? 'collapse' : 'expand'}>
-          {open
-            ? t('adminHealth.area.hide', 'Hide')
-            : t('adminHealth.area.show', { count: rows.length, defaultValue_one: 'Show the check', defaultValue_other: 'Show the {{count}} checks' })}
-        </ActionCue>
-      </button>
+      <h3>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          onClick={() => setOpen((o) => !o)}
+          className="group flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3.5 text-left transition-colors hover:bg-page focus:outline-none focus-visible:shadow-focus"
+        >
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{areaLabel(area)}</span>
+            {fail
+              ? <AdminStatusPill tone="danger" icon={XCircle}>{t('adminHealth.area.fail', { count: fail, defaultValue: '{{count}} failing' })}</AdminStatusPill>
+              : warn
+                ? <AdminStatusPill tone="warning" icon={AlertTriangle}>{t('adminHealth.area.warn', { count: warn, defaultValue: '{{count}} worth a look' })}</AdminStatusPill>
+                : <AdminStatusPill tone="success" icon={CheckCircle2}>{t('adminHealth.area.ok', { ok, n: rows.length, defaultValue: '{{ok}} of {{n}} fine' })}</AdminStatusPill>}
+          </span>
+          <ActionCue size="sm" icon={open ? 'collapse' : 'expand'}>
+            {open
+              ? t('adminHealth.area.hide', 'Hide')
+              : t('adminHealth.area.show', { count: rows.length, defaultValue_one: 'Show the check', defaultValue_other: 'Show the {{count}} checks' })}
+          </ActionCue>
+        </button>
+      </h3>
       {open && (
         <ul id={listId} className="divide-y divide-rule border-t border-rule">
           {rows.map((c) => <CheckRow key={c.check_id} c={c} />)}
@@ -457,7 +473,7 @@ function ProblemsText({ run }: { run: HealthRun }) {
   );
 }
 
-function RunsSection({ runs }: { runs: HealthRun[] | null }) {
+function RunsSection({ runs, realertHours }: { runs: HealthRun[] | null; realertHours: number | null }) {
   const { t } = useTranslation();
   const resultWord = (s: HealthStatus) => (s === 'ok' ? t('adminHealth.runs.allFine', 'All fine') : statusWord(s, t));
   return (
@@ -525,10 +541,12 @@ function RunsSection({ runs }: { runs: HealthRun[] | null }) {
                 ))}
               </tbody>
             </table>
-            <p className="border-t border-rule px-4 py-3 text-[13px] leading-5 text-meta">
-              {t('adminHealth.runs.footer', 'The runs are kept 30 days. An e-mail goes to M3 only for a new problem, or again after 6 hours.')}
-            </p>
           </div>
+          <p className="mt-3 text-[13px] leading-5 text-meta">
+            {realertHours
+              ? t('adminHealth.runs.footer', { count: realertHours, defaultValue_one: 'The runs are kept 30 days. An e-mail goes to M3 only for a new problem, or again after {{count}} hour if it is still there.', defaultValue_other: 'The runs are kept 30 days. An e-mail goes to M3 only for a new problem, or again after {{count}} hours if it is still there.' })
+              : t('adminHealth.runs.footerPlain', 'The runs are kept 30 days. An e-mail goes to M3 only for a new problem, or again later if it is still there.')}
+          </p>
         </>
       )}
     </section>

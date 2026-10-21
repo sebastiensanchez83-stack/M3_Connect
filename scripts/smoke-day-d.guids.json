@@ -1,0 +1,22 @@
+{
+  "savedFrom": "https://smartmarinaconnect.com",
+  "savedAt": "2026-10-21T09:24:11.569Z",
+  "guids": {
+    "/rss.xml": [
+      "https://smartmarinaconnect.com/resources/33a49baf-263f-49e1-a0a9-2e1f7bb2cef8",
+      "https://smartmarinaconnect.com/resources/7f94ac1c-4005-442a-848c-c986957316de",
+      "https://smartmarinaconnect.com/resources/e3778a9c-1b9b-4eed-b8df-a03c55c87ba5",
+      "https://smartmarinaconnect.com/resources/afa3cc1a-94c8-4d31-9e6c-1bb18942ae2f",
+      "https://smartmarinaconnect.com/resources/e5452d60-43bf-41d7-8262-648a3360047c",
+      "https://smartmarinaconnect.com/resources/6d4fbfc2-9b53-4bca-afdb-f696a2a9bce7",
+      "https://smartmarinaconnect.com/resources/88b9d557-fe91-4c15-aa45-bea1b0797091"
+    ],
+    "/rss-s3.xml": [
+      "https://smartmarinaconnect.com/resources/33a49baf-263f-49e1-a0a9-2e1f7bb2cef8",
+      "https://smartmarinaconnect.com/resources/e3778a9c-1b9b-4eed-b8df-a03c55c87ba5",
+      "https://smartmarinaconnect.com/resources/afa3cc1a-94c8-4d31-9e6c-1bb18942ae2f",
+      "https://smartmarinaconnect.com/resources/6d4fbfc2-9b53-4bca-afdb-f696a2a9bce7",
+      "https://smartmarinaconnect.com/resources/88b9d557-fe91-4c15-aa45-bea1b0797091"
+    ]
+  }
+}

@@ -16,7 +16,7 @@ import { INBOX_PATHS, formatAgo, formatWhen } from './inboxApi';
 /**
  * Admin > E-mail log (admin refonte, 21 Oct 2026, Victor's idea): every e-mail the site sent,
  * gathered from its 8 logs by the staff-only functions admin_email_log() and
- * admin_email_log_top() (migration 20261021150000_admin_email_log). Read only: nothing is sent
+ * admin_email_log_top() (migration 20261021151000_admin_email_log). Read only: nothing is sent
  * or changed from here. "Automatic" e-mails are the ones the person did not ask for; the site
  * monitor warns when someone gets more than 5 of them in 24 hours (check email.automatic_volume).
  * Password reset, magic link and sign-up confirmation e-mails are logged nowhere: never listed.
@@ -180,7 +180,7 @@ export function EmailLogPage() {
             icon={Mail}
             title={blocked === 'missing' ? t('adminEmailLog.missing', 'The e-mail log is not installed yet') : t('adminEmailLog.forbidden', 'Only the M3 team can see the e-mail log')}
             body={blocked === 'missing'
-              ? t('adminEmailLog.missingBody', 'Its database part waits for approval (migration 20261021150000_admin_email_log).')
+              ? t('adminEmailLog.missingBody', 'Its database part waits for approval (migration 20261021151000_admin_email_log).')
               : t('adminEmailLog.forbiddenBody', 'Sign in with a validated admin or moderator account.')}
           />
         </AdminPanel>

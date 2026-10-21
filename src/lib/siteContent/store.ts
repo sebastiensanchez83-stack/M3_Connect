@@ -5,7 +5,7 @@ import type { PostProcessorModule } from 'i18next';
  * The site's editable text (Admin > Site content > Site pages), Oct 2026.
  *
  * The database table public.site_content holds the blocks M3 published
- * (supabase/migrations/20261021161000_site_content.sql). Nothing here is
+ * (supabase/migrations/20261021162000_site_content.sql). Nothing here is
  * required: with no row, no table or no network, every page shows the text
  * written in its code, exactly as before.
  *

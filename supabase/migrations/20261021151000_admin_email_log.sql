@@ -2,8 +2,8 @@
 -- inbox, 21 Oct 2026). Victor, 21 Oct: one screen for the M3 team that gathers every e-mail log,
 -- a count per person over 24 h and 7 days, and a monitor alert when a member gets more than 5
 -- AUTOMATIC e-mails in 24 h (the e-mails the person asked for themselves do not count).
--- FILES ONLY: not applied. Down: supabase/migrations/down/20261021150000_admin_email_log.down.sql.
--- Dry run: supabase/dryrun/20261021150000_admin_email_log.dryrun.sql (runs this file, then the
+-- FILES ONLY: not applied. Down: supabase/migrations/down/20261021151000_admin_email_log.down.sql.
+-- Dry run: supabase/dryrun/20261021151000_admin_email_log.dryrun.sql (runs this file, then the
 -- down, in one rolled-back transaction; expected "20 PASS, 0 FAIL").
 --
 -- Adds three functions. No table, no row, no trigger, no policy: harmless for main.
@@ -174,7 +174,7 @@ $fn$;
 
 revoke all on function public.email_log_rows(timestamptz) from public, anon, authenticated, service_role;
 comment on function public.email_log_rows(timestamptz) is
-  'One row per e-mail found in the 8 e-mail logs since p_since, with origin automatic / asked / staff and status sent / failed / pending / skipped. Owner only: read by admin_email_log(), admin_email_log_top() and ops_health_checks(). 20261021150000.';
+  'One row per e-mail found in the 8 e-mail logs since p_since, with origin automatic / asked / staff and status sent / failed / pending / skipped. Owner only: read by admin_email_log(), admin_email_log_top() and ops_health_checks(). 20261021151000.';
 
 -- ---- 2. The staff functions -----------------------------------------------------------------
 
@@ -268,9 +268,9 @@ revoke all on function public.admin_email_log_top(integer) from public, anon;
 grant execute on function public.admin_email_log(integer, text, text, text, integer) to authenticated, service_role;
 grant execute on function public.admin_email_log_top(integer) to authenticated, service_role;
 comment on function public.admin_email_log(integer, text, text, text, integer) is
-  'Staff only (is_moderator()): the e-mails of the last p_days days (1 to 90) from every e-mail log, newest first, filtered by source, status and a text; at most 1000 rows. 20261021150000.';
+  'Staff only (is_moderator()): the e-mails of the last p_days days (1 to 90) from every e-mail log, newest first, filtered by source, status and a text; at most 1000 rows. 20261021151000.';
 comment on function public.admin_email_log_top(integer) is
-  'Staff only (is_moderator()): the people who received the most e-mails (sent, not to M3): automatic ones over 24 h and 7 days, every one over 7 days. 20261021150000.';
+  'Staff only (is_moderator()): the people who received the most e-mails (sent, not to M3): automatic ones over 24 h and 7 days, every one over 7 days. 20261021151000.';
 
 -- ---- 3. The health check --------------------------------------------------------------------
 

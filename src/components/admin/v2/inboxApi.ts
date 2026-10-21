@@ -18,9 +18,8 @@ import { supabase } from '@/lib/supabase';
 export const INBOX_PATHS = {
   inbox: '/admin/inbox',
   emailLog: '/admin/email-log',
-  siteHealth: '/admin/settings/health',
-  person: (userId: string) => `/admin/users/${userId}`,
-  company: (orgId: string) => `/admin/organizations/${orgId}`,
+  person: (userId: string) => `/admin/people/${userId}`,
+  company: (orgId: string) => `/admin/companies/${orgId}`,
   article: (resourceId: string) => `/admin/resources/${resourceId}`,
   request: (requestId: string) => `/admin/partner-requests/${requestId}`,
 } as const;

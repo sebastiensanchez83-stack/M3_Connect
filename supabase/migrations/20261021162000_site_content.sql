@@ -1,6 +1,6 @@
 -- Site pages (CMS), 21 Oct 2026. Admin redesign wave 1, lane cms (branch rf-adm-cms).
--- Down: supabase/migrations/down/20261021161000_site_content.down.sql
--- Dry run: supabase/dryrun/20261021161000_site_content.dryrun.sql (expected "29 PASS, 0 FAIL")
+-- Down: supabase/migrations/down/20261021162000_site_content.down.sql
+-- Dry run: supabase/dryrun/20261021162000_site_content.dryrun.sql (expected "29 PASS, 0 FAIL")
 --
 -- Additive: two new tables, two new functions, nothing existing is changed. main never reads
 -- them. The redesign reads them with the code's own text as fallback (src/lib/siteContent), so

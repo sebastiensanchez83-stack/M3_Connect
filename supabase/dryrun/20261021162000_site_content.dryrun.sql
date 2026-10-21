@@ -1,4 +1,4 @@
--- DRY RUN of supabase/migrations/20261021161000_site_content.sql and of its down.
+-- DRY RUN of supabase/migrations/20261021162000_site_content.sql and of its down.
 -- NOT A MIGRATION. ONE query text, ONE execute_sql call, BEFORE the file is applied.
 -- Fixtures read at run time: one verified admin/moderator and one verified member (non-staff).
 -- Runs the migration verbatim, then the reads and writes the site and the admin make, as their
@@ -68,8 +68,8 @@ select 'member', p.user_id from public.profiles p join auth.users u on u.id = p.
 
 -- B. The migration, verbatim
 -- Site pages (CMS), 21 Oct 2026. Admin redesign wave 1, lane cms (branch rf-adm-cms).
--- Down: supabase/migrations/down/20261021161000_site_content.down.sql
--- Dry run: supabase/dryrun/20261021161000_site_content.dryrun.sql (expected "29 PASS, 0 FAIL")
+-- Down: supabase/migrations/down/20261021162000_site_content.down.sql
+-- Dry run: supabase/dryrun/20261021162000_site_content.dryrun.sql (expected "29 PASS, 0 FAIL")
 --
 -- Additive: two new tables, two new functions, nothing existing is changed. main never reads
 -- them. The redesign reads them with the code's own text as fallback (src/lib/siteContent), so
@@ -363,7 +363,7 @@ end
 $cases$;
 
 -- D. The down, verbatim
--- DOWN for supabase/migrations/20261021161000_site_content.sql
+-- DOWN for supabase/migrations/20261021162000_site_content.sql
 -- Drops site_content_publish, site_content_history (and its append-only triggers), its trigger
 -- function and site_content. Every published block and its history are LOST: export them first
 -- if they matter (select * from public.site_content; select * from public.site_content_history).

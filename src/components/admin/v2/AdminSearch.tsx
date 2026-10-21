@@ -69,7 +69,7 @@ function allWords<Q extends { ilike: (col: string, pattern: string) => Q }>(qb: 
 async function runSearch(q: string, articlesOnly: boolean): Promise<SearchHit[]> {
   const words = searchWords(q);
   if (!words.length) return [];
-  const typed = q.normalize('NFC').toLowerCase().split(/[s,;/]+/).map(orWord).filter(Boolean).slice(0, 5);
+  const typed = q.normalize('NFC').toLowerCase().split(/[\s,;/]+/u).map(orWord).filter(Boolean).slice(0, 5);
   const personOr = (w: string) => `first_name.ilike.*${w}*,last_name.ilike.*${w}*,email.ilike.*${w}*`;
 
   const tasks: PromiseLike<SearchHit[]>[] = [];

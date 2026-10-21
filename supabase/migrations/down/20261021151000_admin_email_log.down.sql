@@ -1,4 +1,4 @@
--- DOWN for supabase/migrations/20261021150000_admin_email_log.sql
+-- DOWN for supabase/migrations/20261021151000_admin_email_log.sql
 -- Puts back, byte for byte, the body of public.ops_health_checks() applied by 20261020170000
 -- (md5(prosrc) 34cf828987417b2527ebf58c71c1f2c8: no email.automatic_volume check), then drops the three functions
 -- the migration added: admin_email_log, admin_email_log_top, email_log_rows. Owner, grants,
@@ -11,7 +11,7 @@ do $pre$
 begin
   if (select md5(p.prosrc) from pg_proc p where p.oid = to_regprocedure('public.ops_health_checks()'))
        is distinct from 'b8a5d05adefb4fd85a46b4bf6f408107' then
-    raise exception 'admin_email_log down: ops_health_checks() is not the body of 20261021150000; rebuild this file on the live body';
+    raise exception 'admin_email_log down: ops_health_checks() is not the body of 20261021151000; rebuild this file on the live body';
   end if;
 end
 $pre$;

@@ -4,7 +4,7 @@ import type { SiteContentBody, SiteContentKind } from '@/lib/siteContent/store';
 
 /**
  * Admin > Site pages: reads site_content (staff read every row, published or not) and its
- * history, and publishes through site_content_publish (supabase/migrations/20261021161000_site_content.sql).
+ * history, and publishes through site_content_publish (supabase/migrations/20261021162000_site_content.sql).
  * Before that file is applied the reads fail with "table missing": the screen says so and
  * Publish stays off.
  */

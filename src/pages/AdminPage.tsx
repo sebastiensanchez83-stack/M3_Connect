@@ -7,6 +7,8 @@ import { toast } from '@/hooks/use-toast';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminLoading } from '@/components/admin/AdminUI';
 import { ReviewCountContext, useReviewCountSource } from '@/components/admin/reviewQueueCount';
+import { useInboxCounts } from '@/components/admin/v2/inboxApi';
+import { AdminSearch } from '@/components/admin/v2/AdminSearch';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import '@/styles/admin-skin.css';
 
@@ -17,6 +19,12 @@ import '@/styles/admin-skin.css';
  * chunks after a deploy trigger a one-shot auto-reload instead of crashing.
  */
 // The home (/admin): 'To do today' and its Market tab (what was Industry Pulse, /admin/pulse).
+const CompaniesPage = lazyWithRetry(() => import('@/components/admin/v2/CompaniesPage').then(m => ({ default: m.CompaniesPage })));
+const CompanyAdminPage = lazyWithRetry(() => import('@/components/admin/v2/CompanyAdminPage').then(m => ({ default: m.CompanyAdminPage })));
+const PersonAdminPage = lazyWithRetry(() => import('@/components/admin/v2/PersonAdminPage').then(m => ({ default: m.PersonAdminPage })));
+const InboxPage = lazyWithRetry(() => import('@/components/admin/v2/InboxPage').then(m => ({ default: m.InboxPage })));
+const EmailLogPage = lazyWithRetry(() => import('@/components/admin/v2/EmailLogPage').then(m => ({ default: m.EmailLogPage })));
+const SitePagesPage = lazyWithRetry(() => import('@/components/admin/v2/SitePagesPage').then(m => ({ default: m.SitePagesPage })));
 const AdminHome = lazyWithRetry(() => import('@/components/admin/home/AdminHome').then(m => ({ default: m.AdminHome })));
 const AdminUsers = lazyWithRetry(() => import('@/components/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
 const AdminUserDetail = lazyWithRetry(() => import('@/components/admin/AdminUserDetail').then(m => ({ default: m.AdminUserDetail })));
@@ -110,6 +118,7 @@ export function AdminPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // One figure for the whole admin area (sidebar badge, phone bar, dashboard card).
   const review = useReviewCountSource(isModerator, user?.id, pathname);
+  const inbox = useInboxCounts(isModerator, user?.id, pathname);
   const reviewCount = review.count;
 
   // Escape closes the phone menu.
@@ -131,7 +140,7 @@ export function AdminPage() {
   return (
     <ReviewCountContext.Provider value={review}>
     <div className="flex min-h-[calc(100vh-4rem)] bg-page">
-      <AdminSidebar reviewCount={reviewCount} />
+      <AdminSidebar reviewCount={reviewCount} inboxCount={inbox.total} />
       <div className="min-w-0 flex-1">
         {/* Phone bar: opens the menu (the rail is hidden below md) */}
         <div className="sticky top-16 z-30 flex h-12 items-center gap-2 border-b border-rule bg-white px-3 md:hidden">
@@ -162,16 +171,24 @@ export function AdminPage() {
           <div className="fixed inset-x-0 bottom-0 top-16 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('adminUi.menu')}>
             <div className="absolute inset-0 bg-navy-deep/45" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
             <div className="relative h-full w-64 max-w-[85vw] shadow-drawer">
-              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} reviewCount={reviewCount} />
+              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} reviewCount={reviewCount} inboxCount={inbox.total} />
             </div>
           </div>
         )}
         <div className={frozen ? 'p-4 md:p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto' : 'admin-skin mx-auto w-full max-w-[1360px] px-4 py-6 md:px-8 md:py-8'}>
+        {!frozen && <AdminSearch className="mb-6" onNavigate={() => setSidebarOpen(false)} />}
         <Suspense fallback={<AdminLazyFallback />}>
           <Routes>
             <Route path="/" element={<AdminHome />} />
             {/* Moderators too: admin_review_queue() gives them only what their screens can open. */}
             <Route path="/review" element={<AdminReviewQueue />} />
+            <Route path="/inbox" element={<InboxPage />} />
+            <Route path="/email-log" element={<AdminOnlyGuard><EmailLogPage /></AdminOnlyGuard>} />
+            <Route path="/companies" element={<AdminOnlyGuard><CompaniesPage /></AdminOnlyGuard>} />
+            <Route path="/companies/:id" element={<AdminOnlyGuard><CompanyAdminPage /></AdminOnlyGuard>} />
+            <Route path="/people/:id" element={<AdminOnlyGuard><PersonAdminPage /></AdminOnlyGuard>} />
+            <Route path="/site-pages" element={<SitePagesPage />} />
+            <Route path="/site-pages/:pageId" element={<SitePagesPage />} />
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
             <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
             <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />

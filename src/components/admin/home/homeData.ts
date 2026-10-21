@@ -13,7 +13,7 @@ import { loadEventRegistrationCounts, type EventRegistrationCount } from '@/comp
  */
 
 /** The Inbox screen (contact form, reports) comes from the inbox lane; null until it is wired. */
-export const INBOX_PATH: string | null = null;
+export const INBOX_PATH: string | null = '/admin/inbox';
 
 const DAY = 24 * 60 * 60 * 1000;
 

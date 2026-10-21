@@ -1,4 +1,4 @@
--- DRY RUN of supabase/migrations/20261021150000_admin_email_log.sql and of its down.
+-- DRY RUN of supabase/migrations/20261021151000_admin_email_log.sql and of its down.
 -- NOT A MIGRATION. ONE query text, ONE execute_sql call, BEFORE the file is applied.
 -- A snapshot, the migration verbatim, checks, the down verbatim, checks again. Writes NO row
 -- (the staff calls run as a verified admin and a verified member through request.jwt.claims,
@@ -91,8 +91,8 @@ $a1$;
 -- inbox, 21 Oct 2026). Victor, 21 Oct: one screen for the M3 team that gathers every e-mail log,
 -- a count per person over 24 h and 7 days, and a monitor alert when a member gets more than 5
 -- AUTOMATIC e-mails in 24 h (the e-mails the person asked for themselves do not count).
--- FILES ONLY: not applied. Down: supabase/migrations/down/20261021150000_admin_email_log.down.sql.
--- Dry run: supabase/dryrun/20261021150000_admin_email_log.dryrun.sql (runs this file, then the
+-- FILES ONLY: not applied. Down: supabase/migrations/down/20261021151000_admin_email_log.down.sql.
+-- Dry run: supabase/dryrun/20261021151000_admin_email_log.dryrun.sql (runs this file, then the
 -- down, in one rolled-back transaction; expected "20 PASS, 0 FAIL").
 --
 -- Adds three functions. No table, no row, no trigger, no policy: harmless for main.
@@ -263,7 +263,7 @@ $fn$;
 
 revoke all on function public.email_log_rows(timestamptz) from public, anon, authenticated, service_role;
 comment on function public.email_log_rows(timestamptz) is
-  'One row per e-mail found in the 8 e-mail logs since p_since, with origin automatic / asked / staff and status sent / failed / pending / skipped. Owner only: read by admin_email_log(), admin_email_log_top() and ops_health_checks(). 20261021150000.';
+  'One row per e-mail found in the 8 e-mail logs since p_since, with origin automatic / asked / staff and status sent / failed / pending / skipped. Owner only: read by admin_email_log(), admin_email_log_top() and ops_health_checks(). 20261021151000.';
 
 -- ---- 2. The staff functions -----------------------------------------------------------------
 
@@ -357,9 +357,9 @@ revoke all on function public.admin_email_log_top(integer) from public, anon;
 grant execute on function public.admin_email_log(integer, text, text, text, integer) to authenticated, service_role;
 grant execute on function public.admin_email_log_top(integer) to authenticated, service_role;
 comment on function public.admin_email_log(integer, text, text, text, integer) is
-  'Staff only (is_moderator()): the e-mails of the last p_days days (1 to 90) from every e-mail log, newest first, filtered by source, status and a text; at most 1000 rows. 20261021150000.';
+  'Staff only (is_moderator()): the e-mails of the last p_days days (1 to 90) from every e-mail log, newest first, filtered by source, status and a text; at most 1000 rows. 20261021151000.';
 comment on function public.admin_email_log_top(integer) is
-  'Staff only (is_moderator()): the people who received the most e-mails (sent, not to M3): automatic ones over 24 h and 7 days, every one over 7 days. 20261021150000.';
+  'Staff only (is_moderator()): the people who received the most e-mails (sent, not to M3): automatic ones over 24 h and 7 days, every one over 7 days. 20261021151000.';
 
 -- ---- 3. The health check --------------------------------------------------------------------
 
@@ -942,7 +942,7 @@ end
 $c$;
 
 -- D. The down, verbatim
--- DOWN for supabase/migrations/20261021150000_admin_email_log.sql
+-- DOWN for supabase/migrations/20261021151000_admin_email_log.sql
 -- Puts back, byte for byte, the body of public.ops_health_checks() applied by 20261020170000
 -- (md5(prosrc) 34cf828987417b2527ebf58c71c1f2c8: no email.automatic_volume check), then drops the three functions
 -- the migration added: admin_email_log, admin_email_log_top, email_log_rows. Owner, grants,
@@ -955,7 +955,7 @@ do $pre$
 begin
   if (select md5(p.prosrc) from pg_proc p where p.oid = to_regprocedure('public.ops_health_checks()'))
        is distinct from 'b8a5d05adefb4fd85a46b4bf6f408107' then
-    raise exception 'admin_email_log down: ops_health_checks() is not the body of 20261021150000; rebuild this file on the live body';
+    raise exception 'admin_email_log down: ops_health_checks() is not the body of 20261021151000; rebuild this file on the live body';
   end if;
 end
 $pre$;

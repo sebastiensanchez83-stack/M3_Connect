@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, MessageSquare, ClipboardList,
   Award, Home, Settings, Image, Building2, Tag, Ship, ChevronRight, Store, UsersRound,
   Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck, Scale, Activity, Upload,
-  Newspaper, Mail, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download,
+  Newspaper, Mail, Archive, ShieldCheck, UserCheck, MessagesSquare, Send, Download, Inbox, PenLine, MailCheck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -29,7 +29,7 @@ interface NavItem { to: string; label: string; icon?: ReactNode; exact?: boolean
 
 const ICON = 'h-4 w-4 shrink-0';
 
-export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }: { mobile?: boolean; onNavigate?: () => void; reviewCount?: number | null } = {}) {
+export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null, inboxCount = null }: { mobile?: boolean; onNavigate?: () => void; reviewCount?: number | null; inboxCount?: number | null } = {}) {
   const { t } = useTranslation();
   const location = useLocation();
   const { profile, isAdmin } = useAuth();
@@ -87,12 +87,15 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
   interface Group { key: string; label: string; items: NavItem[] }
   const groups: Group[] = [
     { key: 'members', label: t('adminNav.members', 'Members'), items: [
-      { to: '/admin/organizations', label: t('adminNav.companies', 'Companies'), icon: <Building2 className={ICON} />, adminOnly: true },
+      // One list: companies, and people without a company as "Individual" rows. A person's page
+      // opens from their company or the search.
+      { to: '/admin/companies', label: t('adminNav.companies', 'Companies'), icon: <Building2 className={ICON} />, adminOnly: true, activeAlso: ['/admin/organizations', '/admin/people'] },
       // Company-to-company conversations (the old "B2B requests").
       { to: '/admin/partner-requests', label: t('adminNav.conversations', 'Conversations'), icon: <MessagesSquare className={ICON} />, adminOnly: true },
     ] },
     { key: 'content', label: t('adminNav.content', 'Site content'), items: [
       { to: '/admin/resources', label: t('adminNav.articles', 'Articles'), icon: <FileText className={ICON} /> },
+      { to: '/admin/site-pages', label: t('adminNav.sitePages', 'Site pages'), icon: <PenLine className={ICON} /> },
       { to: '/admin/banners', label: t('adminNav.banners', 'Banners and announcements'), icon: <Image className={ICON} />, adminOnly: true },
       { to: '/admin/sponsorships', label: t('adminNav.sponsors', 'Sponsors and partners'), icon: <Award className={ICON} />, adminOnly: true },
     ] },
@@ -107,6 +110,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
       { to: '/admin/rights', label: t('adminNav.rights', 'Rights per company type'), icon: <ShieldCheck className={ICON} />, adminOnly: true },
       { to: '/admin/sectors', label: t('adminNav.sectors', 'Sectors'), icon: <Tag className={ICON} />, adminOnly: true },
       { to: '/admin/media-downloads', label: t('adminNav.press', 'Press'), icon: <Newspaper className={ICON} />, adminOnly: true },
+      { to: '/admin/email-log', label: t('adminNav.emailLog', 'E-mail log'), icon: <MailCheck className={ICON} />, adminOnly: true },
       // Every account in one list, its CSV export and the staff accounts. A person's page
       // (/admin/users/:id) opens from their company or the search; this is not a People menu.
       { to: '/admin/users', label: t('adminNav.accounts', 'Accounts and export'), icon: <Download className={ICON} />, adminOnly: true },
@@ -160,6 +164,7 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
     </>
   );
 
+  const inboxItem: NavItem = { to: '/admin/inbox', label: t('adminNav.inbox', 'Inbox'), icon: <Inbox className={ICON} /> };
   const reviewItem: NavItem = { to: '/admin/review', label: t('adminNav.toValidate', 'To validate'), icon: <UserCheck className={ICON} /> };
 
   return (
@@ -178,6 +183,11 @@ export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }:
         {/* Today */}
         <div className={cn(sectionLabel, 'pt-1')}>{t('adminNav.today', 'Today')}</div>
         {renderItem({ to: '/admin', label: t('adminNav.home', 'Home'), icon: <Home className={ICON} />, exact: true })}
+        {renderLink(inboxItem, isActive(inboxItem), !!inboxCount && (
+          <span className="shrink-0 rounded-pill bg-gold px-2 text-[12px] font-bold leading-5 tabular-nums text-navy">
+            {inboxCount}<span className="sr-only"> {t('adminInbox.navCount', 'to handle')}</span>
+          </span>
+        ))}
 
         {/* Members: Companies, To validate (with its count), Conversations */}
         <div className={sectionLabel}>{t('adminNav.members', 'Members')}</div>

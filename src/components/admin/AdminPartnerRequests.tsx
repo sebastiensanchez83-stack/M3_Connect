@@ -7,7 +7,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import type { PartnerRequest } from './types';
-import { ConversationReportsPanel } from '@/components/messages/ConversationReportsPanel';
+import { CardLink } from '@/components/home/dashboard/DashboardKit';
+import { INBOX_PATHS } from './v2/inboxApi';
 
 type EnrichedRequest = PartnerRequest & {
   partner_name?: string;
@@ -78,8 +79,11 @@ export function AdminPartnerRequests() {
         <h1 className="text-2xl font-bold">B2B Requests ({filteredRequests.length})</h1>
       </div>
 
-      {/* "Report to M3" from Messages (company messaging, 9 Oct 2026). */}
-      <ConversationReportsPanel />
+      {/* "Report to M3" from Messages: read and closed in the Inbox since the admin refonte (one place to act). */}
+      <p className="mb-4 flex flex-wrap items-center gap-3 text-[14px] text-meta">
+        {t('adminReports.movedToInbox', 'Conversations reported by members are now in the Inbox.')}
+        <CardLink to={INBOX_PATHS.inbox + '#reported-conversations'}>{t('adminReports.openInbox', 'Open the Inbox')}</CardLink>
+      </p>
 
       {/* Status filter bar */}
       <div className="flex items-center gap-2 mb-4">

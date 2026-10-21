@@ -17,7 +17,8 @@ import { ATTACHMENT_BUCKET, formatBytes, type Attachment } from './messagesApi';
  * Each report keeps the last 30 messages of the conversation at the time of the
  * report (M3 cannot read conversations otherwise).
  *
- * Shown at the top of the admin's B2B requests page. Until the migration is
+ * Shown in the admin Inbox (it was at the top of the B2B requests page before the admin
+ * refonte, 21 Oct 2026: one place to act). Until the migration is
  * applied the table does not exist and the panel shows nothing. A report outlives
  * its conversation (deleted with an account): it then has no request, but keeps
  * its excerpt.
@@ -63,7 +64,7 @@ function when(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function ConversationReportsPanel() {
+export function ConversationReportsPanel({ onChange }: { onChange?: () => void } = {}) {
   const { t } = useTranslation();
   const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [available, setAvailable] = useState(true);
@@ -93,6 +94,7 @@ export function ConversationReportsPanel() {
       toast({ title: t('adminReports.saveFailed', 'Not saved'), description: error.message, variant: 'destructive' });
       return;
     }
+    onChange?.();
     await load();
   };
 

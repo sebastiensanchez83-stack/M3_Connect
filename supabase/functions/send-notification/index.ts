@@ -82,7 +82,9 @@ type NotificationType =
   | "account_under_review"
   // Article comments (21 Oct 2026): every word from the database, see sendCommentEmails.
   | "comment_mention"
-  | "comment_report";
+  | "comment_report"
+  // Marina requests (21 Oct 2026): every word from the database, see sendMarketRequestEmails.
+  | "market_request_status";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -179,6 +181,10 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
   // Article comments (21 Oct 2026): a tag is switched off with "comments"; a report goes to M3 staff.
   comment_mention: "comments",
   comment_report: "admin",
+
+  // Marina requests (21 Oct 2026): M3 published, turned down, closed or completed the requester's
+  // own RFP, consultation or marina project (as rfp_approved and the others above).
+  market_request_status: "submissions",
 };
 
 /** Sent whatever the recipient's preferences say (payment-ipn's receipts, see the opt-out check). */
@@ -667,6 +673,32 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonText: "Review the report",
         buttonUrl: `${SITE_URL}/admin/resources?tab=comments`,
         footer: "You receive this e-mail because you are on the M3 team of Smart Marina Connect.",
+      };
+    }
+
+    // ── Marina requests (21 Oct 2026). Every field is set by sendMarketRequestEmails from the
+    // database (market_request_email), never by the caller. The words: marketRequestWords. ──
+    case "market_request_status": {
+      const w = marketRequestWords(d.request_kind || "", d.status || "", d.title || "", d.message || "", d.first_name || "");
+      if (!w) {
+        return {
+          subject: "Your request on Smart Marina Connect was updated",
+          greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+          title: "Your request was updated",
+          body: "The M3 team updated one of your requests. Open your account to see it.",
+          buttonText: "See my requests",
+          buttonUrl: `${accountUrl}?tab=rfps`,
+          footer: "You receive this e-mail because you published this request on Smart Marina Connect.",
+        };
+      }
+      return {
+        subject: w.subject,
+        greeting: w.greeting,
+        title: w.title,
+        body: w.body,
+        buttonText: w.buttonText,
+        buttonUrl: `${accountUrl}?tab=${w.tab}`,
+        footer: w.footer,
       };
     }
 
@@ -2188,6 +2220,219 @@ async function sendCommentEmails(
   return reply({ success: true, type, sent, skipped: settled, waiting: Math.max(rows.length - sent - settled - failed, 0) }, 200);
 }
 
+// ──────────────────────────────────────────────
+// Marina requests (21 Oct 2026; supabase/migrations/20261021175000_market_requests.sql)
+// ──────────────────────────────────────────────
+//
+// market_request_status  M3 changed the status of a member's RFP, consultation or marina project
+// in Admin > Marina requests: published, not published (with the reason), closed, completed. The
+// database queues ONE notification_outbox row per change, for the request's AUTHOR only
+// (admin_market_request_set_status, only while registration_flags.outbox_sender is on), and
+// gives every word of the e-mail (market_request_email(outbox id), service role only): the
+// caller only says which rows to send. Never for a partner lead (no account).
+//   staff (the admin page, right after the change): data.request_id: the unsent rows of that
+//     request the CALLER queued (actor_id) in the last 15 minutes. Members are refused (403).
+//   service (registration-cron): outbox_id, that row only. {type} alone answers 400 "Could not
+//     resolve the row this notification is about" (the cron's check that this version knows
+//     the kind).
+// Each row: out of date (status changed again, newer change, request deleted, author suspended
+// or gone, queued more than 72 hours ago) -> settled unsent ("not sent: ..."; 409 {stale} to the
+// cron, which settles it); recipient opted out of "submissions" -> settled as sent; sent ->
+// notification_outbox_done. A concurrent send of the same row within 10 minutes is skipped
+// (the resolved:<dedupe key> log of the other resolved types).
+const MARKET_TYPES = new Set<string>(["market_request_status"]);
+/** One status change is one row; a few at most if M3 changed it again within the window. */
+const MARKET_ROWS_PER_CALL = 5;
+
+interface MarketRequestWords {
+  subject: string;
+  greeting: string;
+  title: string;
+  body: string;
+  buttonText: string;
+  tab: string;
+  footer: string;
+}
+
+// The same words as the admin page's preview (src/components/admin/v2/market/marketEmail.ts);
+// tests/market-email.test.mjs fails when the two copies differ.
+// ---- market request e-mail words v1 (two identical copies: admin/v2/market/marketEmail.ts and send-notification)
+function marketRequestWords(kind: string, status: string, title: string, message: string, firstName: string): MarketRequestWords | null {
+  const what = kind === "consultation" ? "consultation" : kind === "project" ? "marina project" : "request for proposals";
+  const tab = kind === "consultation" ? "consultations" : kind === "project" ? "projects" : "rfps";
+  const named = title ? ` "${title}"` : "";
+  const note = message ? `\n\nMessage from the M3 team:\n${message}` : "";
+  const base = {
+    greeting: firstName ? `Hello ${firstName},` : "Hello,",
+    buttonText: "See my requests",
+    tab,
+    footer: "You receive this e-mail because you published this request on Smart Marina Connect.",
+  };
+  if (status === "approved") {
+    return {
+      ...base,
+      subject: `Your ${what} is published`,
+      title: "Your request is published",
+      body: `Good news: your ${what}${named} is now published on the Smart Marina Connect marketplace. Partners can see it and contact you.${note}`,
+    };
+  }
+  if (status === "rejected") {
+    const again = kind === "project" ? "" : "You can change it and send it again from your account. ";
+    return {
+      ...base,
+      subject: `Your ${what} was not published`,
+      title: "Your request was not published",
+      body: `We have read your ${what}${named} and cannot publish it as it is.${message ? `\n\nReason: ${message}` : ""}\n\n${again}If you have a question, simply reply to this e-mail.`,
+    };
+  }
+  if (status === "closed") {
+    return {
+      ...base,
+      subject: `Your ${what} is closed`,
+      title: "Your request is closed",
+      body: `Your ${what}${named} is now closed. It no longer shows on the marketplace, and partners can no longer answer it.${note}`,
+    };
+  }
+  if (status === "completed") {
+    return {
+      ...base,
+      subject: `Your ${what} is completed`,
+      title: "Your project is completed",
+      body: `Your ${what}${named} is now marked as completed on Smart Marina Connect. Thank you for sharing it with the network.${note}`,
+    };
+  }
+  return null;
+}
+// ---- end market request e-mail words ----
+
+/** The template's fields from market_request_email's answer (database text, cleaned). */
+function marketEmailData(p: Record<string, unknown>): Record<string, string> {
+  const str = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : String(v));
+  const kind = str(p.request_kind);
+  return {
+    request_kind: kind === "rfp" || kind === "consultation" || kind === "project" ? kind : "",
+    status: str(p.status),
+    // The requester's own title: a web address in it becomes "[link]" (see withoutLinks).
+    title: withoutLinks(cleanName(str(p.title), 200)),
+    // M3's own words (the reason, or the message): line breaks kept.
+    message: cleanText(str(p.message), 2000),
+  };
+}
+
+async function sendMarketRequestEmails(
+  db: Db,
+  callerKind: "service" | "staff" | "member",
+  callerId: string,
+  type: NotificationType,
+  body: Record<string, unknown>,
+  notifData: Record<string, string>,
+  reply: (body: unknown, status: number) => Response,
+): Promise<Response> {
+  const unresolved = () => reply({ error: "Could not resolve the row this notification is about" }, 400);
+  const service = callerKind === "service";
+  let rows: CommentOutboxRow[] = [];
+  if (service) {
+    const id = Number(body.outbox_id);
+    if (!Number.isSafeInteger(id) || id <= 0) return unresolved();
+    const { data, error } = await db.from("notification_outbox").select(COMMENT_OUTBOX_COLS).eq("id", id).maybeSingle();
+    if (error) return reply({ error: "Internal error" }, 500);
+    const row = data as CommentOutboxRow | null;
+    if (!row || row.kind !== type) return unresolved();
+    if (row.sent_at) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+    rows = [row];
+  } else {
+    if (callerKind !== "staff" || !callerId) return reply({ error: "This notification is not allowed for this recipient" }, 403);
+    const subject = notifData.request_id;
+    if (!subject || !UUID_RE.test(subject)) return unresolved();
+    const since = new Date(Date.now() - MEMBER_WINDOW_MS).toISOString();
+    const { data, error } = await db.from("notification_outbox").select(COMMENT_OUTBOX_COLS)
+      .eq("kind", type).eq("subject_id", subject).eq("actor_id", callerId).is("sent_at", null)
+      .gte("created_at", since).order("id", { ascending: true }).limit(MARKET_ROWS_PER_CALL);
+    if (error) return reply({ error: "Internal error" }, 500);
+    rows = (data as CommentOutboxRow[] | null) || [];
+    if (!rows.length) return reply({ success: true, skipped: true, reason: "nothing queued" }, 200);
+  }
+  const category = TYPE_TO_CATEGORY[type];
+  let sent = 0;
+  let optedOut = 0;
+  let stale = 0;
+  let failed = 0;
+  let duplicate = 0;
+  let staleWhy = "";
+  for (const row of rows) {
+    const { data: payload, error } = await db.rpc("market_request_email", { p_outbox_id: row.id });
+    if (error || !isRecord(payload)) {
+      console.error("send-notification: market_request_email failed:", row.id, error?.message || "no answer");
+      failed++;
+      continue;
+    }
+    if (payload.sent === true) { duplicate++; continue; }
+    if (payload.ok !== true) {
+      if (payload.stale === true) {
+        stale++;
+        staleWhy = cleanName(String(payload.why || ""), 200) || "out of date";
+        if (!service) await settleOutboxUnsent(db, row.id, staleWhy);
+        continue;
+      }
+      failed++;
+      continue;
+    }
+    // The request's author, as the database read it from the request itself.
+    const recipientId = String(payload.user_id || "");
+    if (!UUID_RE.test(recipientId) || recipientId !== row.user_id) { failed++; continue; }
+    if (await resolvedSentRecently(db, recipientId, row.dedupe_key)) { duplicate++; continue; }
+    const r = await recipientForUser(db, recipientId);
+    if (!r || !isEmail(r.recipientEmail)) {
+      stale++;
+      staleWhy = "the requester has no e-mail address";
+      if (!service) await settleOutboxUnsent(db, row.id, staleWhy);
+      continue;
+    }
+    if (r.prefs && r.prefs[category] === false) {
+      console.log(`Notification [${type}] (${category}) skipped: user ${recipientId} opted out`);
+      optedOut++;
+      await markOutboxSent(db, row.id);
+      continue;
+    }
+    await logResolvedSend(db, recipientId, row.dedupe_key);
+    const unsub = await unsubscribeFor(recipientId, category);
+    const rawData = { ...marketEmailData(payload), first_name: r.firstName };
+    const { subject, html, text } = renderNotification(type, rawData, "", unsub.url);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: SENDER_EMAIL,
+        to: [r.recipientEmail],
+        reply_to: EM.contact,
+        subject,
+        html,
+        text,
+        headers: { ...unsub.headers, "X-Entity-Ref-ID": `${type}-${Date.now()}` },
+      }),
+    });
+    const resBody = await res.text();
+    if (!res.ok) {
+      console.error("Resend API error:", res.status, resBody);
+      failed++;
+      continue;
+    }
+    sent++;
+    await markOutboxSent(db, row.id);
+    console.log(`Notification [${type}] sent by ${callerKind} to ${recipientId}`);
+  }
+  if (service) {
+    if (sent > 0) return reply({ success: true, type }, 200);
+    if (optedOut > 0) return reply({ success: true, skipped: true, reason: "user_opted_out", category }, 200);
+    if (stale > 0) return reply({ stale: true, detail: staleWhy }, 409);
+    if (duplicate > 0) return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+    return reply({ error: "Email provider error" }, 502);
+  }
+  if (sent === 0 && failed > 0) return reply({ error: "Email provider error" }, 502);
+  const settled = optedOut + stale + duplicate;
+  return reply({ success: true, type, sent, skipped: settled, waiting: Math.max(rows.length - sent - settled - failed, 0) }, 200);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders(req) });
@@ -2261,6 +2506,10 @@ Deno.serve(async (req: Request) => {
     // Article comments: their own path, every word from the database (see sendCommentEmails).
     if (COMMENT_TYPES.has(type)) {
       return await sendCommentEmails(supabase, callerKind, callerId, ntype, body, notifData, reply);
+    }
+    // Marina requests: their own path too, every word from the database (sendMarketRequestEmails).
+    if (MARKET_TYPES.has(type)) {
+      return await sendMarketRequestEmails(supabase, callerKind, callerId, ntype, body, notifData, reply);
     }
 
     if (RESOLVED_TYPES.has(type)) {
@@ -2968,6 +3217,7 @@ const TYPE_EYEBROW: Partial<Record<NotificationType, string>> = {
   partner_request_accepted: "Introduction",
   partner_onboarding_welcome: "Welcome",
   comment_report: "Moderation",
+  market_request_status: "Marketplace",
   org_claim_code: "Your organization",
   profile_reminder_signup_stalled: "Your profile",
   profile_reminder_onboarding_incomplete: "Your profile",

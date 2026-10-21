@@ -10,8 +10,9 @@
 --     has no company (user_id); exactly one of the two. Never shown to members. Staff only:
 --     is_moderator() (verified admins and moderators), the same test as review_log's reads.
 --     Append-only: no update; a note is deleted by its author only. Grants explicit: PUBLIC and
---     anon get nothing; authenticated gets SELECT, INSERT, DELETE (the policies decide);
---     service_role everything.
+--     anon get nothing; authenticated gets SELECT, DELETE and INSERT of organization_id, user_id,
+--     author_id and body only (id and created_at are always set by the database, so a note cannot
+--     be backdated); the policies decide the rows. service_role everything.
 --  2. Policy org_audit_staff_read on public.organization_audit_log: staff read a company's history.
 --     Today only the company owner reads it (org_audit_select). One more SELECT policy, nothing else.
 --  3. public.admin_decide_join_request(p_invitation_id, p_approve, p_note): M3 answers a join
@@ -20,6 +21,7 @@
 --     (held/signup_identity_golive.sql): a request the person filed themself, an address that is
 --     confirmed AND proven; a suspended account stays suspended. Refusing = reject_join_request.
 --     Each answer writes one review_log row (subject_type 'join'). EXECUTE: authenticated only.
+--     SECURITY DEFINER with search_path = '' and every table qualified (house rule).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -62,7 +64,8 @@ create index org_admin_note_user_idx on public.org_admin_note (user_id, created_
 alter table public.org_admin_note enable row level security;
 
 revoke all on table public.org_admin_note from public, anon, authenticated;
-grant select, insert, delete on table public.org_admin_note to authenticated;
+grant select, delete on table public.org_admin_note to authenticated;
+grant insert (organization_id, user_id, author_id, body) on table public.org_admin_note to authenticated;
 grant all on table public.org_admin_note to service_role;
 
 create policy org_admin_note_staff_read on public.org_admin_note
@@ -87,7 +90,7 @@ create function public.admin_decide_join_request(p_invitation_id uuid, p_approve
  returns jsonb
  language plpgsql
  security definer
- set search_path to 'public'
+ set search_path = ''
 as $function$
 declare
   v_inv          record;
@@ -103,7 +106,7 @@ begin
 
   select oi.id, oi.organization_id, oi.email, oi.status, oi.invited_by_user_id
     into v_inv
-    from organization_invitations oi
+    from public.organization_invitations oi
    where oi.id = p_invitation_id
      for update;
   if not found then raise exception 'Join request not found' using errcode = 'P0002'; end if;
@@ -116,8 +119,8 @@ begin
   end if;
 
   if not p_approve then
-    update organization_invitations set status = 'rejected', updated_at = now() where id = p_invitation_id;
-    insert into review_log (subject_type, subject_id, action, note, details, actor_id)
+    update public.organization_invitations set status = 'rejected', updated_at = now() where id = p_invitation_id;
+    insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
     values ('join', p_invitation_id, 'join_request_declined', nullif(btrim(coalesce(p_note, '')), ''),
             jsonb_build_object('source', 'admin_company_page', 'organization_id', v_inv.organization_id), auth.uid());
     return jsonb_build_object('ok', true, 'decision', 'refused', 'organization_id', v_inv.organization_id);
@@ -130,28 +133,28 @@ begin
   if v_requester_id is null then
     raise exception 'No confirmed account uses this address' using errcode = 'P0002';
   end if;
-  if not exists (select 1 from profiles p
+  if not exists (select 1 from public.profiles p
                   where p.user_id = v_requester_id and p.email_proven_at is not null
                     and lower(p.email) = lower(v_inv.email)) then
     raise exception 'This person has not confirmed their email address yet. Ask them to use the link in the banner on their dashboard, then accept again.'
       using errcode = '22023';
   end if;
 
-  update organization_invitations set status = 'accepted', updated_at = now() where id = p_invitation_id;
-  insert into organization_members (user_id, organization_id, role)
+  update public.organization_invitations set status = 'accepted', updated_at = now() where id = p_invitation_id;
+  insert into public.organization_members (user_id, organization_id, role)
   values (v_requester_id, v_inv.organization_id, 'collaborator')
   on conflict do nothing;
 
-  select (o.access_status = 'verified') into v_org_verified from organizations o where o.id = v_inv.organization_id;
+  select (o.access_status = 'verified') into v_org_verified from public.organizations o where o.id = v_inv.organization_id;
   if v_org_verified then
-    update profiles set access_status = 'verified', onboarding_status = 'completed', updated_at = now()
+    update public.profiles set access_status = 'verified', onboarding_status = 'completed', updated_at = now()
      where user_id = v_requester_id and access_status <> 'suspended';
   else
-    update profiles set onboarding_status = 'submitted', updated_at = now()
+    update public.profiles set onboarding_status = 'submitted', updated_at = now()
      where user_id = v_requester_id and access_status <> 'verified';
   end if;
 
-  insert into review_log (subject_type, subject_id, action, note, details, actor_id)
+  insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
   values ('join', p_invitation_id, 'join_request_approved', nullif(btrim(coalesce(p_note, '')), ''),
           jsonb_build_object('source', 'admin_company_page', 'organization_id', v_inv.organization_id, 'user_id', v_requester_id),
           auth.uid());

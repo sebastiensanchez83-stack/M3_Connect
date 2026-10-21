@@ -2,28 +2,22 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, Save, Loader2, Building2, DollarSign, FileText, ExternalLink,
+  ArrowLeft, Save, Loader2, Building2, DollarSign, FileText, ExternalLink, Flag,
 } from 'lucide-react';
-import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TIER_LABELS, OrgTier } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import type { SponsorshipRequestRow } from './types';
-
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  invoice_sent: 'bg-blue-100 text-blue-800',
-  paid: 'bg-green-100 text-green-800',
-  approved: 'bg-emerald-100 text-emerald-800',
-  rejected: 'bg-red-100 text-red-800',
-};
+import {
+  AdminDetailHeader, AdminLoading, AdminPanel, ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+import { Field, Note } from './v2/MembersKit';
+import { ADMIN_INPUT, DetailList, FormField } from './v2/ContentFormKit';
+import { SponsorshipRequestStatus } from './AdminSponsorships';
 
 export function AdminSponsorshipDetail() {
   const { id } = useParams<{ id: string }>();
@@ -54,7 +48,7 @@ export function AdminSponsorshipDetail() {
 
     if (error || !data) {
       toast({ title: 'Sponsorship request not found', variant: 'destructive' });
-      navigate('/admin/sponsorships');
+      navigate('/admin/sponsorship-requests');
       return;
     }
 
@@ -153,174 +147,129 @@ export function AdminSponsorshipDetail() {
     setSaving(false);
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   if (!request) return null;
 
-  const curColors = TIER_COLORS[request.current_tier as OrgTier] || TIER_COLORS.member;
-  const reqColors = TIER_COLORS[request.requested_tier as OrgTier] || TIER_COLORS.member;
+  const tierName = (tier: string) => TIER_LABELS[tier as OrgTier] || tier;
+  const spin = <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sponsorships')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Sponsorships
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{request.org_name}</h1>
-          <Badge className={statusColors[request.status] || 'bg-gray-100 text-gray-800'}>
-            {request.status.replace('_', ' ')}
-          </Badge>
-        </div>
-      </div>
+    <div className="mx-auto max-w-4xl">
+      <AdminDetailHeader
+        back={{ to: '/admin/sponsorship-requests', label: t('adminContent.spReq.back', 'Back to Old sponsorship requests') }}
+        title={request.org_name}
+        badges={<SponsorshipRequestStatus status={request.status} />}
+        subtitle={t('adminContent.spReq.subtitle', 'Asks to move from {{from}} to {{to}}', { from: tierName(request.current_tier), to: tierName(request.requested_tier) })}
+      />
 
-      {/* Request Details */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-blue-500" /> Request Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500 font-medium">Organization:</span>
-              <span className="ml-2 text-gray-900 font-semibold">{request.org_name}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Requester:</span>
-              <span className="ml-2 text-gray-900">{request.requester_email}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500 font-medium">Current Tier:</span>
-              <Badge className={`${curColors.bg} ${curColors.text} border ${curColors.border}`}>
-                {TIER_LABELS[request.current_tier as OrgTier] || request.current_tier}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500 font-medium">Requested Tier:</span>
-              <Badge className={`${reqColors.bg} ${reqColors.text} border ${reqColors.border}`}>
-                {TIER_LABELS[request.requested_tier as OrgTier] || request.requested_tier}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Already Paid:</span>
-              <span className="ml-2 text-gray-900">{request.amount_already_paid > 0 ? `€${request.amount_already_paid}` : '--'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Status:</span>
-              <Badge className={`ml-2 ${statusColors[request.status] || ''}`}>{request.status.replace('_', ' ')}</Badge>
-            </div>
-            <div>
-              <span className="text-gray-500 font-medium">Created:</span>
-              <span className="ml-2 text-gray-900">{new Date(request.created_at).toLocaleString()}</span>
-            </div>
+      <div className="space-y-6">
+        {/* Request Details */}
+        <AdminPanel title={t('adminContent.spReq.details', 'The request')} icon={Building2}>
+          <DetailList>
+            <Field label={t('adminContent.spReq.company', 'Company')}>{request.org_name}</Field>
+            <Field label={t('adminContent.spReq.askedBy', 'Asked by')}>{request.requester_email}</Field>
+            <Field label={t('adminContent.spReq.colCurrent', 'Plan now')}>{tierName(request.current_tier)}</Field>
+            <Field label={t('adminContent.spReq.colAsked', 'Plan asked for')}>
+              <span className="font-semibold text-navy">{tierName(request.requested_tier)}</span>
+            </Field>
+            <Field label={t('adminContent.spReq.alreadyPaid', 'Already paid')}>{request.amount_already_paid > 0 ? `€${request.amount_already_paid}` : '--'}</Field>
+            <Field label={t('adminContent.spReq.status', 'Status')}><SponsorshipRequestStatus status={request.status} /></Field>
+            <Field label={t('adminContent.spReq.created', 'Sent on')}>{new Date(request.created_at).toLocaleString()}</Field>
             {request.payment_confirmed_at && (
-              <div>
-                <span className="text-gray-500 font-medium">Payment Confirmed:</span>
-                <span className="ml-2 text-gray-900">{new Date(request.payment_confirmed_at).toLocaleString()}</span>
+              <Field label={t('adminContent.spReq.paidOn', 'Payment confirmed on')}>{new Date(request.payment_confirmed_at).toLocaleString()}</Field>
+            )}
+          </DetailList>
+        </AdminPanel>
+
+        {/* Invoice URL (if uploaded by org) */}
+        {invoiceUrl && (
+          <div className="flex flex-col gap-3 rounded-card border border-teal/25 bg-foam px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="flex items-center gap-2 text-[15px] font-semibold leading-6 text-navy">
+              <FileText className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
+              {t('adminContent.spReq.invoiceUploaded', 'The company uploaded an invoice')}
+            </p>
+            <a
+              href={invoiceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-navy/55 bg-white px-4 text-[15px] font-semibold text-navy transition-colors hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+            >
+              {t('adminContent.spReq.openInvoice', 'Open the invoice (new tab)')}
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            </a>
+          </div>
+        )}
+
+        {/* Editable Fields */}
+        <AdminPanel
+          title={t('adminContent.spReq.invoicePanel', 'Invoice and notes')}
+          icon={DollarSign}
+          description={t('adminContent.spReq.invoicePanelHint', 'The invoice number and the amount are added to the message the company receives. The notes stay with the M3 team.')}
+        >
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <FormField label={t('adminContent.spReq.invoiceRef', 'Invoice number')} htmlFor="spr-invoice-ref">
+                <Input id="spr-invoice-ref" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" className={ADMIN_INPUT} />
+              </FormField>
+              <FormField label={t('adminContent.spReq.amountDue', 'Amount due (€)')} htmlFor="spr-amount">
+                <Input id="spr-amount" type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="0" className={ADMIN_INPUT} />
+              </FormField>
+            </div>
+            <FormField label={t('adminContent.spReq.notes', 'Notes for the M3 team')} htmlFor="spr-notes" hint={t('adminContent.spReq.notesHint', 'Only the M3 team sees these notes.')}>
+              <Textarea id="spr-notes" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." className="bg-white" />
+            </FormField>
+            <Button variant="outline" onClick={saveFields} disabled={saving} className={ADMIN_BTN + ' gap-1.5'}>
+              {saving ? spin : <Save className="h-4 w-4" aria-hidden="true" />}
+              {t('adminContent.spReq.saveFields', 'Save the invoice details and notes')}
+            </Button>
+          </div>
+        </AdminPanel>
+
+        {/* Action Buttons */}
+        <AdminPanel title={t('adminContent.spReq.next', 'Next step')} icon={Flag}>
+          {request.status === 'pending' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.spReq.pendingHint', 'Send the invoice to the company, or refuse the request. The person who asked is notified either way.')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => updateStatus('invoice_sent')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                  {saving ? spin : <FileText className="h-4 w-4" aria-hidden="true" />}
+                  {t('adminContent.spReq.sendInvoice', 'Send the invoice')}
+                </Button>
+                <Button variant="outline" onClick={() => updateStatus('rejected')} disabled={saving} className={ADMIN_BTN_DANGER}>
+                  {t('adminContent.spReq.reject', 'Refuse the request')}
+                </Button>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Invoice URL (if uploaded by org) */}
-      {invoiceUrl && (
-        <Card className="border-0 shadow-sm bg-blue-50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium text-blue-800">Invoice uploaded by organization</span>
-              <a
-                href={invoiceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-              >
-                <ExternalLink className="h-3 w-3" /> View Invoice
-              </a>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Editable Fields */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-emerald-500" /> Editable Fields
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Invoice Reference</Label>
-              <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" />
-            </div>
-            <div className="space-y-2">
-              <Label>Amount Due (€)</Label>
-              <Input type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="0" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Admin Notes</Label>
-            <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." />
-          </div>
-          <Button size="sm" variant="outline" onClick={saveFields} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Changes
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Action Buttons */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700">Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {request.status === 'pending' && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => updateStatus('invoice_sent')} disabled={saving} className="gap-1.5">
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                  Send Invoice
+            </>
+          )}
+          {request.status === 'invoice_sent' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.spReq.invoicedHint', 'Once the money has arrived, confirm the payment. The person who asked is notified.')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => updateStatus('paid')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                  {saving ? spin : <DollarSign className="h-4 w-4" aria-hidden="true" />}
+                  {t('adminContent.spReq.confirmPayment', 'Confirm the payment')}
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => updateStatus('rejected')} disabled={saving}>
-                  Reject
+                <Button variant="outline" onClick={() => updateStatus('rejected')} disabled={saving} className={ADMIN_BTN_DANGER}>
+                  {t('adminContent.spReq.reject', 'Refuse the request')}
                 </Button>
-              </>
-            )}
-            {request.status === 'invoice_sent' && (
-              <>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1.5" onClick={() => updateStatus('paid')} disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
-                  Confirm Payment
-                </Button>
-                <Button size="sm" variant="destructive" onClick={() => updateStatus('rejected')} disabled={saving}>
-                  Reject
-                </Button>
-              </>
-            )}
-            {request.status === 'paid' && (
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={() => updateStatus('approved')} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeft className="h-4 w-4 rotate-180" />}
-                Approve Upgrade
+              </div>
+            </>
+          )}
+          {request.status === 'paid' && (
+            <>
+              <p className="mb-4 text-[14px] leading-5 text-meta">{t('adminContent.spReq.paidHint', 'Approving moves the company to {{tier}} and notifies all its members.', { tier: tierName(request.requested_tier) })}</p>
+              <Button variant="secondary" onClick={() => updateStatus('approved')} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+                {saving ? spin : <ArrowLeft className="h-4 w-4 rotate-180" aria-hidden="true" />}
+                {t('adminContent.spReq.approve', 'Approve the upgrade')}
               </Button>
-            )}
-            {(request.status === 'rejected' || request.status === 'approved') && (
-              <p className="text-sm text-gray-500 italic">This request has been {request.status}. No further actions available.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </>
+          )}
+          {(request.status === 'rejected' || request.status === 'approved') && (
+            <Note>{t('adminContent.spReq.done', 'This request has been {{status}}. There is nothing more to do.', { status: request.status })}</Note>
+          )}
+        </AdminPanel>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Newspaper } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { AdminPanel, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { Note } from './v2/MembersKit';
 
 interface Edition {
   content_html: string;
@@ -78,24 +79,29 @@ export function ResourceM3EditionEditor({ resourceId }: { resourceId: string }) 
     } finally { setSaving(false); }
   }
 
-  return <Card className="border-primary/20 shadow-sm">
-    <CardHeader><CardTitle className="text-base">M3 Monaco editorial edition</CardTitle></CardHeader>
-    <CardContent className="space-y-4">
-      <p className="text-sm text-gray-600">Write a distinct M3 perspective: summarise the source, explain the implications for owners, developers or operators, and link to the relevant M3 expertise. The source link and cover image are added automatically.</p>
-      <p className="text-sm text-gray-600">For automatic publication, save this resource as public and published with “Also publish on m3monaco.com” enabled, then mark this edition ready. Allow the feed cache and the next hourly WordPress import to refresh. Later edits do not overwrite an article already imported into WordPress.</p>
-      {loading ? <p role="status">Loading M3 edition…</p> : error ? <p role="alert" className="text-red-600">{error}</p> : <>
-        <div className={saving ? 'pointer-events-none opacity-60' : ''}>
-          <RichTextEditor allowImages={false} content={html} onChange={setHtml} placeholder="Source overview · M3 perspective · Practical implications · Relevant expertise links" />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Checkbox id="m3-edition-ready" checked={ready} onCheckedChange={c => setReady(c === true)} disabled={saving} />
-            <Label htmlFor="m3-edition-ready">M3 edition ready for automatic publication</Label>
+  return (
+    <AdminPanel
+      title="M3 Monaco editorial edition"
+      icon={Newspaper}
+      description="The version of this article that m3monaco.com publishes. It has its own Save button and never changes the article above."
+    >
+      <div className="space-y-4">
+        <p className="text-[14px] leading-5 text-ink">Write a distinct M3 perspective: summarise the source, explain the implications for owners, developers or operators, and link to the relevant M3 expertise. The source link and cover image are added automatically.</p>
+        <Note>For automatic publication, save this article as public and published with “Also publish on m3monaco.com” ticked, then mark this edition ready. Allow the feed cache and the next hourly WordPress import to refresh. Later edits do not overwrite an article already imported into WordPress.</Note>
+        {loading ? <p role="status" className="text-[14px] text-meta">Loading M3 edition…</p> : error ? <p role="alert" className="text-[14px] text-red-700">{error}</p> : <>
+          <div className={saving ? 'pointer-events-none opacity-60' : ''}>
+            <RichTextEditor allowImages={false} content={html} onChange={setHtml} placeholder="Source overview · M3 perspective · Practical implications · Relevant expertise links" />
           </div>
-          <Button type="button" onClick={save} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save M3 edition'}</Button>
-        </div>
-        <p className="text-sm text-gray-500" role="status">{dirty ? 'Unsaved M3 edition changes' : saved?.is_ready ? 'Saved · ready for the M3 feed when resource publication conditions are met' : 'Draft · excluded from the M3 feed'}</p>
-      </>}
-    </CardContent>
-  </Card>;
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-h-11 items-center gap-2.5">
+              <Checkbox id="m3-edition-ready" checked={ready} onCheckedChange={c => setReady(c === true)} disabled={saving} />
+              <label htmlFor="m3-edition-ready" className="cursor-pointer text-[15px] font-semibold leading-5 text-navy">M3 edition ready for automatic publication</label>
+            </div>
+            <Button type="button" variant="secondary" className={ADMIN_BTN_PRIMARY} onClick={save} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save the M3 edition'}</Button>
+          </div>
+          <p className="text-[13px] leading-5 text-meta" role="status">{dirty ? 'Unsaved M3 edition changes' : saved?.is_ready ? 'Saved · ready for the M3 feed when resource publication conditions are met' : 'Draft · excluded from the M3 feed'}</p>
+        </>}
+      </div>
+    </AdminPanel>
+  );
 }

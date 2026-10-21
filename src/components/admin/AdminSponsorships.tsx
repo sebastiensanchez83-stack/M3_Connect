@@ -1,16 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { AdminContextBanner } from './AdminContextBanner';
-import { RefreshCw, ChevronRight } from 'lucide-react';
-import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { ArrowRight, Award } from 'lucide-react';
+import { TIER_LABELS, OrgTier } from '@/types/database';
+import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { ActionCue, CardLink } from '@/components/home/dashboard/DashboardKit';
 import { supabase } from '@/lib/supabase';
 import type { SponsorshipRequestRow } from './types';
+import {
+  AdminEmpty, AdminFilterBar, AdminLoading, AdminPageHeader, AdminStatusPill, AdminTableCard, ADMIN_BTN, type AdminTone,
+} from './AdminUI';
+import { LinkCard } from './v2/ContentFormKit';
+
+/** The five steps of an old plan-upgrade request, in the admin tones. */
+export const SPONSORSHIP_REQUEST_STATUS: Record<string, { label: string; tone: AdminTone }> = {
+  pending: { label: 'Waiting for M3', tone: 'warning' },
+  invoice_sent: { label: 'Invoice sent', tone: 'info' },
+  paid: { label: 'Paid', tone: 'success' },
+  approved: { label: 'Approved', tone: 'success' },
+  rejected: { label: 'Refused', tone: 'danger' },
+};
+
+export function SponsorshipRequestStatus({ status }: { status: string }) {
+  const s = SPONSORSHIP_REQUEST_STATUS[status];
+  return <AdminStatusPill tone={s?.tone ?? 'neutral'}>{s?.label ?? status.replace('_', ' ')}</AdminStatusPill>;
+}
+
+const tierName = (tier: string) => TIER_LABELS[tier as OrgTier] || tier;
 
 export function AdminSponsorships() {
   const { t } = useTranslation();
@@ -21,7 +40,6 @@ export function AdminSponsorships() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
 
-  const bannerColor = urlStatus === 'pending' ? 'amber' : urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : 'blue';
   const clearFilter = () => { setSearchParams({}); setStatusFilter('all'); };
 
   useEffect(() => { loadRequests(); }, []);
@@ -43,62 +61,100 @@ export function AdminSponsorships() {
 
   const filtered = statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter);
 
-  const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    invoice_sent: 'bg-blue-100 text-blue-800',
-    paid: 'bg-green-100 text-green-800',
-    approved: 'bg-emerald-100 text-emerald-800',
-    rejected: 'bg-red-100 text-red-800',
-  };
+  if (loading) return <AdminLoading />;
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  const href = (id: string) => `/admin/sponsorship-requests/${id}`;
 
   return (
     <div>
-      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filtered.length} onClear={clearFilter} color={bannerColor} />}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t('admin.sponsorships.title')} ({filtered.length})</h1>
+      <AdminPageHeader
+        title={t('adminContent.spReq.title', 'Old sponsorship requests')}
+        count={filtered.length}
+        description={t('adminContent.spReq.desc', 'Requests to move a company to a paying plan, sent from the previous version of the site. Press a request to answer it.')}
+        actions={<CardLink to="/admin/sponsorships">{t('adminContent.spReq.toHub', 'Go to Sponsors and partners')}</CardLink>}
+      />
+
+      <AdminFilterBar
+        trailing={urlStatus || statusFilter !== 'all' ? (
+          <Button type="button" variant="outline" className={ADMIN_BTN} onClick={clearFilter}>
+            {t('adminContent.spReq.clear', 'Show all requests')}
+          </Button>
+        ) : undefined}
+      >
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-52" aria-label={t('adminContent.spReq.status', 'Status')}><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t('admin.sponsorships.allStatus')}</SelectItem>
-            <SelectItem value="pending">{t('admin.sponsorships.pending')}</SelectItem>
-            <SelectItem value="invoice_sent">{t('admin.sponsorships.invoiceSent')}</SelectItem>
-            <SelectItem value="paid">{t('admin.sponsorships.paid')}</SelectItem>
-            <SelectItem value="approved">{t('admin.sponsorships.approved')}</SelectItem>
-            <SelectItem value="rejected">{t('admin.sponsorships.rejected')}</SelectItem>
+            <SelectItem value="all">{t('adminContent.spReq.allStatuses', 'All statuses')}</SelectItem>
+            {Object.entries(SPONSORSHIP_REQUEST_STATUS).map(([key, s]) => (
+              <SelectItem key={key} value={key}>{s.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
-      </div>
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
-        <th className="text-left p-4 font-medium">{t('admin.sponsorships.organization')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.sponsorships.currentTier')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.sponsorships.requestedTier')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.status')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.sponsorships.date')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.actions')}</th>
-      </tr></thead><tbody>
-        {filtered.map(r => {
-          const curColors = TIER_COLORS[r.current_tier as OrgTier] || TIER_COLORS.member;
-          const reqColors = TIER_COLORS[r.requested_tier as OrgTier] || TIER_COLORS.member;
-          return (
-            <tr key={r.id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/sponsorship-requests/${r.id}`)}>
-              <td className="p-4">
-                <div className="font-medium group-hover:text-primary transition-colors">{r.org_name}</div>
-                <div className="text-xs text-gray-500">{r.requester_email}</div>
-              </td>
-              <td className="p-4"><Badge className={`${curColors.bg} ${curColors.text} border ${curColors.border}`}>{TIER_LABELS[r.current_tier as OrgTier] || r.current_tier}</Badge></td>
-              <td className="p-4"><Badge className={`${reqColors.bg} ${reqColors.text} border ${reqColors.border}`}>{TIER_LABELS[r.requested_tier as OrgTier] || r.requested_tier}</Badge></td>
-              <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100 text-gray-800'}>{r.status.replace('_', ' ')}</Badge></td>
-              <td className="p-4 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
-              <td className="p-4">
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />
-              </td>
-            </tr>
-          );
-        })}
-        {filtered.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">{t('admin.sponsorships.noSponsorships')}</td></tr>}
-      </tbody></table></div></CardContent></Card>
+      </AdminFilterBar>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty icon={Award} title={t('admin.sponsorships.noSponsorships', 'No sponsorship requests found')} />
+        </div>
+      ) : (
+        <>
+          {/* Phone: one card per request */}
+          <ul className="space-y-3 md:hidden" aria-label={t('adminContent.spReq.title', 'Old sponsorship requests')}>
+            {filtered.map(r => (
+              <li key={r.id}>
+                <LinkCard to={href(r.id)} cue={t('adminContent.spReq.open', 'Open the request')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">{r.org_name}</p>
+                      <p className="text-[13px] leading-5 text-meta [overflow-wrap:anywhere]">{r.requester_email}</p>
+                    </div>
+                    <SponsorshipRequestStatus status={r.status} />
+                  </div>
+                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[14px] leading-5 text-ink">
+                    <span>{tierName(r.current_tier)}</span>
+                    <ArrowRight className="h-4 w-4 text-meta" aria-hidden="true" /><span className="sr-only">to</span>
+                    <span className="font-semibold text-navy">{tierName(r.requested_tier)}</span>
+                  </p>
+                  <p className="mt-1 text-[13px] leading-5 text-meta">{t('adminContent.spReq.sent', 'Sent on {{date}}', { date: new Date(r.created_at).toLocaleDateString() })}</p>
+                </LinkCard>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: the table */}
+          <AdminTableCard className="hidden md:block">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="text-left">{t('adminContent.spReq.colCompany', 'Company')}</th>
+                  <th className="text-left">{t('adminContent.spReq.colCurrent', 'Plan now')}</th>
+                  <th className="text-left">{t('adminContent.spReq.colAsked', 'Plan asked for')}</th>
+                  <th className="text-left">{t('adminContent.spReq.colStatus', 'Status')}</th>
+                  <th className="text-left">{t('adminContent.spReq.colDate', 'Sent on')}</th>
+                  <th className="text-left"><span className="sr-only">{t('adminContent.spReq.open', 'Open the request')}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r => (
+                  <tr key={r.id} className="group cursor-pointer" onClick={() => navigate(href(r.id))}>
+                    <td>
+                      <Link to={href(r.id)} onClick={e => e.stopPropagation()} className="rounded-sm font-semibold text-navy focus:outline-none focus-visible:shadow-focus">
+                        <span className="card-ul">{r.org_name}</span>
+                      </Link>
+                      <div className="text-[12px] text-meta [overflow-wrap:anywhere]">{r.requester_email}</div>
+                    </td>
+                    <td className="whitespace-nowrap text-sm text-ink">{tierName(r.current_tier)}</td>
+                    <td className="whitespace-nowrap text-sm font-semibold text-navy">{tierName(r.requested_tier)}</td>
+                    <td><SponsorshipRequestStatus status={r.status} /></td>
+                    <td className="whitespace-nowrap text-sm text-meta">{new Date(r.created_at).toLocaleDateString()}</td>
+                    <td className="text-right"><ActionCue size="sm">{t('adminContent.spReq.openShort', 'Open')}</ActionCue></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </AdminTableCard>
+        </>
+      )}
     </div>
   );
 }

@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, Save, Trash2, Loader2, Image as ImageIcon, BarChart3,
-  ToggleLeft, ToggleRight,
+  Save, Trash2, Loader2, Image as ImageIcon, Eye, EyeOff, Upload, MonitorSmartphone,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
+import { CardButton } from '@/components/home/dashboard/DashboardKit';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import {
+  AdminDetailHeader, AdminKpiCard, AdminLoading, AdminPanel, AdminStatusPill, ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+import { ADMIN_INPUT, CheckCard, FormField } from './v2/ContentFormKit';
 
 const BANNER_BUCKET = 'ad-banners';
 
@@ -48,18 +49,19 @@ const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events', 'announcem
 const SPONSOR_PAGES: { value: string; label: string; hint?: string }[] = [
   { value: 'homepage', label: 'Homepage' },
   { value: 'marketplace', label: 'Marketplace' },
-  { value: 'resources', label: 'Resources', hint: 'the Resources list and every article page' },
+  { value: 'resources', label: 'Articles', hint: 'the list of articles and every article page' },
   { value: 'events', label: 'Events' },
 ];
 const ANNOUNCEMENT_SLOTS: { value: string; label: string; hint?: string }[] = [
-  { value: 'announcement_top', label: 'Top strip', hint: 'bar above the navigation' },
-  { value: 'announcement_popup', label: 'Popup', hint: 'site-wide dialog' },
+  { value: 'announcement_top', label: 'Top strip', hint: 'a bar above the menu, on every page' },
+  { value: 'announcement_popup', label: 'Popup', hint: 'a small window that opens over the site' },
 ];
 const isAnnouncement = (p: string[]) => p.some(x => x.startsWith('announcement_'));
 
 export function AdminBannerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const isNew = id === 'new';
 
   const [loading, setLoading] = useState(!isNew);
@@ -189,11 +191,7 @@ export function AdminBannerDetail() {
     toast({ title: newActive ? 'Banner activated' : 'Banner deactivated' });
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   const ctr = banner && banner.impression_count > 0
     ? ((banner.click_count / banner.impression_count) * 100).toFixed(2) + '%'
@@ -212,272 +210,259 @@ export function AdminBannerDetail() {
     };
   });
 
+  const saveLabel = isNew ? t('adminContent.banner.create', 'Create the banner') : t('adminContent.banner.save', 'Save the changes');
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/banners')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Banners
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">
-            {isNew ? 'Create Banner' : form.title || 'Edit Banner'}
-          </h1>
-          {!isNew && (
-            <Badge variant={form.is_active ? 'success' : 'secondary'}>
-              {form.is_active ? 'Active' : 'Inactive'}
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {!isNew && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleToggleActive}
-                className="gap-1.5"
-              >
-                {form.is_active
-                  ? <><ToggleRight className="h-4 w-4" /> Deactivate</>
-                  : <><ToggleLeft className="h-4 w-4" /> Activate</>
-                }
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:bg-red-50 gap-1.5">
-                <Trash2 className="h-4 w-4" /> Delete
-              </Button>
-            </>
-          )}
-          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isNew ? 'Create Banner' : 'Save Changes'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats (existing banners only) */}
-      {!isNew && banner && (
-        <div className="grid grid-cols-3 gap-4">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-4 text-center">
-              <div className="text-2xl font-bold text-gray-900">{banner.impression_count.toLocaleString()}</div>
-              <div className="text-xs text-gray-500">Impressions</div>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-4 text-center">
-              <div className="text-2xl font-bold text-gray-900">{banner.click_count.toLocaleString()}</div>
-              <div className="text-xs text-gray-500">Clicks</div>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-4 text-center">
-              <div className="text-2xl font-bold text-violet-600">{ctr}</div>
-              <div className="text-xs text-gray-500">CTR</div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Banner Details */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-pink-500" /> Banner Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Title *</Label>
-            <Input
-              value={form.title}
-              onChange={e => setForm({ ...form, title: e.target.value })}
-              placeholder="Banner title (internal reference)"
-            />
-          </div>
-
-          {/* Banner image upload — uses private ad-banners bucket, no shared gallery */}
-          <div className="space-y-2">
-            <Label>Banner Image {announcementMode ? <span className="text-gray-400 font-normal">(optional — announcements are text-only)</span> : '*'}</Label>
-            {form.image_url ? (
-              <div className="relative group rounded-lg overflow-hidden border bg-gray-50">
-                <img src={form.image_url} alt="Banner" className="w-full h-40 object-cover" />
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, image_url: '' })}
-                  className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <label className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-primary/50 hover:bg-gray-50 block">
-                {uploading ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <span className="text-sm text-gray-600">Uploading...</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <ImageIcon className="h-8 w-8 text-gray-400" />
-                    <span className="text-sm text-gray-600">Click to upload banner image</span>
-                    <span className="text-xs text-gray-400">JPEG, PNG, WebP, GIF (animated OK) — Max 10MB — Recommended: 1200×300 (4:1 ratio) — All placements</span>
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    if (!file.type.startsWith('image/')) {
-                      toast({ title: 'Invalid file type', variant: 'destructive' });
-                      return;
-                    }
-                    if (file.size > 10 * 1024 * 1024) {
-                      toast({ title: 'File too large (max 10MB)', variant: 'destructive' });
-                      return;
-                    }
-                    setUploading(true);
-                    try {
-                      const ext = file.name.split('.').pop() || 'jpg';
-                      const fileName = `banner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-                      const { error: uploadErr } = await supabase.storage
-                        .from(BANNER_BUCKET)
-                        .upload(fileName, file, { cacheControl: '3600', upsert: false });
-                      if (uploadErr) throw uploadErr;
-                      const { data: urlData } = supabase.storage.from(BANNER_BUCKET).getPublicUrl(fileName);
-                      setForm(f => ({ ...f, image_url: urlData.publicUrl }));
-                      toast({ title: 'Banner image uploaded' });
-                    } catch (err: unknown) {
-                      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
-                    }
-                    setUploading(false);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+    <div className="mx-auto max-w-4xl">
+      <AdminDetailHeader
+        back={{ to: '/admin/banners', label: t('adminContent.banner.back', 'Back to Banners and announcements') }}
+        title={isNew ? t('adminContent.banner.newTitle', 'New banner') : form.title || t('adminContent.banner.untitled', 'Banner without a title')}
+        badges={!isNew ? (
+          <AdminStatusPill tone={form.is_active ? 'success' : 'neutral'}>
+            {form.is_active ? 'Active' : 'Inactive'}
+          </AdminStatusPill>
+        ) : undefined}
+        subtitle={!isNew ? (form.is_active
+          ? t('adminContent.banner.onHint', 'Switched on: shown on the site between its dates.')
+          : t('adminContent.banner.offHint', 'Switched off: not shown on the site.')) : undefined}
+        actions={
+          <>
+            {!isNew && (
+              <>
+                <Button variant="outline" onClick={handleToggleActive} className={ADMIN_BTN + ' gap-1.5'}>
+                  {form.is_active
+                    ? <><EyeOff className="h-4 w-4" aria-hidden="true" /> {t('adminContent.banner.turnOff', 'Hide from the site')}</>
+                    : <><Eye className="h-4 w-4" aria-hidden="true" /> {t('adminContent.banner.turnOn', 'Show on the site')}</>
+                  }
+                </Button>
+                <Button variant="outline" onClick={handleDelete} className={ADMIN_BTN_DANGER + ' gap-1.5'}>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" /> {t('adminContent.banner.delete', 'Delete')}
+                </Button>
+              </>
             )}
-          </div>
+            <Button variant="secondary" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+              {saveLabel}
+            </Button>
+          </>
+        }
+      />
 
-          <div className="space-y-2">
-            <Label>Target URL *</Label>
-            <Input
-              value={form.target_url}
-              onChange={e => setForm({ ...form, target_url: e.target.value })}
-              placeholder="https://..."
-            />
+      <div className="space-y-6">
+        {/* Figures (existing banners only) */}
+        {!isNew && banner && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <AdminKpiCard label={t('adminContent.banner.views', 'Times shown')} value={banner.impression_count.toLocaleString()} />
+            <AdminKpiCard label={t('adminContent.banner.clicks', 'Clicks')} value={banner.click_count.toLocaleString()} />
+            <AdminKpiCard label={t('adminContent.banner.ctr', 'Click rate')} value={ctr} hint={t('adminContent.banner.ctrHint', 'Clicks for each 100 times shown')} />
           </div>
+        )}
 
-          {/* Upload once, tick every page it runs on — instead of one row (and one
-              re-uploaded image) per page, which is how the same advert used to end
-              up duplicated four times with its stats split four ways. */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <Label>Show on these pages *</Label>
-              {!announcementMode && (
-                <button
-                  type="button"
-                  onClick={() => setForm(f => ({
-                    ...f,
-                    placements: allPages ? [] : SPONSOR_PAGES.map(p => p.value),
-                  }))}
-                  className="text-xs text-primary hover:underline"
-                >
-                  {allPages ? 'Clear all' : 'Show on every page'}
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(announcementMode ? ANNOUNCEMENT_SLOTS : SPONSOR_PAGES).map(p => {
-                const on = form.placements.includes(p.value);
-                return (
-                  <label
-                    key={p.value}
-                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${on ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => togglePlacement(p.value)}
-                      className="mt-0.5 rounded border-gray-300"
-                    />
-                    <span className="min-w-0">
-                      <span className="text-sm font-medium text-gray-800 block">{p.label}</span>
-                      {p.hint && <span className="text-[11px] text-gray-400 block">{p.hint}</span>}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => setForm(f => ({ ...f, placements: announcementMode ? ['homepage'] : ['announcement_top'] }))}
-              className="text-xs text-gray-400 hover:text-gray-600"
+        <AdminPanel title={t('adminContent.banner.panel', 'The banner')} icon={ImageIcon}>
+          <div className="space-y-5">
+            <FormField label={t('adminContent.banner.titleLabel', 'Title')} htmlFor="banner-title" required hint={t('adminContent.banner.titleHint', 'For the team only: the title is not shown on the site.')}>
+              <Input
+                id="banner-title"
+                value={form.title}
+                onChange={e => setForm({ ...form, title: e.target.value })}
+                placeholder="Banner title (internal reference)"
+                className={ADMIN_INPUT}
+              />
+            </FormField>
+
+            {/* Banner image upload — uses private ad-banners bucket, no shared gallery */}
+            <FormField
+              label={t('adminContent.banner.image', 'Image')}
+              required={!announcementMode}
+              hint={announcementMode ? t('adminContent.banner.imageOptional', 'Optional: an announcement is text only.') : undefined}
             >
-              {announcementMode ? '← This is a sponsor advert, not an announcement' : 'This is a site announcement, not a sponsor advert →'}
-            </button>
-          </div>
+              {form.image_url ? (
+                <div className="space-y-2">
+                  <div className="overflow-hidden rounded-xl border border-rule bg-chip">
+                    <img src={form.image_url} alt="" className="h-40 w-full object-cover" />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setForm({ ...form, image_url: '' })}
+                    className={ADMIN_BTN_DANGER + ' h-9 gap-1.5'}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" /> {t('adminContent.banner.removeImage', 'Remove this image')}
+                  </Button>
+                </div>
+              ) : (
+                <label className="block cursor-pointer rounded-xl border-2 border-dashed border-navy/30 bg-white p-6 text-center transition-colors hover:border-navy/60 hover:bg-chip/50 focus-within:shadow-focus">
+                  {uploading ? (
+                    <span className="flex flex-col items-center gap-2" role="status">
+                      <Loader2 className="h-8 w-8 animate-spin text-navy" aria-hidden="true" />
+                      <span className="text-[14px] text-meta">{t('adminContent.banner.uploading', 'Uploading…')}</span>
+                    </span>
+                  ) : (
+                    <span className="flex flex-col items-center gap-2">
+                      <Upload className="h-7 w-7 text-navy" aria-hidden="true" />
+                      <span className="inline-flex min-h-10 items-center rounded-pill border border-navy/55 bg-white px-4 text-[15px] font-semibold text-navy">
+                        {t('adminContent.banner.choose', 'Choose an image on this computer')}
+                      </span>
+                      <span className="text-[13px] leading-[18px] text-meta">JPEG, PNG, WebP or GIF (animated is fine) · 10 MB at most · best at 1200 × 300 (4:1), for every page</span>
+                    </span>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (!file.type.startsWith('image/')) {
+                        toast({ title: 'Invalid file type', variant: 'destructive' });
+                        return;
+                      }
+                      if (file.size > 10 * 1024 * 1024) {
+                        toast({ title: 'File too large (max 10MB)', variant: 'destructive' });
+                        return;
+                      }
+                      setUploading(true);
+                      try {
+                        const ext = file.name.split('.').pop() || 'jpg';
+                        const fileName = `banner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+                        const { error: uploadErr } = await supabase.storage
+                          .from(BANNER_BUCKET)
+                          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+                        if (uploadErr) throw uploadErr;
+                        const { data: urlData } = supabase.storage.from(BANNER_BUCKET).getPublicUrl(fileName);
+                        setForm(f => ({ ...f, image_url: urlData.publicUrl }));
+                        toast({ title: 'Banner image uploaded' });
+                      } catch (err: unknown) {
+                        toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+                      }
+                      setUploading(false);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+            </FormField>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Organization (optional)</Label>
+            <FormField label={t('adminContent.banner.target', 'Where a click leads (web address)')} htmlFor="banner-target" required>
+              <Input
+                id="banner-target"
+                value={form.target_url}
+                onChange={e => setForm({ ...form, target_url: e.target.value })}
+                placeholder="https://..."
+                className={ADMIN_INPUT}
+              />
+            </FormField>
+          </div>
+        </AdminPanel>
+
+        {/* Upload once, tick every page it runs on — instead of one row (and one
+            re-uploaded image) per page, which is how the same advert used to end
+            up duplicated four times with its stats split four ways. */}
+        <AdminPanel
+          title={t('adminContent.banner.where', 'Where it shows')}
+          icon={MonitorSmartphone}
+          description={announcementMode
+            ? t('adminContent.banner.isAnnouncement', 'This is a site announcement (an event, a webinar), not a sponsor’s advert.')
+            : t('adminContent.banner.isAdvert', 'This is a sponsor’s advert. Tick every page it runs on.')}
+          actions={!announcementMode ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setForm(f => ({
+                ...f,
+                placements: allPages ? [] : SPONSOR_PAGES.map(p => p.value),
+              }))}
+              className={ADMIN_BTN + ' h-9'}
+            >
+              {allPages ? t('adminContent.banner.untickAll', 'Untick every page') : t('adminContent.banner.tickAll', 'Show on every page')}
+            </Button>
+          ) : undefined}
+        >
+          <p className="mb-2 text-[14px] font-semibold leading-5 text-navy">
+            {t('adminContent.banner.pages', 'Show on these pages')}<span aria-hidden="true" className="text-red-700"> *</span>
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {(announcementMode ? ANNOUNCEMENT_SLOTS : SPONSOR_PAGES).map(p => (
+              <CheckCard
+                key={p.value}
+                checked={form.placements.includes(p.value)}
+                onToggle={() => togglePlacement(p.value)}
+                label={p.label}
+                hint={p.hint}
+              />
+            ))}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 border-t border-rule pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] leading-[18px] text-meta">
+              {announcementMode
+                ? t('adminContent.banner.switchToAdvertHint', 'Not an announcement? Change it into a sponsor’s advert.')
+                : t('adminContent.banner.switchToAnnHint', 'Announcing an event rather than showing an advert?')}
+            </p>
+            <CardButton onClick={() => setForm(f => ({ ...f, placements: announcementMode ? ['homepage'] : ['announcement_top'] }))}>
+              {announcementMode
+                ? t('adminContent.banner.toAdvert', 'Make it a sponsor’s advert')
+                : t('adminContent.banner.toAnnouncement', 'Make it a site announcement')}
+            </CardButton>
+          </div>
+        </AdminPanel>
+
+        <AdminPanel title={t('adminContent.banner.whoWhen', 'Sponsor and dates')}>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <FormField label={t('adminContent.banner.company', 'Company')} htmlFor="banner-org" optional className="sm:col-span-2 sm:max-w-md">
               <Select
                 value={form.organization_id || 'none'}
                 onValueChange={v => setForm({ ...form, organization_id: v === 'none' ? '' : v })}
               >
-                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectTrigger id="banner-org" className={ADMIN_INPUT}><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="none">{t('adminContent.banner.noCompany', 'No company')}</SelectItem>
                   {organizations.map(org => (
                     <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Start Date (optional)</Label>
+            </FormField>
+            <FormField label={t('adminContent.banner.start', 'Starts on')} htmlFor="banner-start" optional hint={t('adminContent.banner.startHint', 'Empty: from now on.')}>
               <Input
+                id="banner-start"
                 type="datetime-local"
                 value={form.start_date}
                 onChange={e => setForm({ ...form, start_date: e.target.value })}
+                className={ADMIN_INPUT}
               />
-            </div>
-            <div className="space-y-2">
-              <Label>End Date (optional)</Label>
+            </FormField>
+            <FormField label={t('adminContent.banner.end', 'Ends on')} htmlFor="banner-end" optional hint={t('adminContent.banner.endHint', 'Empty: until it is switched off.')}>
               <Input
+                id="banner-end"
                 type="datetime-local"
                 value={form.end_date}
                 onChange={e => setForm({ ...form, end_date: e.target.value })}
+                className={ADMIN_INPUT}
               />
-            </div>
+            </FormField>
           </div>
-        </CardContent>
-      </Card>
+        </AdminPanel>
 
-      {/* Preview */}
-      {form.image_url && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-blue-500" /> Preview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="relative rounded-xl overflow-hidden shadow-sm">
-              <img src={form.image_url} alt={form.title} className="w-full h-auto object-cover rounded-xl" />
-              <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm">
+        {/* Preview */}
+        {form.image_url && (
+          <AdminPanel title={t('adminContent.banner.preview', 'Preview')} icon={Eye} description={t('adminContent.banner.previewHint', 'How the image looks on the site, with its “Sponsored” label.')}>
+            <div className="relative overflow-hidden rounded-xl">
+              <img src={form.image_url} alt={form.title} className="h-auto w-full rounded-xl object-cover" />
+              <span className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                 Sponsored
               </span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </AdminPanel>
+        )}
+
+        {/* The main action again at the end of the form, for a long page on a phone. */}
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+            {saveLabel}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

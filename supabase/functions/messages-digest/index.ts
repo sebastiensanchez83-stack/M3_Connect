@@ -27,7 +27,7 @@
 // unsubscribe function.
 //
 // Trigger: pg_cron job "messages-digest-friday" (LAUNCH-DAY migration
-// 20261009190001_messages_digest_cron.sql), which calls public.invoke_messages_digest()
+// held/20261009190001_messages_digest_cron.sql, held until go-live), which calls public.invoke_messages_digest()
 // (POST with the Vault service_role key). It goes ahead on Fridays at 10:00 and 10:30
 // in Monaco, summer and winter time alike: the 10:30 run sends what the first one
 // left (time budget below, a send Resend refused). Deploy this function only on the

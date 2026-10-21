@@ -207,6 +207,11 @@
   background: rgb(var(--foam));
 }
 .legal-body > section.border-t { margin-top: 3rem; padding-top: 1.5rem; border-color: rgb(var(--rule)); }
+/* A body published from Admin > Site pages is flat (h2, p, ul from the editor): space it the same way. */
+.legal-body--cms > h2:not(:first-child), .legal-body--cms > h3:not(:first-child) { margin-top: 2.5rem; }
+.legal-body--cms h3 { margin: 1.5rem 0 0.5rem; font-size: 18px; line-height: 24px; font-weight: 600; color: rgb(var(--navy)); }
+.legal-body--cms > p + p, .legal-body--cms > ul + p, .legal-body--cms > ol + p { margin-top: 0.5rem; }
+.legal-body--cms ol { margin-top: 0.5rem; padding-left: 1.25rem; list-style: decimal; list-style-position: outside; }
 
 /* "On this page": the current article's link carries a gold bar. */
 .legal-toc a[aria-current="true"] { color: rgb(var(--navy)); font-weight: 600; }

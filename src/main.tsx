@@ -6,6 +6,8 @@ import { AuthProvider } from './contexts/AuthContext'
 import { Toaster } from './components/ui/toaster'
 import { MotionProvider } from './components/motion/MotionProvider'
 import './i18n'
+// The site's text published from Admin > Site pages (each page falls back to its code's text).
+import { startSiteContent } from './lib/siteContent/load'
 // Inter, self-hosted (variable weight axis, font-display: swap): the UI font.
 import '@fontsource-variable/inter'
 // Barlow Semi Condensed 500/600, latin only: the harbour-signage voice (font-signage).
@@ -20,6 +22,8 @@ import './styles/smc-motion.css'
 // The auth subscription is now at module level (supabase.ts) to prevent
 // lock contention, but StrictMode can still cause other gotrue-js
 // internal state issues. Safe to re-enable once Supabase is upgraded.
+startSiteContent()
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <HelmetProvider>
     <BrowserRouter>

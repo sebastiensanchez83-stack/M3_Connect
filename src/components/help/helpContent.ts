@@ -5,6 +5,8 @@ import {
   MessageSquare, Radio, ShieldCheck, UserRound,
 } from 'lucide-react';
 import { memberHomeHref } from '@/lib/accountNav';
+import { siteBlock } from '@/lib/siteContent/store';
+import { safeHelpLink, type HelpCustomBlock } from '@/lib/siteContent/blocks';
 
 /**
  * The words of the help centre (/help), Oct 2026: one section per profile
@@ -107,6 +109,41 @@ const sw = (today: string, switched: string): Para => ({ today, switched });
 export interface HelpOptions {
   /** registration_flags.capabilities_enforced: the rights per company type are on. */
   rightsEnforced?: boolean;
+  /** The code's questions only, without M3's hidden and added ones (the admin editor). */
+  codeOnly?: boolean;
+}
+
+/**
+ * Admin > Site pages > Help centre (Oct 2026). Every string above can be
+ * rewritten there: it goes through t(), which returns M3's published text
+ * (src/lib/siteContent). The 'help.custom' block also hides questions (by id)
+ * and adds new ones (plain paragraphs, one optional link) at the end of a
+ * section. Nothing published: the list above as it is.
+ */
+function withSiteEdits(sections: HelpSection[]): HelpSection[] {
+  const custom = siteBlock<HelpCustomBlock>('help.custom');
+  if (!custom) return sections;
+  const hidden = new Set(Array.isArray(custom.hidden) ? custom.hidden : []);
+  const added = Array.isArray(custom.added) ? custom.added : [];
+  return sections.map((s) => {
+    const extra: HelpItem[] = added
+      .filter((x) => x && x.section === s.id && typeof x.id === 'string' && typeof x.q === 'string' && x.q.trim())
+      .map((x) => {
+        const to = safeHelpLink(x.linkTo);
+        return {
+          id: x.id,
+          q: x.q,
+          // The editor keeps the answer as typed: a blank line starts a new paragraph.
+          a: (Array.isArray(x.a) ? x.a : [])
+            .flatMap((p) => (typeof p === 'string' ? p.split(/\n\s*\n/) : []))
+            .map((p) => p.trim())
+            .filter(Boolean),
+          links: to && x.linkLabel?.trim() ? [{ label: x.linkLabel.trim(), to }] : undefined,
+        };
+      });
+    if (!extra.length && !s.items.some((i) => hidden.has(i.id))) return s;
+    return { ...s, items: [...s.items.filter((i) => !hidden.has(i.id)), ...extra] };
+  });
 }
 
 export function buildHelpSections(t: TFunction, opts: HelpOptions = {}): HelpSection[] {
@@ -133,7 +170,7 @@ export function buildHelpSections(t: TFunction, opts: HelpOptions = {}): HelpSec
     items,
   });
 
-  return [
+  const built: HelpSection[] = [
     /* ─────────────────────────── profiles ─────────────────────────── */
     section('marina', 'profile', Anchor, 'Marinas', 'For marinas and ports.', [
       item('marina-can', 'What can my marina do here?', [
@@ -485,4 +522,5 @@ export function buildHelpSections(t: TFunction, opts: HelpOptions = {}): HelpSec
       ], { links: [{ label: 'Read the cookie policy', to: '/cookies' }], keywords: ['tracking', 'analytics', 'consent'] }),
     ]),
   ];
+  return opts.codeOnly ? built : withSiteEdits(built);
 }

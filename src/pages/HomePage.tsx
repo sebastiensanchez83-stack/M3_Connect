@@ -23,6 +23,8 @@ import { fetchSponsorLogos, type SponsorLogo } from '@/lib/sponsors';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { openSignup } from '@/lib/authModal';
 import { withSlug } from '@/lib/slugRoutes';
+import { hasSiteText, isSitePreview, useSiteBlock } from '@/lib/siteContent/store';
+import { homeHeroMedia, pickFeatured, type HomeHeroBlock } from '@/lib/siteContent/blocks';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
@@ -234,8 +236,15 @@ export function HomePage() {
     [i18n.language],
   );
   // The floating card turns the three M3 events (WYS while upcoming, webinars, the Rendezvous).
-  const eventItems = useMemo(() => featuredEventItems(t), [t]);
+  // Admin > Site pages > Home page ('home.hero'): the frame's photo or loop, and one event
+  // alone on the card. Nothing published: the code's photo and all three events.
+  const heroBlock = useSiteBlock<HomeHeroBlock>('home.hero');
+  const heroMedia = useMemo(() => homeHeroMedia(heroBlock, SITE_IMAGES.homeHero), [heroBlock]);
+  const featured = heroBlock?.featured;
+  const eventItems = useMemo(() => pickFeatured(featuredEventItems(t), featured), [t, featured]);
   const card = useMemo(() => <EventCard items={eventItems} />, [eventItems]);
+  // The editor's preview tab shows the visitors' hero, where the edited texts are.
+  const visitorHero = !user || isSitePreview();
 
   // "Run a marina?" (the need form preview) speaks to visitors: a signed-in
   // member publishes from the dashboard's "My requests" block instead.
@@ -261,13 +270,15 @@ export function HomePage() {
 
       {/* ════════════ Split hero: text on marine, photo frame, floating event card ════════════ */}
       <SplitHero
-        image={SITE_IMAGES.homeHero}
+        image={heroMedia.image}
+        loopSrc={heroMedia.loopSrc}
+        loopPoster={heroMedia.loopSrc ? heroMedia.image.src ?? undefined : undefined}
         seed="home-hero"
         labelledBy="home-hero-title"
         card={card}
-        compact={!!user}
+        compact={!visitorHero}
       >
-        {!user ? (
+        {visitorHero ? (
           <>
             <div className="max-w-[600px]">
               <HeroIn>
@@ -283,7 +294,8 @@ export function HomePage() {
                 {t('home.heroTitle', 'Marinas and the companies that serve them, in one network')}
               </LineReveal>
               <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
-                {liveFigures
+                {/* M3's own sentence (Admin > Site pages) replaces the one with live figures too. */}
+                {liveFigures && !hasSiteText('home.heroSubtitle')
                   ? t('home.heroSubtitleLive', liveFigures)
                   : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
               </HeroIn>

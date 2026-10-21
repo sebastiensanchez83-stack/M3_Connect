@@ -257,6 +257,26 @@ const items = [];
   add("19b", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "join", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to join a verified company");
   add("19c", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "claim", org_name: "Port Azur Marina", sla: "within 2 working days" }, "asked to manage an ownerless company");
   add("19d", "account_under_review", "alex.martin@example.com", { first_name: "Alex", review_path: "none", org_name: "", sla: "within 2 working days" }, "no company");
+  // Article comments (21 Oct 2026): every field is set by sendCommentEmails from the database
+  // (resource_comment_email); comment_path is the article's address with the comment's anchor.
+  const commentPath = "/resources/five-lessons-from-the-first-fully-connected-marina#comment-00000000-0000-4000-8000-0000000000c1";
+  add(20, "comment_mention", "sam.rivera@example.com", {
+    first_name: "Sam", author_name: "Alex Martin", author_org: "Port Azur Marina",
+    article_title: "Five lessons from the first fully connected marina",
+    excerpt: "Great read. @Sam Rivera, this is what we discussed in Monaco: @Nautic Systems fitted the shore power.",
+    comment_path: commentPath,
+  }, "tagged by name");
+  add("20b", "comment_mention", "camille.durand@example.com", {
+    first_name: "Camille", author_name: "Alex Martin", author_org: "Port Azur Marina", via_org: "Nautic Systems",
+    article_title: "Five lessons from the first fully connected marina",
+    excerpt: "Great read. @Sam Rivera, this is what we discussed in Monaco: @Nautic Systems fitted the shore power.",
+    comment_path: commentPath,
+  }, "a company tagged: to its owner");
+  add(21, "comment_report", "staff@example.com", {
+    first_name: "Victor", reporter_name: "Camille Durand", author_name: "Jordan Lee", author_org: "Harbourline Systems",
+    article_title: "Five lessons from the first fully connected marina", reason: "Advertising for their own product.",
+    excerpt: "Buy our berth sensors now, 30% off this week only!", open_reports: "1", comment_path: commentPath,
+  }, "to the M3 team");
 }
 
 // Other Resend senders (each has its own function)
@@ -815,6 +835,13 @@ for (const it of items) {
       notif.renderNotification("team_invitation", { first_name: bad, org_name: evilImg, join_url: `${SITE}/join/"${bad}"`, expires_on: evilImg }, "", u).html,
   };
   for (const [fn, html] of Object.entries(phase2Evils)) if (spoiled(html)) fail(`escaping: ${fn} let a typed value reach the HTML as markup`);
+  // Article comments: names, the article title, the comment and the reason are members' words.
+  const commentEvil = notif.renderNotification("comment_mention", { first_name: bad, author_name: evilImg, author_org: evilImg, via_org: evilImg, article_title: evilImg, excerpt: evilImg, comment_path: `/resources/x#comment-"${bad}` }, "", u).html +
+    notif.renderNotification("comment_report", { first_name: bad, reporter_name: evilImg, author_name: evilImg, author_org: evilImg, article_title: evilImg, reason: evilImg, excerpt: evilImg, open_reports: "2", comment_path: "/x" }, "", u).html;
+  if (spoiled(commentEvil)) fail("escaping: send-notification comment e-mails let a typed value reach the HTML as markup");
+  const offComment = notif.renderNotification("comment_mention", { author_name: "X", comment_path: "https://evil.example.com/resources/x" }, "", u);
+  if (offComment.html.includes("evil.example.com") || offComment.text.includes("evil.example.com")) fail("send-notification: the comment button left the site origin");
+  if (notif.TYPE_TO_CATEGORY.comment_mention !== "comments" || notif.TYPE_TO_CATEGORY.comment_report !== "admin") fail("send-notification: comment e-mails must be filed under comments (tags) and admin (reports)");
   // The invitation button can only ever point at the site, whatever join_url says.
   const off = notif.renderNotification("team_invitation", { org_name: "X", join_url: "https://evil.example.com/join/x" }, "", u);
   if (off.html.includes("evil.example.com") || off.text.includes("evil.example.com")) fail("send-notification: the invitation button left the site origin");

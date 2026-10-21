@@ -94,6 +94,7 @@ export interface Profile {
 /** Notification categories the user can toggle in /account?tab=notifications. */
 export type NotificationCategory =
   | 'b2b'
+  | 'comments'
   | 'submissions'
   | 'recommendations'
   | 'events'

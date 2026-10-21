@@ -90,6 +90,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // the same language as the account's preferences.
 const CATEGORY_LABELS: Record<string, string> = {
   b2b: "B2B connections",
+  // Article comments (21 Oct 2026, send-notification comment_mention): optional.
+  comments: "Comments",
   submissions: "Your submissions",
   recommendations: "Marina recommendations",
   events: "Events",
@@ -101,7 +103,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 /** Turned off by "Unsubscribe from all optional e-mails" (see the header). */
-const OPTIONAL_CATEGORIES = ["b2b", "submissions", "recommendations", "events", "team", "marketing"];
+const OPTIONAL_CATEGORIES = ["b2b", "comments", "submissions", "recommendations", "events", "team", "marketing"];
 const isOptional = (c: string) => OPTIONAL_CATEGORIES.includes(c);
 
 // ---- SMC unsubscribe token v1 (keep identical in send-notification and unsubscribe) ----

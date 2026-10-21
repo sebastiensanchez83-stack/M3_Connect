@@ -28,7 +28,7 @@ import { JoinRequestsDialog } from './teamDialogs';
  * profile); this only shows them and their windows.
  */
 
-export type TodoAction = 'connections' | 'join' | 'logo' | 'banner' | 'description' | 'sectors' | 'photo' | 'job' | 'event_info';
+export type TodoAction = 'connections' | 'join' | 'logo' | 'banner' | 'description' | 'sectors' | 'photo' | 'job' | 'event_info' | 'mentions';
 
 export interface TodoItem {
   key: TodoAction;

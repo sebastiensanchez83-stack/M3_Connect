@@ -29,6 +29,7 @@ import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
 import { LogoTile } from '@/components/brand/OrgCard';
 import { linkFirstMentions, mentionHref, type MentionOrg } from '@/lib/companyMentions';
+import { ArticleComments } from '@/components/resources/ArticleComments';
 import '@/styles/refonte-content.css';
 
 /**
@@ -54,6 +55,10 @@ import '@/styles/refonte-content.css';
  * (resource_organization_mention) are listed under the text, logo and name, each linking to its
  * page; the first time each name appears in the text it links there too. The links are added at
  * render time, after DOMPurify (src/lib/companyMentions.ts): the stored article never changes.
+ *
+ * Comments (Victor, 21 Oct 2026; switch registration_flags.article_comments): under a readable
+ * article, ArticleComments shows the discussion to validated members (write, tag "@", report)
+ * and only the number of comments to visitors and accounts not validated yet.
  *
  * Address (20 Oct 2026): /resources/<slug>. The page also opens /resources/<id> and any address
  * the article had before (resource_slug_lookup), then puts the current one in the address bar
@@ -564,6 +569,15 @@ export function ResourceDetailPage() {
                   ))}
                 </ul>
               </div>
+            )}
+
+            {/* Comments (switch article_comments): only under an article the reader may read. */}
+            {hasAccess && (
+              <ArticleComments
+                resourceId={resource.id}
+                onSignIn={() => setLoginOpen(true)}
+                onSignUp={() => setSignupOpen(true)}
+              />
             )}
           </div>
 

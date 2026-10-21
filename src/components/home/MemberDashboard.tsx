@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
 import {
-  AlertCircle, Award, BookOpen, ClipboardList, Clock, ImageIcon, ImagePlus, Inbox, ListChecks,
+  AlertCircle, AtSign, Award, BookOpen, ClipboardList, Clock, ImageIcon, ImagePlus, Inbox, ListChecks,
   MessageSquare, PenLine, Plus, Ship, Sparkles, TrendingUp, UserCircle, UserPlus, Video, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,7 @@ import {
 import { DashboardBand, type BandFigure, type Completeness } from './dashboard/DashboardBand';
 import { ComingUpList, NextEventCard, agendaAhead } from './dashboard/EventBlocks';
 import { TodoList, type TodoItem } from './dashboard/TodoList';
+import { CommentNoticesDialog, useCommentNotices, useOpenNotice } from './dashboard/CommentNotices';
 import { PublishDialog, SwitchCompanyDialog } from './dashboard/teamDialogs';
 import { AccountStatus } from './dashboard/AccountStatus';
 import { DEFAULT_DURATION_MS, useDashboardData } from './dashboard/useDashboardData';
@@ -139,6 +140,10 @@ export default function MemberDashboard() {
   const active = !!user && !!profile && !isDraft && !draftWaiting;
   const access = useMemberAccess(active);
   const inbox = useInboxCount(active);
+  // "You were tagged in a comment" (switch article_comments; validated members only).
+  const tagNotices = useCommentNotices(active && isVerified && regFlagsReady && regFlags.article_comments);
+  const openNotice = useOpenNotice(tagNotices.refresh);
+  const [noticesOpen, setNoticesOpen] = useState(false);
   const sm26 = useSm26Participation(active);
   // The agenda, read once: "Coming up" lists it, the band counts down to its next event.
   // Not for a draft (no dashboard to show it on).
@@ -318,6 +323,20 @@ export default function MemberDashboard() {
       title: t('dash.todo.join', { count: inbox.joins, defaultValue_one: 'Answer {{count}} person who wants to join your company', defaultValue_other: 'Answer {{count}} people who want to join your company' }),
       hint: t('dash.todo.joinHint', { org: orgName, defaultValue: 'They say they work at {{org}}.' }),
       action: t('dash.todo.review', 'Review'),
+    });
+  }
+  // Tagged in a comment: one line; one comment opens it, several open the list.
+  if (tagNotices.items.length > 0) {
+    const n = tagNotices.items.length;
+    const first = tagNotices.items[0];
+    todos.push({
+      key: 'mentions', urgent: true, icon: AtSign,
+      title: t('dash.todo.mentions', { count: n, defaultValue_one: 'You were tagged in a comment', defaultValue_other: 'You were tagged in {{count}} comments' }),
+      hint: n === 1
+        ? t('dash.todo.mentionsHintOne', { name: first.author_name, title: first.resource_title, defaultValue: '{{name}}, under "{{title}}".' })
+        : t('dash.todo.mentionsHint', 'Read what people wrote and answer them.'),
+      action: n === 1 ? t('dash.todo.readComment', 'Read the comment') : t('dash.todo.seeComments', 'See the comments'),
+      onSelect: () => (n === 1 ? openNotice(first) : setNoticesOpen(true)),
     });
   }
   // The M3 team asked a question about a registration: the answer is given on its page.
@@ -946,6 +965,7 @@ export default function MemberDashboard() {
 
       <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} actions={createActions} />
       {organizations.length > 1 && <SwitchCompanyDialog open={switchOpen} onOpenChange={setSwitchOpen} />}
+      <CommentNoticesDialog open={noticesOpen} onOpenChange={setNoticesOpen} items={tagNotices.items} onSeen={tagNotices.refresh} />
     </section>
   );
 }

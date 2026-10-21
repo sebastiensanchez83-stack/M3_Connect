@@ -112,6 +112,7 @@ export function UnsubscribePage() {
   const noun = (key: string, fallback: string): string => {
     switch (key) {
       case 'b2b': return t('unsubscribe.noun.companyMessages', 'company message');
+      case 'comments': return t('unsubscribe.noun.comments', 'comment tag');
       case 'submissions': return t('unsubscribe.noun.submissions', 'submission update');
       case 'recommendations': return t('unsubscribe.noun.recommendations', 'recommendation');
       case 'events': return t('unsubscribe.noun.events', 'event');

@@ -1,14 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Download, RefreshCw, TrendingUp, Users, FileText, Newspaper, Link2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
+import { useTranslation } from 'react-i18next';
+import { Download, TrendingUp, Users, FileText, Link2, ExternalLink } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PressResourcesEditor } from '@/components/media/PressResourcesEditor';
+import {
+  AdminEmpty, AdminFilterBar, AdminKpiCard, AdminLoading, AdminPageHeader, AdminPanel, AdminSectionLabel, AdminStatusPill,
+} from './AdminUI';
 
 // Who downloaded which press resource, and when. Reads media_download_log —
 // RLS already restricts it to admins (and the Yacht Club for its own events),
 // so no extra gate is needed here.
+// Refonte admin style (Oct 2026): panels, figures, rows that stack on a phone; same reads as before.
 
 interface LogRow {
   id: string; created_at: string; user_id: string;
@@ -27,6 +29,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export function AdminMediaDownloads() {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<LogRow[]>([]);
   const [people, setPeople] = useState<Record<string, Person>>({});
   const [coverage, setCoverage] = useState<CoverageRow[]>([]);
@@ -85,120 +88,128 @@ export function AdminMediaDownloads() {
 
   const uniqueReaders = useMemo(() => new Set(rows.map(r => r.user_id)).size, [rows]);
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loading) return <AdminLoading />;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-        <Newspaper className="h-6 w-6 text-primary" /> Press
-      </h1>
-      <p className="text-sm text-gray-500 -mt-2">
-        Press material, what accredited media downloaded, and the coverage they published.
-      </p>
+    <div className="space-y-6">
+      <AdminPageHeader
+        className="mb-0"
+        title={t('adm2.press.title', 'Press')}
+        description={t('adm2.press.desc', 'The press material of our events, what accredited media downloaded, and the articles they published.')}
+      />
 
       {/* Press material for our own events — hosted here rather than linked out. */}
       {eventId && (
-        <Card><CardContent className="pt-6 space-y-2">
-          <div className="text-sm font-medium flex items-center gap-2">
-            <FileText className="h-4 w-4 text-primary" /> Press material
-          </div>
-          <p className="text-xs text-gray-500 -mt-1">
-            Link out to an organiser's site, or host the documents here — several are fine, typically
-            one per language. Accredited media see them in their press room.
-          </p>
+        <AdminPanel
+          icon={FileText}
+          title={t('adm2.press.material', 'Press material')}
+          description={t('adm2.press.materialDesc', "Link to an organiser's site, or put the documents here (several are fine, usually one per language). Accredited media find them in their press room.")}
+        >
           <PressResourcesEditor eventId={eventId} />
-        </CardContent></Card>
+        </AdminPanel>
       )}
 
       {/* Coverage report — what the press actually published. */}
-      <Card><CardContent className="pt-6">
-        <div className="text-sm font-medium flex items-center gap-2 mb-2">
-          <Link2 className="h-4 w-4 text-primary" /> Coverage report ({coverage.length})
-        </div>
+      <AdminPanel
+        icon={Link2}
+        title={t('adm2.press.coverage', 'Articles published ({{count}})', { count: coverage.length })}
+        description={t('adm2.press.coverageDesc', 'What the media declared after the event. Each title opens the article in a new tab.')}
+        padded={false}
+      >
         {coverage.length === 0 ? (
-          <p className="text-xs text-gray-400">No coverage declared yet.</p>
+          <p className="px-5 py-4 text-[14px] text-meta">{t('adm2.press.noCoverage', 'No article declared yet.')}</p>
         ) : (
-          <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+          <ul className="max-h-80 divide-y divide-rule overflow-y-auto">
             {coverage.map(c => (
-              <div key={c.id} className="py-2">
-                <a href={c.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate block">
-                  {c.title || c.url}
+              <li key={c.id} className="px-5 py-3">
+                <a
+                  href={c.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex max-w-full items-start gap-1.5 text-[15px] font-semibold leading-5 text-teal-text underline decoration-teal/40 underline-offset-2 hover:text-navy focus:outline-none focus-visible:shadow-focus"
+                >
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{c.title || c.url}</span>
+                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="sr-only">{t('adm2.newTab', '(opens in a new tab)')}</span>
                 </a>
-                <div className="text-xs text-gray-500">
+                <p className="mt-0.5 text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
                   {[c.outlet, c.organizations?.name, c.published_at ? new Date(c.published_at).toLocaleDateString('en-GB') : null]
                     .filter(Boolean).join(' · ')}
-                </div>
-              </div>
+                </p>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </CardContent></Card>
+      </AdminPanel>
 
-      <div className="text-sm font-semibold text-gray-700 flex items-center gap-2 pt-2">
-        <Download className="h-4 w-4 text-primary" /> Downloads
-      </div>
+      <section>
+        <AdminSectionLabel icon={Download}>{t('adm2.press.downloads', 'Downloads')}</AdminSectionLabel>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-wide"><Download className="h-3.5 w-3.5" /> Downloads</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{rows.length}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-wide"><Users className="h-3.5 w-3.5" /> Media</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{uniqueReaders}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-wide"><TrendingUp className="h-3.5 w-3.5" /> Top item</div>
-          <div className="text-sm font-semibold text-gray-900 mt-1.5 truncate">{topResources[0]?.[0] || '—'}</div>
-        </CardContent></Card>
-      </div>
-
-      {topResources.length > 1 && (
-        <Card><CardContent className="pt-6">
-          <div className="text-sm font-medium flex items-center gap-2 mb-2"><FileText className="h-4 w-4 text-primary" /> Most downloaded</div>
-          <div className="space-y-1.5">
-            {topResources.map(([label, n]) => (
-              <div key={label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-gray-700 truncate">{label}</span>
-                <Badge variant="secondary" className="shrink-0">{n}</Badge>
-              </div>
-            ))}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <AdminKpiCard icon={Download} label={t('adm2.press.kpiDownloads', 'Downloads')} value={rows.length} />
+          <AdminKpiCard icon={Users} label={t('adm2.press.kpiMedia', 'Media who downloaded')} value={uniqueReaders} />
+          {/* The kpi card's look, with a name instead of a figure. */}
+          <div className="min-w-0 rounded-card border border-rule bg-white p-4">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-chip text-navy">
+              <TrendingUp className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <p className="mt-3 truncate text-[16px] font-semibold leading-8 text-navy" title={topResources[0]?.[0]}>{topResources[0]?.[0] || '—'}</p>
+            <p className="mt-1 text-[13px] leading-[18px] text-meta">{t('adm2.press.kpiTop', 'Most downloaded item')}</p>
           </div>
-        </CardContent></Card>
-      )}
+        </div>
 
-      <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by media, outlet or item" className="max-w-sm" />
-
-      <Card><CardContent className="p-0">
-        {shown.length === 0 ? (
-          <div className="py-10 text-center text-sm text-gray-400">
-            {rows.length === 0 ? 'No downloads recorded yet.' : 'No match.'}
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {shown.map(r => {
-              const p = people[r.user_id];
-              const who = [p?.first_name, p?.last_name].filter(Boolean).join(' ') || p?.email || '—';
-              return (
-                <div key={r.id} className="px-4 py-2.5 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm text-gray-900 truncate">{r.label || r.resource_ref || '—'}</div>
-                    <div className="text-xs text-gray-500">
-                      {who}{r.organizations?.name ? ` · ${r.organizations.name}` : ''}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <Badge variant="outline" className="text-[10px]">{TYPE_LABEL[r.resource_type] || r.resource_type}</Badge>
-                    <div className="text-[11px] text-gray-400 mt-0.5">
-                      {new Date(r.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {topResources.length > 1 && (
+          <AdminPanel icon={FileText} title={t('adm2.press.top', 'Most downloaded')} className="mt-4">
+            <ul className="space-y-2">
+              {topResources.map(([label, n]) => (
+                <li key={label} className="flex items-center justify-between gap-3 text-[14px]">
+                  <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{label}</span>
+                  <AdminStatusPill className="tabular-nums">{n}</AdminStatusPill>
+                </li>
+              ))}
+            </ul>
+          </AdminPanel>
         )}
-      </CardContent></Card>
+
+        <AdminFilterBar
+          className="mb-0 mt-4"
+          search={q}
+          onSearchChange={setQ}
+          searchPlaceholder={t('adm2.press.search', 'Search a person, a media outlet or an item…')}
+        />
+
+        <div className="mt-4 overflow-hidden rounded-card border border-rule bg-white">
+          {shown.length === 0 ? (
+            <AdminEmpty
+              icon={Download}
+              title={rows.length === 0 ? t('adm2.press.noDownloads', 'No download recorded yet') : t('adm2.press.noMatch', 'Nothing matches this search')}
+            />
+          ) : (
+            <ul className="divide-y divide-rule">
+              {shown.map(r => {
+                const p = people[r.user_id];
+                const who = [p?.first_name, p?.last_name].filter(Boolean).join(' ') || p?.email || '—';
+                return (
+                  <li key={r.id} className="flex flex-col gap-1.5 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{r.label || r.resource_ref || '—'}</p>
+                      <p className="text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">
+                        {who}{r.organizations?.name ? ` · ${r.organizations.name}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end sm:gap-0.5">
+                      <AdminStatusPill tone="info">{TYPE_LABEL[r.resource_type] || r.resource_type}</AdminStatusPill>
+                      <span className="text-[12px] text-meta">
+                        {new Date(r.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

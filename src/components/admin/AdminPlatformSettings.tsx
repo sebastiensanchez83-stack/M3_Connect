@@ -1,15 +1,22 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Save } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useTranslation } from 'react-i18next';
+import { BarChart3, RefreshCw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { RegistrationFlagsPanel } from './settings/RegistrationFlagsPanel';
 import { ReviewSettingsPanel } from './settings/ReviewSettingsPanel';
+import { AdminLoading, AdminPageHeader, AdminPanel, ADMIN_BTN_PRIMARY } from './AdminUI';
+import { FIELD, FormField } from './AdminStyleKit';
+
+/**
+ * Settings > Site settings (/admin/settings): the registration switches, the review list's
+ * settings and the figures of the home page. Refonte admin style (Oct 2026); same reads and
+ * writes as before (platform_settings.display_stats).
+ */
 
 interface DisplayStats {
   marinas: number;
@@ -32,14 +39,15 @@ const DEFAULT_STATS: DisplayStats = {
 type StatKey = Exclude<keyof DisplayStats, 'override'>;
 
 const STAT_LABELS: { key: StatKey; label: string }[] = [
-  { key: 'marinas', label: 'Marinas Worldwide' },
-  { key: 'partners', label: 'Verified Service Providers' },
+  { key: 'marinas', label: 'Marinas worldwide' },
+  { key: 'partners', label: 'Validated service providers' },
   { key: 'resources', label: 'Resources' },
-  { key: 'events', label: 'Events per Year' },
+  { key: 'events', label: 'Events per year' },
   { key: 'countries', label: 'Countries' },
 ];
 
 export function AdminPlatformSettings() {
+  const { t } = useTranslation();
   const { profile } = useAuth();
   const isAdmin = profile?.persona === 'admin';
   const [loading, setLoading] = useState(true);
@@ -85,100 +93,82 @@ export function AdminPlatformSettings() {
     if (error) {
       toast({ title: 'Error saving settings', description: error.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Settings saved successfully!' });
+      toast({ title: 'The figures are saved' });
     }
     setSaving(false);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  if (loading) return <AdminLoading />;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Platform Settings</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage platform-wide configuration and display settings.
-        </p>
-      </div>
+      <AdminPageHeader
+        className="mb-0"
+        title={t('adm2.settings.title', 'Site settings')}
+        description={t('adm2.settings.desc', 'The registration switches, the settings of the To validate list and the figures shown on the home page.')}
+      />
 
       {/* Registration switches (spec §13) and the review list's settings (spec §8.4). */}
       <RegistrationFlagsPanel />
       <ReviewSettingsPanel />
 
-      <Card>
-        <CardContent className="pt-6 space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold">Homepage Display Stats</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              The homepage and Become a Member page show live counts: verified marinas, verified service providers,
-              their countries and published resources. The numbers below are only used when the switch is on,
-              or as a stand-in if a live count fails to load.
-            </p>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-lg border p-4 max-w-xl">
+      <AdminPanel
+        icon={BarChart3}
+        title={t('adm2.settings.statsTitle', 'Figures on the home page')}
+        description={t('adm2.settings.statsDesc', 'The home page and the Become a member page count by themselves: validated marinas, validated service providers, their countries and published resources. The numbers below are used only when the switch is on, or if a live count cannot be read.')}
+      >
+        <div className="space-y-5">
+          <label htmlFor="stats-override" className="flex max-w-xl cursor-pointer items-start gap-3 rounded-xl border border-rule bg-white p-4">
             <Switch
               id="stats-override"
               checked={stats.override === true}
               onCheckedChange={(on) => setStats((prev) => ({ ...prev, override: on }))}
+              className="mt-0.5"
             />
-            <div>
-              <Label htmlFor="stats-override" className="text-sm font-medium">Show these numbers instead of the live counts</Label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Off (recommended): figures update by themselves. On: the site shows the numbers below as "N+".
-              </p>
-            </div>
-          </div>
+            <span>
+              <span className="block text-[14px] font-semibold leading-5 text-navy">{t('adm2.settings.override', 'Show these numbers instead of the live counts')}</span>
+              <span className="mt-0.5 block text-[13px] leading-[18px] text-meta">
+                {t('adm2.settings.overrideHint', 'Off (recommended): the figures update by themselves. On: the site shows the numbers below as "N+".')}
+              </span>
+            </span>
+          </label>
 
-          <div className="grid gap-4 max-w-md">
+          <div className="grid max-w-xl gap-4 sm:grid-cols-2">
             {STAT_LABELS.map(({ key, label }) => (
-              <div key={key} className="flex items-center gap-4">
-                <Label className="w-44 shrink-0 text-sm font-medium">{label}</Label>
-                <div className="relative flex-1">
+              <FormField key={key} label={label} htmlFor={`stat-${key}`}>
+                <div className="relative">
                   <Input
+                    id={`stat-${key}`}
                     type="number"
                     min={0}
                     value={stats[key]}
                     onChange={(e) => handleChange(key, e.target.value)}
-                    className="pr-8"
+                    className={`${FIELD} pr-8`}
                   />
                   {stats[key] > 0 && (
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[14px] text-meta" aria-hidden="true">
                       +
                     </span>
                   )}
                 </div>
-              </div>
+              </FormField>
             ))}
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            With the switch on, set a number to 0 to hide that figure.
+          <p className="text-[13px] leading-5 text-meta">
+            {t('adm2.settings.zeroHint', 'With the switch on, set a number to 0 to hide that figure.')}
           </p>
 
-          <div>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </>
-              )}
+          <div className="border-t border-rule pt-4">
+            <Button variant="secondary" size="sm" className={`${ADMIN_BTN_PRIMARY} w-full sm:w-auto`} onClick={handleSave} disabled={saving}>
+              {saving
+                ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                : <Save className="mr-2 h-4 w-4" aria-hidden="true" />}
+              {saving ? t('adm2.saving', 'Saving…') : t('adm2.settings.save', 'Save the figures')}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </AdminPanel>
     </div>
   );
 }

@@ -1,17 +1,26 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Search, Edit2, Trash2, Loader2, Tag } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useTranslation } from 'react-i18next';
+import { RefreshCw, Plus, Pencil, Trash2, Loader2, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { ADMIN_BTN_PRIMARY } from './AdminUI';
+import {
+  AdminEmpty, AdminFilterBar, AdminLoading, AdminPageHeader, AdminStatusPill, AdminTableCard,
+  ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
+import { FIELD, FormField } from './AdminStyleKit';
+
+/**
+ * Settings > Sectors (/admin/sectors): the industry sectors people pick when they register.
+ * Refonte admin style (Oct 2026): a table on a computer, one card per sector on a phone; every
+ * button says what it does; deleting asks first and is refused while the sector is in use.
+ * Same reads and writes as before.
+ */
 
 interface Sector {
   id: string;
@@ -34,7 +43,10 @@ function slugify(input: string): string {
     .slice(0, 80);
 }
 
+const SMALL_BTN = 'h-9 px-3 text-[13px]';
+
 export function AdminSectors() {
+  const { t } = useTranslation();
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -96,11 +108,11 @@ export function AdminSectors() {
     const label = form.label.trim();
     const slug = (form.slug || slugify(form.label)).trim();
     if (!label) {
-      toast({ title: 'Label required', variant: 'destructive' });
+      toast({ title: 'Type the name of the sector', variant: 'destructive' });
       return;
     }
     if (!slug) {
-      toast({ title: 'Slug required', variant: 'destructive' });
+      toast({ title: 'Type the code of the sector', variant: 'destructive' });
       return;
     }
     setSaving(true);
@@ -114,7 +126,7 @@ export function AdminSectors() {
         setSaving(false);
         return;
       }
-      toast({ title: 'Sector updated' });
+      toast({ title: 'Sector saved' });
     } else {
       const { error } = await supabase
         .from('sectors')
@@ -122,13 +134,13 @@ export function AdminSectors() {
       if (error) {
         toast({
           title: 'Failed to add sector',
-          description: error.code === '23505' ? `A sector with slug "${slug}" already exists.` : error.message,
+          description: error.code === '23505' ? `A sector with the code "${slug}" already exists.` : error.message,
           variant: 'destructive',
         });
         setSaving(false);
         return;
       }
-      toast({ title: 'Sector added', description: `"${label}" is now available for users to choose.` });
+      toast({ title: 'Sector added', description: `"${label}" can now be picked by members.` });
     }
     setSaving(false);
     setEditorOpen(false);
@@ -145,7 +157,7 @@ export function AdminSectors() {
       return;
     }
     setSectors(prev => prev.map(x => x.id === s.id ? { ...x, is_active: nextActive } : x));
-    toast({ title: nextActive ? `"${s.label}" activated` : `"${s.label}" deactivated` });
+    toast({ title: nextActive ? `"${s.label}" is shown again` : `"${s.label}" is hidden` });
   };
 
   const openDelete = async (s: Sector) => {
@@ -170,7 +182,7 @@ export function AdminSectors() {
       toast({
         title: 'Cannot delete sector',
         description: error.message.includes('violates foreign key')
-          ? 'This sector is still used by some organizations. Deactivate it instead.'
+          ? 'This sector is still used by some companies. Hide it instead.'
           : error.message,
         variant: 'destructive',
       });
@@ -191,148 +203,163 @@ export function AdminSectors() {
   const activeCount = sectors.filter(s => s.is_active).length;
   const inactiveCount = sectors.length - activeCount;
 
+  const shownSwitch = (s: Sector) => (
+    <span className="inline-flex items-center gap-2">
+      <Switch
+        checked={s.is_active}
+        onCheckedChange={(v) => toggleActive(s, v)}
+        aria-label={t('adm2.sectors.shownFor', 'Show {{name}} to members', { name: s.label })}
+      />
+      {s.is_active
+        ? <AdminStatusPill tone="success">{t('adm2.sectors.shown', 'Shown')}</AdminStatusPill>
+        : <AdminStatusPill>{t('adm2.sectors.hidden', 'Hidden')}</AdminStatusPill>}
+    </span>
+  );
+  const rowButtons = (s: Sector) => (
+    <>
+      <Button type="button" variant="outline" size="sm" className={`${ADMIN_BTN} ${SMALL_BTN}`} onClick={() => openEdit(s)}>
+        <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+        {t('adm2.sectors.edit', 'Edit')}
+        <span className="sr-only"> {s.label}</span>
+      </Button>
+      <Button type="button" variant="outline" size="sm" className={`${ADMIN_BTN_DANGER} ${SMALL_BTN}`} onClick={() => openDelete(s)}>
+        <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+        {t('adm2.sectors.delete', 'Delete')}
+        <span className="sr-only"> {s.label}</span>
+      </Button>
+    </>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Tag className="h-6 w-6 text-primary" /> Sectors
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Industry sectors users can pick during onboarding (marina interests, partner services, future plans).
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={loadSectors}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </Button>
-          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-2" /> Add Sector
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title={t('adm2.sectors.title', 'Sectors')}
+        count={sectors.length}
+        description={t('adm2.sectors.desc', 'The industry sectors people pick when they register: what a marina is interested in, what a service provider offers, future plans.')}
+        meta={
+          <>
+            <span>{t('adm2.sectors.activeCount', '{{count}} shown', { count: activeCount })}</span>
+            {inactiveCount > 0 && <><span aria-hidden="true">•</span><span>{t('adm2.sectors.inactiveCount', '{{count}} hidden', { count: inactiveCount })}</span></>}
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadSectors}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('adm2.sectors.reload', 'Reload the list')}
+            </Button>
+            <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+              {t('adm2.sectors.add', 'Add a sector')}
+            </Button>
+          </>
+        }
+      />
 
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[220px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search by name or slug..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-10"
+      <AdminFilterBar search={search} onSearchChange={setSearch} searchPlaceholder={t('adm2.sectors.search', 'Search a sector…')} />
+
+      {loading && sectors.length === 0 ? (
+        <AdminLoading />
+      ) : filtered.length === 0 ? (
+        <div className="rounded-card border border-rule bg-white">
+          <AdminEmpty
+            icon={Tag}
+            title={search ? t('adm2.sectors.noMatch', 'No sector matches this search') : t('adm2.sectors.none', 'No sector yet')}
+            body={search ? undefined : t('adm2.sectors.noneBody', 'Press "Add a sector" to create the first one.')}
           />
         </div>
-        <div className="text-xs text-gray-500 flex items-center gap-3">
-          <span><strong className="text-gray-900">{sectors.length}</strong> total</span>
-          <span className="text-green-700"><strong>{activeCount}</strong> active</span>
-          {inactiveCount > 0 && <span className="text-gray-500"><strong>{inactiveCount}</strong> inactive</span>}
-        </div>
-      </div>
+      ) : (
+        <>
+          {/* Phone and small tablet (below 1024 px, where the table would scroll sideways next to the menu): one card per sector */}
+          <ul className="space-y-3 lg:hidden" aria-label={t('adm2.sectors.title', 'Sectors')}>
+            {filtered.map(s => (
+              <li key={s.id} className="rounded-card border border-rule bg-white p-4">
+                <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">{s.label}</p>
+                <p className="mt-0.5 text-[13px] leading-5 text-meta">
+                  {t('adm2.sectors.code', 'Code')}: <code className="rounded bg-chip px-1.5 py-0.5 text-[12px] text-navy [overflow-wrap:anywhere]">{s.slug}</code>
+                </p>
+                <div className="mt-3">{shownSwitch(s)}</div>
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-rule pt-3">{rowButtons(s)}</div>
+              </li>
+            ))}
+          </ul>
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* 1024 px and up: the table */}
+          <AdminTableCard className="hidden lg:block" footer={t('adm2.sectors.footer', '{{shown}} of {{total}} sectors shown', { shown: filtered.length, total: sectors.length })}>
             <table className="w-full">
-              <thead className="bg-gray-50 border-b text-left text-sm">
+              <thead>
                 <tr>
-                  <th className="p-4 font-medium">Label</th>
-                  <th className="p-4 font-medium">Slug</th>
-                  <th className="p-4 font-medium">Active</th>
-                  <th className="p-4 font-medium text-right">Actions</th>
+                  <th className="text-left">{t('adm2.sectors.colName', 'Name')}</th>
+                  <th className="text-left">{t('adm2.sectors.colCode', 'Code')}</th>
+                  <th className="text-left">{t('adm2.sectors.colShown', 'Shown to members')}</th>
+                  <th className="text-right"><span className="sr-only">{t('adm2.sectors.colActions', 'Actions')}</span></th>
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr><td colSpan={4} className="p-8 text-center text-gray-400">
-                    <RefreshCw className="h-5 w-5 animate-spin inline mr-2" /> Loading sectors...
-                  </td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={4} className="p-8 text-center text-gray-400">
-                    {search ? 'No sectors match your search.' : 'No sectors yet — add your first one.'}
-                  </td></tr>
-                ) : filtered.map(s => (
-                  <tr key={s.id} className="border-b hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4">
-                      <div className="font-medium text-gray-900">{s.label}</div>
-                    </td>
-                    <td className="p-4">
-                      <code className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{s.slug}</code>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={s.is_active}
-                          onCheckedChange={(v) => toggleActive(s, v)}
-                        />
-                        {s.is_active
-                          ? <Badge variant="success" className="text-[10px]">Active</Badge>
-                          : <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
-                      </div>
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => openDelete(s)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
+                {filtered.map(s => (
+                  <tr key={s.id}>
+                    <td><span className="font-semibold text-navy">{s.label}</span></td>
+                    <td><code className="rounded bg-chip px-2 py-0.5 text-[12px] text-navy">{s.slug}</code></td>
+                    <td>{shownSwitch(s)}</td>
+                    <td className="text-right"><div className="flex items-center justify-end gap-2">{rowButtons(s)}</div></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </CardContent>
-      </Card>
+          </AdminTableCard>
+        </>
+      )}
 
       {/* Create / Edit dialog */}
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Sector' : 'Add Sector'}</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-md overflow-y-auto rounded-card p-4 sm:p-6">
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="text-[19px] leading-7 text-navy">{editing ? t('adm2.sectors.editTitle', 'Edit the sector') : t('adm2.sectors.addTitle', 'Add a sector')}</DialogTitle>
+            <DialogDescription className="text-[14px] leading-5 text-meta">
               {editing
-                ? 'Rename, reslug, or toggle this sector.'
-                : 'Add a new sector users can pick during onboarding.'}
+                ? t('adm2.sectors.editDesc', 'Rename it, change its code, or hide it from members.')
+                : t('adm2.sectors.addDesc', 'A new sector people can pick when they register.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Display name *</Label>
+            <FormField label={t('adm2.sectors.nameLabel', 'Name shown to members *')} htmlFor="sector-label">
               <Input
+                id="sector-label"
+                className={FIELD}
                 value={form.label}
                 onChange={(e) => handleLabelChange(e.target.value)}
                 placeholder="e.g. Marine Robotics & Automation"
               />
-            </div>
-            <div className="space-y-2">
-              <Label>Slug *</Label>
+            </FormField>
+            <FormField
+              label={t('adm2.sectors.codeLabel', 'Code *')}
+              htmlFor="sector-slug"
+              hint={t('adm2.sectors.codeHint', 'Made from the name: small letters and hyphens only. Used inside the platform; rarely changed on an existing sector.')}
+            >
               <Input
+                id="sector-slug"
+                className={`${FIELD} font-mono`}
                 value={form.slug}
                 onChange={(e) => handleSlugChange(e.target.value)}
-                placeholder="auto-generated from name"
+                placeholder="made-from-the-name"
               />
-              <p className="text-[11px] text-gray-400">
-                URL-safe identifier — lowercase, hyphens only. Used internally; changing it on existing sectors is rare.
-              </p>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <Label className="text-sm">Active</Label>
-                <p className="text-xs text-gray-500">Inactive sectors don't appear in user dropdowns.</p>
-              </div>
+            </FormField>
+            <label htmlFor="sector-active" className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-rule bg-white p-3">
+              <span>
+                <span className="block text-[14px] font-semibold leading-5 text-navy">{t('adm2.sectors.activeLabel', 'Shown to members')}</span>
+                <span className="mt-0.5 block text-[13px] leading-[18px] text-meta">{t('adm2.sectors.activeHint', 'A hidden sector is not offered in the lists; companies that chose it keep it.')}</span>
+              </span>
               <Switch
+                id="sector-active"
                 checked={form.is_active}
                 onCheckedChange={(v) => setForm(f => ({ ...f, is_active: v }))}
               />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setEditorOpen(false)}>Cancel</Button>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                {editing ? 'Save Changes' : 'Add Sector'}
+            </label>
+            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" className={ADMIN_BTN} onClick={() => setEditorOpen(false)}>{t('adm2.cancel', 'Cancel')}</Button>
+              <Button variant="secondary" className={ADMIN_BTN_PRIMARY} onClick={handleSave} disabled={saving}>
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+                {editing ? t('adm2.sectors.saveEdit', 'Save the sector') : t('adm2.sectors.saveNew', 'Add the sector')}
               </Button>
             </div>
           </div>
@@ -341,36 +368,37 @@ export function AdminSectors() {
 
       {/* Delete confirmation */}
       <Dialog open={!!deletingSector} onOpenChange={(o) => !o && setDeletingSector(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete "{deletingSector?.label}"?</DialogTitle>
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-md overflow-y-auto rounded-card p-4 sm:p-6">
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="text-[19px] leading-7 text-navy [overflow-wrap:anywhere]">{t('adm2.sectors.deleteTitle', 'Delete "{{name}}"?', { name: deletingSector?.label })}</DialogTitle>
             <DialogDescription asChild>
-              <div className="text-sm text-gray-600">
+              <div className="text-[14px] leading-5 text-ink">
                 {usageCount === null ? (
-                  <span className="flex items-center gap-2 text-gray-500">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Checking usage...
+                  <span className="flex items-center gap-2 text-meta">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {t('adm2.sectors.checking', 'Checking where it is used…')}
                   </span>
                 ) : usageCount > 0 ? (
                   <>
-                    This sector is currently used <strong>{usageCount}</strong> time{usageCount > 1 ? 's' : ''} across organizations,
-                    future plans, or resources. <strong>Deleting it will fail.</strong> Toggle it off (Inactive) instead — this hides it
-                    from new users while preserving existing assignments.
+                    This sector is used <strong>{usageCount}</strong> time{usageCount > 1 ? 's' : ''} by companies, future plans or resources,
+                    so it <strong>cannot be deleted</strong>. Hide it instead (switch it off): new members no longer see it and the
+                    companies that chose it keep it.
                   </>
                 ) : (
-                  <>This sector isn't currently used anywhere. Deleting it is safe and permanent.</>
+                  <>This sector is not used anywhere. Deleting it is safe and cannot be undone.</>
                 )}
               </div>
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setDeletingSector(null)}>Cancel</Button>
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className={ADMIN_BTN} onClick={() => setDeletingSector(null)}>{t('adm2.cancel', 'Cancel')}</Button>
             <Button
+              variant="outline"
               onClick={confirmDelete}
               disabled={deleting || usageCount === null || usageCount > 0}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className={ADMIN_BTN_DANGER}
             >
-              {deleting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Delete sector
+              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />}
+              {t('adm2.sectors.deleteBtn', 'Delete this sector')}
             </Button>
           </div>
         </DialogContent>
